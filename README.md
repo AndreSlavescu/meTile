@@ -87,22 +87,23 @@ pip install -e ".[dev]"
 ## Run Tests
 
 ```bash
+# run individual test
+python -m pytest tests/test_gemm.py -v
+
+# run all like so
 python -m pytest tests/ -x -q
 
 # or with `make test`
-
 make test
 ```
 
 ## Run Benchmarks
 
 ```bash
+# run individual benchmark
 python benchmarks/gemm.py
-python benchmarks/softmax.py
-python benchmarks/rmsnorm.py
 
 # or run `make bench` for running all the benchmarks
-
 make bench
 ```
 
@@ -110,12 +111,12 @@ make bench
 
 ```
 @metile.kernel (Python eDSL)
-    → Tile IR (hardware-agnostic ops: program_id, tile_load, dot, ...)
-    → Metal IR (decomposed primitives: simdgroup load/MMA/store, cooperative_tensor ops)
-    → Optimization passes (serpentine reordering, preload, pad/swizzle, split-K, ...)
-    → MSL codegen (op-by-op emission)
-    → xcrun metal -O2 (precompiled metallib)
-    → dispatch via ctypes Metal bridge
+    - Tile IR (hardware-agnostic ops: program_id, tile_load, dot, ...)
+    - Metal IR (decomposed primitives: simdgroup load/MMA/store, cooperative_tensor ops)
+    - Optimization passes (serpentine reordering, preload, pad/swizzle, split-K, ...)
+    - MSL codegen (op-by-op emission)
+    - xcrun metal -O2 (precompiled metallib)
+    - dispatch via ctypes Metal bridge
 ```
 
 | Layer | File | Role |
