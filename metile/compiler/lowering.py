@@ -257,7 +257,9 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
     NUM_8M = SG_M // 8
     NUM_8N = SG_N // 8
     mfunc.add_op(
-        mir.MSimdgroupAccDecl(acc_name="acc", num_8m=NUM_8M, num_8n=NUM_8N, in_type=msl_type)
+        mir.MSimdgroupAccDecl(
+            acc_name="acc", num_8m=NUM_8M, num_8n=NUM_8N, in_type=msl_type, acc_type="float"
+        )
     )
 
     # --- Find the K-param, A/B/C pointers from the traced IR ---
@@ -580,7 +582,9 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
 
     # --- Accumulator init (consumers only, but OK for all — producers just waste registers) ---
     mfunc.add_op(
-        mir.MSimdgroupAccDecl(acc_name="acc", num_8m=NUM_8M, num_8n=NUM_8N, in_type=msl_type)
+        mir.MSimdgroupAccDecl(
+            acc_name="acc", num_8m=NUM_8M, num_8n=NUM_8N, in_type=msl_type, acc_type="float"
+        )
     )
 
     # --- Extract A, B, C, M, N, K ---
@@ -993,7 +997,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     # Derived constants
     SM = BM // WM
     SN = BN // WN
-    acc_type = msl_type if msl_type == "half" else "float"
+    acc_type = "float"
     out_type = msl_type
 
     # Use separated loads when descriptor dimensions allow cooperative_tensor inputs
@@ -1430,7 +1434,9 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
 
     # 3. Accumulator init
     while_body.append(
-        mir.MSimdgroupAccDecl(acc_name="acc", num_8m=NUM_8M, num_8n=NUM_8N, in_type=msl_type)
+        mir.MSimdgroupAccDecl(
+            acc_name="acc", num_8m=NUM_8M, num_8n=NUM_8N, in_type=msl_type, acc_type="float"
+        )
     )
 
     # 4. K-loop (same structure as regular GEMM)
