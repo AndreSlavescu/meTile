@@ -213,6 +213,54 @@ class DeviceStore(MOp):
 
 
 @dataclass
+class MThreadgroupLoad(MOp):
+    """Load from threadgroup memory: array[index]"""
+
+    array_name: str = ""
+    index: MValue = None
+    dtype: str = "f32"
+
+    def result_type(self) -> ScalarType:
+        return ScalarType(self.dtype)
+
+
+@dataclass
+class MThreadgroupStore(MOp):
+    """Store to threadgroup memory: array[index] = value"""
+
+    array_name: str = ""
+    index: MValue = None
+    value: MValue = None
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MSimdShuffleXor(MOp):
+    """simd_shuffle_xor(value, mask)"""
+
+    value: MValue = None
+    mask: MValue = None
+    dtype: str = "f32"
+
+    def result_type(self) -> ScalarType:
+        return ScalarType(self.dtype)
+
+
+@dataclass
+class MSimdBroadcast(MOp):
+    """simd_broadcast(value, lane)"""
+
+    value: MValue = None
+    lane: MValue = None
+    dtype: str = "f32"
+
+    def result_type(self) -> ScalarType:
+        return ScalarType(self.dtype)
+
+
+@dataclass
 class MThreadgroupAlloc(MOp):
     """Declare a threadgroup memory array."""
 

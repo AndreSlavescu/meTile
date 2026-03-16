@@ -9,6 +9,11 @@ _BINOP_SYMBOLS = {
     "mul": "*",
     "div": "/",
     "mod": "%",
+    "bitand": "&",
+    "bitor": "|",
+    "bitxor": "^",
+    "shl": "<<",
+    "shr": ">>",
 }
 
 _CMP_SYMBOLS = {
@@ -530,7 +535,11 @@ def _emit_elementwise(func: mir.MFunction) -> str:
         params.append("    uint lid [[thread_position_in_threadgroup]]")
     if _uses_op_type(func.ops, mir.MSimdgroupId):
         params.append("    uint sgid [[simdgroup_index_in_threadgroup]]")
-    if _uses_op_type(func.ops, mir.MThreadInSimdgroup):
+    if (
+        _uses_op_type(func.ops, mir.MThreadInSimdgroup)
+        or _uses_op_type(func.ops, mir.MSimdShuffleXor)
+        or _uses_op_type(func.ops, mir.MSimdBroadcast)
+    ):
         params.append("    uint slid [[thread_index_in_simdgroup]]")
 
     params_str = ",\n".join(params)
@@ -592,7 +601,11 @@ def _emit_gemm(func: mir.MFunction) -> str:
         params.append("    uint3 tgp_id [[threadgroup_position_in_grid]]")
     if _uses_op_type(func.ops, mir.MSimdgroupId):
         params.append("    uint sgid [[simdgroup_index_in_threadgroup]]")
-    if _uses_op_type(func.ops, mir.MThreadInSimdgroup):
+    if (
+        _uses_op_type(func.ops, mir.MThreadInSimdgroup)
+        or _uses_op_type(func.ops, mir.MSimdShuffleXor)
+        or _uses_op_type(func.ops, mir.MSimdBroadcast)
+    ):
         params.append("    uint slid [[thread_index_in_simdgroup]]")
 
     params_str = ",\n".join(params)
@@ -629,6 +642,18 @@ def _uses_op_type(ops: list[mir.MOp], op_type) -> bool:
 def _emit_gemm_op(
     op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction, has_swizzle: bool = False
 ):
+    # Skip ops folded to constants by the fold pass
+    if (
+        hasattr(op, "result")
+        and op.result is not None
+        and op.result.defining_op is not op
+        and isinstance(op.result.defining_op, mir.MConstant)
+    ):
+        return
+    # Skip standalone MConstant declarations — values are always inlined by _val_name
+    if isinstance(op, mir.MConstant):
+        return
+
     pad = "    " * indent
 
     if isinstance(op, mir.MSimdgroupId):
@@ -737,6 +762,20 @@ def _emit_gemm_op(
             lines.append(f"{pad}threadgroup_barrier(mem_flags::{op.flags});")
         else:
             lines.append(f"{pad}simdgroup_barrier(mem_flags::{op.flags});")
+
+    elif isinstance(op, mir.MSimdShuffleXor):
+        result_type = ScalarType(op.dtype).to_msl()
+        name = op.result.name
+        val = _val_name_gemm(op.value, func)
+        mask = _val_name_gemm(op.mask, func)
+        lines.append(f"{pad}{result_type} {name} = simd_shuffle_xor({val}, {mask});")
+
+    elif isinstance(op, mir.MSimdBroadcast):
+        result_type = ScalarType(op.dtype).to_msl()
+        name = op.result.name
+        val = _val_name_gemm(op.value, func)
+        lane = _val_name_gemm(op.lane, func)
+        lines.append(f"{pad}{result_type} {name} = simd_broadcast({val}, {lane});")
 
     elif isinstance(op, mir.MCooperativeLoad):
         _emit_cooperative_load(op, lines, indent, func)
@@ -1789,6 +1828,18 @@ def _emit_for_loop(
 
 def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
     """Emit a single Metal IR op (element-wise path)."""
+    # Skip ops folded to constants by the fold pass
+    if (
+        hasattr(op, "result")
+        and op.result is not None
+        and op.result.defining_op is not op
+        and isinstance(op.result.defining_op, mir.MConstant)
+    ):
+        return
+    # Skip standalone MConstant declarations — values are always inlined by _val_name
+    if isinstance(op, mir.MConstant):
+        return
+
     pad = "    " * indent
 
     if isinstance(op, mir.ThreadPositionInGrid):
@@ -1865,6 +1916,20 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         name = op.result.name
         lines.append(f"{pad}bool {name} = {lhs} {sym} {rhs};")
 
+    elif isinstance(op, mir.MSimdShuffleXor):
+        result_type = ScalarType(op.dtype).to_msl()
+        name = op.result.name
+        val = _val_name(op.value, func)
+        mask = _val_name(op.mask, func)
+        lines.append(f"{pad}{result_type} {name} = simd_shuffle_xor({val}, {mask});")
+
+    elif isinstance(op, mir.MSimdBroadcast):
+        result_type = ScalarType(op.dtype).to_msl()
+        name = op.result.name
+        val = _val_name(op.value, func)
+        lane = _val_name(op.lane, func)
+        lines.append(f"{pad}{result_type} {name} = simd_broadcast({val}, {lane});")
+
     elif isinstance(op, mir.DeviceLoad):
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
@@ -1877,6 +1942,17 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         idx = _val_name(op.index, func)
         val = _val_name(op.value, func)
         lines.append(f"{pad}{ptr}[{idx}] = {val};")
+
+    elif isinstance(op, mir.MThreadgroupLoad):
+        result_type = ScalarType(op.dtype).to_msl()
+        name = op.result.name
+        idx = _val_name(op.index, func)
+        lines.append(f"{pad}{result_type} {name} = {op.array_name}[{idx}];")
+
+    elif isinstance(op, mir.MThreadgroupStore):
+        idx = _val_name(op.index, func)
+        val = _val_name(op.value, func)
+        lines.append(f"{pad}{op.array_name}[{idx}] = {val};")
 
     elif isinstance(op, mir.MVarDecl):
         msl_type = ScalarType(op.dtype).to_msl()
@@ -2223,9 +2299,27 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}}}")
 
 
+def _resolve(val: mir.MValue) -> mir.MValue:
+    """Follow CSE forwarding chain to canonical value."""
+    while (
+        val.defining_op and val.defining_op.result is not None and val.defining_op.result is not val
+    ):
+        val = val.defining_op.result
+    return val
+
+
 def _val_name(val: mir.MValue, func: mir.MFunction) -> str:
     """Get the MSL variable name for a Metal IR value (element-wise)."""
+    val = _resolve(val)
     if val.defining_op:
+        # Constant folding: inline constants directly as literals
+        if isinstance(val.defining_op, mir.MConstant):
+            return _format_literal(val.defining_op.value, val.defining_op.dtype)
+        # Constant folding: inline cast of constant as literal in target type
+        if isinstance(val.defining_op, mir.MCast):
+            inner = val.defining_op.value
+            if inner.defining_op and isinstance(inner.defining_op, mir.MConstant):
+                return _format_literal(inner.defining_op.value, val.defining_op.target_dtype)
         if isinstance(val.defining_op, mir.ThreadPositionInGrid):
             return "tid"
         if isinstance(val.defining_op, mir.ThreadgroupPositionInGrid):
@@ -2244,7 +2338,16 @@ def _val_name(val: mir.MValue, func: mir.MFunction) -> str:
 
 def _val_name_gemm(val: mir.MValue, func: mir.MFunction) -> str:
     """Get the MSL variable name for a Metal IR value (GEMM)."""
+    val = _resolve(val)
     if val.defining_op:
+        # Constant folding: inline constants directly as literals
+        if isinstance(val.defining_op, mir.MConstant):
+            return _format_literal(val.defining_op.value, val.defining_op.dtype)
+        # Constant folding: inline cast of constant as literal in target type
+        if isinstance(val.defining_op, mir.MCast):
+            inner = val.defining_op.value
+            if inner.defining_op and isinstance(inner.defining_op, mir.MConstant):
+                return _format_literal(inner.defining_op.value, val.defining_op.target_dtype)
         if isinstance(val.defining_op, mir.MSimdgroupId):
             return "sgid"
         if isinstance(val.defining_op, mir.MThreadInSimdgroup):
@@ -2269,4 +2372,6 @@ def _format_literal(value, dtype: str) -> str:
         if fval != fval:  # NaN
             return "NAN"
         return f"{fval!r}{suffix}"
+    if dtype == "u32":
+        return f"{int(value)}u"
     return str(int(value))

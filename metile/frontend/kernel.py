@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import os
 import struct
+import sys
 
 import numpy as np
 
@@ -10,6 +12,7 @@ from metile.compiler.lowering import lower
 from metile.compiler.passes import (
     block_swizzle,
     double_buffer_k_loop,
+    fold_constants,
     pad_shared_memory,
     preload_mma_tiles,
     serpentine_mma,
@@ -29,6 +32,13 @@ from metile.runtime.metal_device import MetalDevice, MTLSize
 _kernel_cache: dict = {}
 # Scalar buffer cache: (value, format_char) -> metal_buffer
 _scalar_buffer_cache: dict = {}
+
+
+def _dump(path: str, content: str):
+    """Write debug output to a file, creating directories as needed."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(content)
 
 
 class CompiledKernel:
@@ -329,8 +339,37 @@ class KernelLauncher:
 
         tile_ir = ctx.func
 
+        # Debug output: METILE_DEBUG env var
+        # "tile_ir" — print tile IR after tracing
+        # "metal_ir" — print metal IR after lowering
+        # "metal_ir_opt" — print metal IR after optimization passes
+        # "msl" — print generated MSL source
+        # "all" — print everything
+        _debug = os.environ.get("METILE_DEBUG", "")
+        _debug_flags = set(_debug.split(",")) if _debug else set()
+        _debug_all = "all" in _debug_flags
+        _debug_dir = os.environ.get("METILE_DEBUG_DIR", "debug_output")
+
+        if _debug_all or "tile_ir" in _debug_flags:
+            from metile.ir.printer import print_tile_ir
+
+            ir_text = print_tile_ir(tile_ir)
+            print(f"\n=== Tile IR: {tile_ir.name} ===", file=sys.stderr)
+            print(ir_text, file=sys.stderr)
+            if _debug_dir:
+                _dump(os.path.join(_debug_dir, "tile_ir", f"{tile_ir.name}.txt"), ir_text)
+
         # Step 2: Lower to Metal IR (handles both element-wise and GEMM)
         metal_ir = lower(tile_ir)
+
+        if _debug_all or "metal_ir" in _debug_flags:
+            from metile.ir.printer import print_metal_ir
+
+            ir_text = print_metal_ir(metal_ir)
+            print(f"\n=== Metal IR (pre-opt): {metal_ir.name} ===", file=sys.stderr)
+            print(ir_text, file=sys.stderr)
+            if _debug_dir:
+                _dump(os.path.join(_debug_dir, "metal_ir", f"{metal_ir.name}.pre_opt.txt"), ir_text)
 
         # Step 3: Apply optimization passes
         is_gemm = metal_ir.kernel_type in ("gemm", "persistent_gemm")
@@ -358,8 +397,28 @@ class KernelLauncher:
             metal_ir = split_elementwise_loops(metal_ir)
             metal_ir = vectorize_elementwise(metal_ir, vec_size=4)
 
+        # Constant folding (all kernel types)
+        metal_ir = fold_constants(metal_ir)
+
+        if _debug_all or "metal_ir_opt" in _debug_flags:
+            from metile.ir.printer import print_metal_ir
+
+            ir_text = print_metal_ir(metal_ir)
+            print(f"\n=== Metal IR (post-opt): {metal_ir.name} ===", file=sys.stderr)
+            print(ir_text, file=sys.stderr)
+            if _debug_dir:
+                _dump(
+                    os.path.join(_debug_dir, "metal_ir", f"{metal_ir.name}.post_opt.txt"), ir_text
+                )
+
         # Step 4: Generate MSL
         msl_source = emit(metal_ir)
+
+        if _debug_all or "msl" in _debug_flags:
+            print(f"\n=== MSL: {metal_ir.name} ===", file=sys.stderr)
+            print(msl_source, file=sys.stderr)
+            if _debug_dir:
+                _dump(os.path.join(_debug_dir, "msl", f"{metal_ir.name}.metal"), msl_source)
 
         # Step 5: Compile
         dev = MetalDevice.get()

@@ -120,6 +120,63 @@ class Reduce(Op):
 
 
 @dataclass
+class SharedAlloc(Op):
+    """Allocate threadgroup (shared) memory."""
+
+    size: int = 0
+    dtype: str = "f32"
+
+    def result_type(self) -> PtrType:
+        return PtrType(self.dtype, address_space="threadgroup")
+
+
+@dataclass
+class Barrier(Op):
+    """Threadgroup memory barrier."""
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class ThreadId(Op):
+    """Thread position within threadgroup (lid)."""
+
+    def result_type(self) -> ScalarType:
+        return I32
+
+
+@dataclass
+class SimdShuffleXor(Op):
+    """Exchange a value with another thread in the simdgroup via XOR mask."""
+
+    value: Value = None
+    mask: Value = None
+
+    def result_type(self):
+        return self.value.type
+
+
+@dataclass
+class SimdBroadcast(Op):
+    """Broadcast a value from a specific simdgroup lane to all lanes."""
+
+    value: Value = None
+    lane: Value = None
+
+    def result_type(self):
+        return self.value.type
+
+
+@dataclass
+class SimdLaneId(Op):
+    """Thread's lane index within its simdgroup (0-31)."""
+
+    def result_type(self) -> ScalarType:
+        return I32
+
+
+@dataclass
 class Select(Op):
     """Ternary select: result = cond ? true_val : false_val."""
 

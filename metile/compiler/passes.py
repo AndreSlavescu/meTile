@@ -593,3 +593,261 @@ def _split_k_for_loop(loop: mir.MForLoop) -> list[mir.MOp]:
     tail_block._is_tail = True  # marker for emitter
 
     return [aligned_loop, tail_block]
+
+
+# ---------------------------------------------------------------------------
+# Constant folding pass
+# ---------------------------------------------------------------------------
+
+# Binary ops that Python can evaluate at compile time
+_FOLDABLE_BINOPS = {
+    "add": lambda a, b: a + b,
+    "sub": lambda a, b: a - b,
+    "mul": lambda a, b: a * b,
+    "div": lambda a, b: a // b if isinstance(a, int) and isinstance(b, int) and b != 0 else a / b,
+    "mod": lambda a, b: a % b if b != 0 else a,
+    "and": lambda a, b: a & b,
+    "or": lambda a, b: a | b,
+    "xor": lambda a, b: a ^ b,
+    "shl": lambda a, b: a << b,
+    "shr": lambda a, b: a >> b,
+}
+
+
+def _is_constant_val(val: mir.MValue, target: int | float) -> bool:
+    """Check if a value is a constant with the given numeric value."""
+    if val.defining_op and isinstance(val.defining_op, mir.MConstant):
+        return val.defining_op.value == target
+    return False
+
+
+def fold_constants(func: mir.MFunction) -> mir.MFunction:
+    """Constant folding, identity elimination, CSE, and DCE on Metal IR.
+
+    Optimizations:
+    1. Fold MBinOp(MConstant(a), MConstant(b)) -> MConstant(result)
+    2. Fold MCast(MConstant(v, src), target) -> MConstant(v, target)
+    3. Eliminate identity ops: x + 0, x * 1, x - 0, x | 0, x ^ 0
+    4. CSE: deduplicate identical MBinOp and MCast ops
+    5. DCE: remove ops whose results are never referenced
+    """
+    _fold_constants_recursive(func.ops)
+    _cse_recursive(func.ops, {})
+    func.ops = _dce_constants(func.ops)
+    return func
+
+
+def _fold_constants_recursive(ops: list[mir.MOp]):
+    """Walk ops recursively and apply constant folding."""
+    for op in ops:
+        _try_fold(op)
+        # Recurse into nested bodies
+        if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
+            _fold_constants_recursive(op.body)
+
+
+def _try_fold(op: mir.MOp):
+    """Attempt to fold a single op in place via value forwarding."""
+    if isinstance(op, mir.MBinOp) and op.result is not None:
+        lhs_op = op.lhs.defining_op if op.lhs else None
+        rhs_op = op.rhs.defining_op if op.rhs else None
+
+        # Case 1: Both operands are constants -> fold to single constant
+        if (
+            lhs_op
+            and isinstance(lhs_op, mir.MConstant)
+            and rhs_op
+            and isinstance(rhs_op, mir.MConstant)
+        ):
+            fold_fn = _FOLDABLE_BINOPS.get(op.op)
+            if fold_fn is not None:
+                try:
+                    result_val = fold_fn(lhs_op.value, rhs_op.value)
+                    # Forward: make this value look like a constant
+                    folded = mir.MConstant(value=result_val, dtype=lhs_op.dtype)
+                    folded.result = op.result
+                    op.result.defining_op = folded
+                    return
+                except (ArithmeticError, OverflowError, ValueError):
+                    pass
+
+        # Case 3: Identity elimination
+        # x + 0 -> x, x - 0 -> x
+        if op.op in ("add", "sub") and _is_constant_val(op.rhs, 0):
+            op.result.defining_op = op.lhs.defining_op
+            return
+        # 0 + x -> x
+        if op.op == "add" and _is_constant_val(op.lhs, 0):
+            op.result.defining_op = op.rhs.defining_op
+            return
+        # x * 1 -> x
+        if op.op == "mul" and _is_constant_val(op.rhs, 1):
+            op.result.defining_op = op.lhs.defining_op
+            return
+        # 1 * x -> x
+        if op.op == "mul" and _is_constant_val(op.lhs, 1):
+            op.result.defining_op = op.rhs.defining_op
+            return
+        # x | 0 -> x, x ^ 0 -> x
+        if op.op in ("or", "xor") and _is_constant_val(op.rhs, 0):
+            op.result.defining_op = op.lhs.defining_op
+            return
+        # 0 | x -> x, 0 ^ x -> x
+        if op.op in ("or", "xor") and _is_constant_val(op.lhs, 0):
+            op.result.defining_op = op.rhs.defining_op
+            return
+
+    elif isinstance(op, mir.MCast) and op.result is not None:
+        # Case 2: Cast of constant -> constant in target type
+        inner = op.value
+        if inner.defining_op and isinstance(inner.defining_op, mir.MConstant):
+            folded = mir.MConstant(
+                value=inner.defining_op.value,
+                dtype=op.target_dtype,
+            )
+            folded.result = op.result
+            op.result.defining_op = folded
+
+
+def _cse_key(op: mir.MOp):
+    """Generate a hashable key for an op, or None if not eligible for CSE."""
+    if isinstance(op, mir.MBinOp) and op.result is not None:
+        lhs_id = id(op.lhs) if op.lhs else None
+        rhs_id = id(op.rhs) if op.rhs else None
+        return ("binop", op.op, lhs_id, rhs_id)
+    if isinstance(op, mir.MCast) and op.result is not None:
+        val_id = id(op.value) if op.value else None
+        return ("cast", val_id, op.target_dtype)
+    return None
+
+
+def _cse_recursive(ops: list[mir.MOp], seen: dict):
+    """Common Subexpression Elimination: deduplicate identical ops.
+
+    When two ops compute the same thing (same op type, same operands),
+    the second one's result is forwarded to the first.
+
+    Scope rules:
+    - Loop bodies (MForLoop, MWhileTrue) get a FRESH seen dict because the
+      same op text represents different values across iterations (the loop
+      variable changes).
+    - If/role blocks get a COPY of the parent seen dict so they can dedup
+      with outer-scope values, but inner discoveries don't leak outward.
+    """
+    for op in ops:
+        key = _cse_key(op)
+        if key is not None:
+            if key in seen:
+                # Forward this result to the existing one
+                existing = seen[key]
+                if op.result is not None and existing.result is not None:
+                    op.result.defining_op = existing.result.defining_op
+            else:
+                seen[key] = op
+        # For nested bodies: scope-aware recursion
+        if isinstance(op, (mir.MForLoop, mir.MWhileTrue)):
+            _cse_recursive(op.body, {})  # fresh scope for loops
+        elif isinstance(op, (mir.IfBlock, mir.MSimdgroupRoleBlock)):
+            _cse_recursive(op.body, dict(seen))  # copy for if/role blocks
+
+
+def _dce_constants(ops: list[mir.MOp]) -> list[mir.MOp]:
+    """Remove MConstant ops (always inlined by _val_name) and
+    ops whose results were forwarded by fold/CSE (defining_op changed)."""
+
+    def _should_remove(op):
+        # MConstants are always inlined as literals
+        if isinstance(op, mir.MConstant):
+            return True
+        # Ops whose results were forwarded to a different op by fold/CSE
+        return hasattr(op, "result") and op.result is not None and op.result.defining_op is not op
+
+    def _filter(ops_list):
+        result = []
+        for op in ops_list:
+            if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
+                op.body = _filter(op.body)
+            if not _should_remove(op):
+                result.append(op)
+        return result
+
+    return _filter(ops)
+
+
+def _dce(ops: list[mir.MOp]) -> list[mir.MOp]:
+    """Dead Code Elimination: remove ops whose results are never used.
+
+    Counts references to each MValue across the entire op graph.
+    An op is dead if it has a result value with zero references
+    and no side effects (stores, barriers, allocs are never removed).
+    """
+    # Count references: how many times each MValue id is used as an operand
+    ref_counts: dict[int, int] = {}
+
+    def _count_refs_in_value(val):
+        if val is not None and isinstance(val, mir.MValue):
+            ref_counts[id(val)] = ref_counts.get(id(val), 0) + 1
+
+    def _count_refs(op):
+        # Count all MValue fields on this op (except result)
+        for attr_name in vars(op):
+            if attr_name == "result":
+                continue
+            val = getattr(op, attr_name)
+            if isinstance(val, mir.MValue):
+                _count_refs_in_value(val)
+            elif isinstance(val, list):
+                for item in val:
+                    if isinstance(item, mir.MValue):
+                        _count_refs_in_value(item)
+
+    def _count_all(ops_list):
+        for op in ops_list:
+            _count_refs(op)
+            if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
+                _count_all(op.body)
+
+    _count_all(ops)
+
+    # Side-effecting ops that must never be removed
+    SIDE_EFFECT_TYPES = (
+        mir.DeviceStore,
+        mir.MThreadgroupStore,
+        mir.MThreadgroupAlloc,
+        mir.MBarrier,
+        mir.MCooperativeLoad,
+        mir.MAccumulatorStore,
+        mir.MSimdgroupStore,
+        mir.MAccElemApply,
+        mir.MCoopTensorStore,
+        mir.MCoopTensorEpilogue,
+        mir.MCoopTensorLoad,
+        mir.MMatmul2dRun,
+        mir.MVarAssign,
+        mir.MVarDecl,
+        # Thread position ops: referenced by name in emitter, not by MValue
+        mir.ThreadPositionInGrid,
+        mir.ThreadgroupPositionInGrid,
+        mir.ThreadPositionInThreadgroup,
+        mir.MSimdgroupId,
+        mir.MThreadInSimdgroup,
+    )
+
+    def _is_dead(op):
+        if isinstance(op, SIDE_EFFECT_TYPES):
+            return False
+        if not hasattr(op, "result") or op.result is None:
+            return False  # no result = side-effecting
+        # Dead if result has zero references
+        return ref_counts.get(id(op.result), 0) == 0
+
+    def _filter(ops_list):
+        result = []
+        for op in ops_list:
+            if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
+                op.body = _filter(op.body)
+            if not _is_dead(op):
+                result.append(op)
+        return result
+
+    return _filter(ops)

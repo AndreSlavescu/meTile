@@ -346,6 +346,36 @@ class TracingProxy:
     def __mod__(self, other):
         return _binop("mod", self, other)
 
+    def __and__(self, other):
+        return _binop("bitand", self, other)
+
+    def __rand__(self, other):
+        return _binop("bitand", other, self)
+
+    def __or__(self, other):
+        return _binop("bitor", self, other)
+
+    def __ror__(self, other):
+        return _binop("bitor", other, self)
+
+    def __xor__(self, other):
+        return _binop("bitxor", self, other)
+
+    def __rxor__(self, other):
+        return _binop("bitxor", other, self)
+
+    def __lshift__(self, other):
+        return _binop("shl", self, other)
+
+    def __rlshift__(self, other):
+        return _binop("shl", other, self)
+
+    def __rshift__(self, other):
+        return _binop("shr", self, other)
+
+    def __rrshift__(self, other):
+        return _binop("shr", other, self)
+
     # Comparison
     def __lt__(self, other):
         return _compare("lt", self, other)
@@ -661,6 +691,84 @@ def tile_store(ptr, row_offset, col_offset, stride, value, shape: tuple[int, int
         tile_shape=shape,
     )
     ctx.add_op(op)
+
+
+def shared(size, dtype="f32") -> TracingProxy:
+    """Allocate threadgroup (shared) memory.
+
+    Args:
+        size: number of elements (must be a compile-time constant)
+        dtype: element type (default "f32")
+
+    Returns:
+        A proxy representing a pointer to the shared memory allocation.
+        Use with load/store just like device pointers.
+    """
+    ctx = _get_ctx()
+    if isinstance(size, constexpr):
+        size = size._value
+    if not isinstance(size, int):
+        raise TypeError("shared() size must be a compile-time constant")
+    op = tir.SharedAlloc(size=size, dtype=dtype)
+    val = ctx.func.add_op(op, f"shared_{len(ctx.func.ops)}")
+    return TracingProxy(val)
+
+
+def barrier():
+    """Threadgroup memory barrier.
+
+    Synchronizes all threads in the threadgroup and ensures all
+    threadgroup memory writes are visible to all threads.
+    """
+    ctx = _get_ctx()
+    ctx.func.add_op(tir.Barrier())
+
+
+def thread_id() -> TracingProxy:
+    """Thread position within threadgroup.
+
+    Returns the thread's index within its threadgroup (0 to BLOCK-1).
+    This is the Metal `thread_position_in_threadgroup` attribute.
+    """
+    ctx = _get_ctx()
+    op = tir.ThreadId()
+    val = ctx.func.add_op(op, f"tid_{len(ctx.func.ops)}")
+    return TracingProxy(val)
+
+
+def simd_shuffle_xor(value, mask) -> TracingProxy:
+    """Exchange a value with another thread in the simdgroup.
+
+    Returns the value held by thread (simd_lane_id XOR mask).
+    Both threads must call this — it's a symmetric exchange.
+    """
+    ctx = _get_ctx()
+    value_val = _to_value(value) if not isinstance(value, TracingProxy) else value._value
+    mask_val = _to_value(mask) if not isinstance(mask, TracingProxy) else mask._value
+    op = tir.SimdShuffleXor(value=value_val, mask=mask_val)
+    val = ctx.func.add_op(op, f"shfl_{len(ctx.func.ops)}")
+    return TracingProxy(val)
+
+
+def simd_broadcast(value, lane) -> TracingProxy:
+    """Broadcast a value from a specific lane to all lanes in the simdgroup."""
+    ctx = _get_ctx()
+    value_val = _to_value(value) if not isinstance(value, TracingProxy) else value._value
+    lane_val = _to_value(lane) if not isinstance(lane, TracingProxy) else lane._value
+    op = tir.SimdBroadcast(value=value_val, lane=lane_val)
+    val = ctx.func.add_op(op, f"bcast_{len(ctx.func.ops)}")
+    return TracingProxy(val)
+
+
+def simd_lane_id() -> TracingProxy:
+    """Thread's lane index within its simdgroup (0-31).
+
+    This is the Metal `thread_index_in_simdgroup` attribute.
+    """
+    ctx = _get_ctx()
+    op = tir.SimdLaneId()
+    val = ctx.func.add_op(op, f"slid_{len(ctx.func.ops)}")
+    return TracingProxy(val)
 
 
 def tile_range(start, end, step=1, num_stages=1):

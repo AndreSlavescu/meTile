@@ -1591,11 +1591,13 @@ class _ElementwiseLoweringContext:
         self._reduce_counter: int = 0
         self._acc_counter: int = 0
         self._next_sg: int = 0  # tracks next available simdgroup index for role assignment
+        # Track shared memory allocations: tile IR value name -> threadgroup array name
+        self._shared_allocs: dict[str, str] = {}
 
     def lower(self) -> mir.MFunction:
         self._lower_params()
 
-        if self._has_reduce():
+        if self._has_reduce() or self._has_shared():
             self._mode = "row_parallel"
             self._setup_row_parallel()
         elif self._has_arange():
@@ -1743,6 +1745,29 @@ class _ElementwiseLoweringContext:
         elif isinstance(op, tir.Select):
             return self._lower_select(op)
 
+        elif isinstance(op, tir.SharedAlloc):
+            msl_type = _MSL_TYPES.get(op.dtype, "float")
+            alloc_name = op.result.name  # e.g., "shared_5"
+            alloc_op = mir.MThreadgroupAlloc(
+                alloc_name=alloc_name, elem_type=msl_type, size=op.size
+            )
+            self._shared_allocs[op.result.name] = alloc_name
+            # Create a sentinel MValue for the shared memory pointer
+            val = mir.MValue(alloc_name, PtrType(op.dtype, "threadgroup"))
+            self.value_map[op.result.name] = val
+            return [alloc_op]
+
+        elif isinstance(op, tir.Barrier):
+            return [mir.MBarrier(kind="threadgroup", flags="mem_threadgroup")]
+
+        elif isinstance(op, tir.ThreadId):
+            # Ensure lid is available
+            if self.lid_value is None:
+                self.lid_value = self.mfunc.add_op(mir.ThreadPositionInThreadgroup(axis=0), "lid")
+            val = self.lid_value
+            self.value_map[op.result.name] = val
+            return None
+
         elif isinstance(op, tir.PtrOffset):
             # ptr + offsets: track as (base_ptr, index) tuple
             ptr_val = self.value_map.get(op.ptr.name)
@@ -1779,6 +1804,37 @@ class _ElementwiseLoweringContext:
 
         elif isinstance(op, tir.ForRange):
             return self._lower_for_range(op)
+
+        elif isinstance(op, tir.SimdShuffleXor):
+            val = self._resolve(op.value)
+            mask = self._resolve(op.mask)
+            dtype = "f32"
+            if isinstance(op.value.type, ScalarType):
+                dtype = op.value.type.dtype
+            m_op = mir.MSimdShuffleXor(value=val, mask=mask, dtype=dtype)
+            mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
+            m_op.result = mv
+            self.value_map[op.result.name] = mv
+            return [m_op]
+
+        elif isinstance(op, tir.SimdBroadcast):
+            val = self._resolve(op.value)
+            lane = self._resolve(op.lane)
+            dtype = "f32"
+            if isinstance(op.value.type, ScalarType):
+                dtype = op.value.type.dtype
+            m_op = mir.MSimdBroadcast(value=val, lane=lane, dtype=dtype)
+            mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
+            m_op.result = mv
+            self.value_map[op.result.name] = mv
+            return [m_op]
+
+        elif isinstance(op, tir.SimdLaneId):
+            m_op = mir.MThreadInSimdgroup()
+            mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
+            m_op.result = mv
+            self.value_map[op.result.name] = mv
+            return [m_op]
 
         elif isinstance(op, tir.SimdgroupRole):
             return self._lower_simdgroup_role(op)
@@ -1858,6 +1914,10 @@ class _ElementwiseLoweringContext:
         ops.append(m_op)
         return ops
 
+    def _is_shared_ptr(self, base: mir.MValue) -> bool:
+        """Check if a base MValue corresponds to a shared memory allocation."""
+        return isinstance(base, mir.MValue) and base.name in self._shared_allocs
+
     def _lower_load(self, op: tir.Load) -> list[mir.MOp]:
         ptr_info = self.value_map.get(op.ptr.name)
         # ptr_info could be a tuple (base_ptr, index) from PtrOffset
@@ -1868,6 +1928,16 @@ class _ElementwiseLoweringContext:
             index = self._resolve(op.offsets)
 
         dtype = op.ptr.type.dtype if isinstance(op.ptr.type, PtrType) else "f32"
+
+        # Shared memory load
+        if self._is_shared_ptr(base):
+            array_name = self._shared_allocs[base.name]
+            m_op = mir.MThreadgroupLoad(array_name=array_name, index=index, dtype=dtype)
+            mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
+            m_op.result = mv
+            self.value_map[op.result.name] = mv
+            return [m_op]
+
         m_op = mir.DeviceLoad(ptr=base, index=index, dtype=dtype)
         mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
         m_op.result = mv
@@ -1883,6 +1953,13 @@ class _ElementwiseLoweringContext:
             index = self._resolve(op.offsets)
 
         value = self._resolve(op.value)
+
+        # Shared memory store
+        if self._is_shared_ptr(base):
+            array_name = self._shared_allocs[base.name]
+            m_op = mir.MThreadgroupStore(array_name=array_name, index=index, value=value)
+            return [m_op]
+
         m_op = mir.DeviceStore(ptr=base, index=index, value=value)
         return [m_op]
 
@@ -2017,6 +2094,7 @@ class _ElementwiseLoweringContext:
                     init_const_op = mir.MConstant(value=init_const_value, dtype=dtype)
                     init_const_mv = mir.MValue(f"_acc_init_{acc_id}", ScalarType(dtype))
                     init_const_op.result = init_const_mv
+                    init_const_mv.defining_op = init_const_op
                     result_ops.append(init_const_op)
 
                     # Declare the mutable accumulator variable
@@ -2219,6 +2297,19 @@ class _ElementwiseLoweringContext:
 
         return _check(self.func.ops)
 
+    def _has_shared(self) -> bool:
+        """Check if the function uses SharedAlloc (needs threadgroup indexing)."""
+
+        def _check(ops):
+            for op in ops:
+                if isinstance(op, (tir.SharedAlloc, tir.ThreadId)):
+                    return True
+                if isinstance(op, tir.ForRange) and _check(op.body):
+                    return True
+            return False
+
+        return _check(self.func.ops)
+
     def _has_arange(self) -> bool:
         """Check if the function uses Arange (standard element-wise pattern)."""
 
@@ -2234,8 +2325,9 @@ class _ElementwiseLoweringContext:
 
     def _set_grid(self):
         """Set grid and threadgroup dimensions based on the kernel pattern."""
-        if self.block_size:
-            self.mfunc.threadgroup_size = (self.block_size, 1, 1)
+        block = self.block_size or self.func.constexprs.get("BLOCK", 0)
+        if block:
+            self.mfunc.threadgroup_size = (block, 1, 1)
         else:
             # Row-wise kernel: one thread per program, no arange
             self.mfunc.threadgroup_size = (1, 1, 1)
