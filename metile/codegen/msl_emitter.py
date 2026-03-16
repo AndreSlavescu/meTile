@@ -1198,9 +1198,7 @@ def _emit_simdgroup_acc_decl(op, lines, indent):
     """Emit accumulator array + temp tile declarations + zero-init."""
     pad = "    " * indent
     acc_t = getattr(op, "acc_type", op.in_type)
-    lines.append(
-        f"{pad}simdgroup_matrix<{acc_t}, 8, 8> {op.acc_name}[{op.num_8m}][{op.num_8n}];"
-    )
+    lines.append(f"{pad}simdgroup_matrix<{acc_t}, 8, 8> {op.acc_name}[{op.num_8m}][{op.num_8n}];")
     for mi in range(op.num_8m):
         for ni in range(op.num_8n):
             lines.append(
