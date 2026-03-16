@@ -162,6 +162,11 @@ metile's eDSL design and tile-level programming model draws from Triton, which i
 }
 ```
 
+## Links
+
+- [Contributing](.github/CONTRIBUTING.md)
+- [Performance Dashboard](https://andreslavescu.github.io/meTile/dev/bench/)
+
 ## License
 
 MIT
