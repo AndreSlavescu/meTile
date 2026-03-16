@@ -1,0 +1,54 @@
+[project]
+name = "metile"
+version = "0.0.1"
+description = "Tile-based DSL and multi-IR compiler for Apple GPUs"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "E741",   # ambiguous variable name (we use l, O, etc. in math)
+    "B905",   # zip strict (not needed for our use cases)
+    "SIM108", # ternary instead of if/else (readability)
+    "UP007",  # X | Y union syntax (keep Optional for clarity)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"benchmarks/*.py" = ["E402"]
+"examples/*.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["metile"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
