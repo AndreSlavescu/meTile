@@ -619,7 +619,7 @@ class MSimdgroupAccDecl(MOp):
     """Declare simdgroup_matrix accumulator array + temp tile arrays, zero-init.
 
     Generates:
-        simdgroup_matrix<in_type, 8, 8> acc[num_8m][num_8n];
+        simdgroup_matrix<acc_type, 8, 8> acc[num_8m][num_8n];
         // zero-init all accumulators
         simdgroup_matrix<in_type, 8, 8> a_tile[num_8m];
         simdgroup_matrix<in_type, 8, 8> b_tile[num_8n];
@@ -629,6 +629,7 @@ class MSimdgroupAccDecl(MOp):
     num_8m: int = 4
     num_8n: int = 4
     in_type: str = "float"
+    acc_type: str = "float"
 
     def result_type(self):
         return None

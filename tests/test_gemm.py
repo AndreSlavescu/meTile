@@ -35,7 +35,7 @@ def _run_matmul(M, N, K, BM, BN, BK, dtype=np.float32):
     elif _TENSOR_OPS:
         rtol, atol = 5e-2, 5e-2  # tensor_ops reduced precision
     elif dtype == np.float16:
-        rtol, atol = 1e-2, 1e-2
+        rtol, atol = 1e-3, 1e-3
     else:
         rtol, atol = 1e-4, 1e-4
     np.testing.assert_allclose(C, expected, rtol=rtol, atol=atol)
