@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff vulture
+      - name: Format check
+        run: ruff format --check metile/ tests/ benchmarks/ kernels/
+      - name: Lint
+        run: ruff check metile/ tests/ benchmarks/ kernels/
+      - name: Dead code detection
+        run: |
+          vulture metile/ kernels/ --min-confidence 90 \
+            --exclude "metile/ir/printer.py" \
+            --ignore-names "result_type,to_msl,to_msl_mut"
