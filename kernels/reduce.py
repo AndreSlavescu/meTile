@@ -34,8 +34,25 @@ def reduce_8(p0, p1, p2, p3, p4, p5, p6, p7, out, N_ELEM, BLOCK_SIZE: metile.con
 
 @metile.kernel
 def reduce_16(
-    p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15,
-    out, N_ELEM, BLOCK_SIZE: metile.constexpr,
+    p0,
+    p1,
+    p2,
+    p3,
+    p4,
+    p5,
+    p6,
+    p7,
+    p8,
+    p9,
+    p10,
+    p11,
+    p12,
+    p13,
+    p14,
+    p15,
+    out,
+    N_ELEM,
+    BLOCK_SIZE: metile.constexpr,
 ):
     pid = metile.program_id(0)
     offs = pid * BLOCK_SIZE + metile.arange(0, BLOCK_SIZE)

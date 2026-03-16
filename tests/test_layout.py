@@ -749,106 +749,6 @@ class TestSwizzleEmission:
         assert "threadgroup float4" in msl
         assert "^ ((" not in msl
 
-    def test_mma_inner_loop_swizzle_uses_thread_elements(self):
-        """MMA with swizzle replaces simdgroup_load with thread_elements()."""
-        from metile.codegen.msl_emitter import _emit_mma_inner_loop
-        from metile.ir import metal_ir as mir
-
-        op = mir.MMAInnerLoop(
-            shared_a="shared_a",
-            shared_b="shared_b",
-            acc_name="acc",
-            a_stride=32,
-            b_stride=32,
-            sg_row=mir.MValue("sg_row", mir.ScalarType("u32")),
-            sg_col=mir.MValue("sg_col", mir.ScalarType("u32")),
-            num_8m=2,
-            num_8n=2,
-            bk=32,
-            in_type="float",
-            a_swizzle_bits=5,
-            a_swizzle_shift=5,
-            b_swizzle_bits=5,
-            b_swizzle_shift=5,
-        )
-        func = mir.MFunction("test", kernel_type="gemm")
-        lines = []
-        _emit_mma_inner_loop(op, lines, 0, func)
-        msl = "\n".join(lines)
-
-        # Should use thread_elements() instead of simdgroup_load
-        assert "thread_elements()" in msl
-        assert "slid & 7u" in msl
-        assert "slid >> 4u" in msl
-        # Should XOR addresses
-        assert "^ ((" in msl
-        # Should NOT use simdgroup_load for A or B
-        assert "simdgroup_load" not in msl
-        # Should still have MMA
-        assert "simdgroup_multiply_accumulate" in msl
-
-    def test_mma_serpentine_swizzle(self):
-        """Serpentine MMA with swizzle uses thread_elements()."""
-        from metile.codegen.msl_emitter import _emit_mma_inner_loop
-        from metile.ir import metal_ir as mir
-
-        op = mir.MMAInnerLoop(
-            shared_a="shared_a",
-            shared_b="shared_b",
-            acc_name="acc",
-            a_stride=32,
-            b_stride=32,
-            sg_row=mir.MValue("sg_row", mir.ScalarType("u32")),
-            sg_col=mir.MValue("sg_col", mir.ScalarType("u32")),
-            num_8m=2,
-            num_8n=2,
-            bk=32,
-            in_type="float",
-            serpentine=True,
-            a_swizzle_bits=5,
-            a_swizzle_shift=5,
-            b_swizzle_bits=5,
-            b_swizzle_shift=5,
-        )
-        func = mir.MFunction("test", kernel_type="gemm")
-        lines = []
-        _emit_mma_inner_loop(op, lines, 0, func)
-        msl = "\n".join(lines)
-
-        assert "thread_elements()" in msl
-        assert "simdgroup_load" not in msl
-        assert "simdgroup_multiply_accumulate" in msl
-
-    def test_mma_partial_swizzle_a_only(self):
-        """Swizzle only on A: A uses thread_elements, B uses simdgroup_load."""
-        from metile.codegen.msl_emitter import _emit_mma_inner_loop
-        from metile.ir import metal_ir as mir
-
-        op = mir.MMAInnerLoop(
-            shared_a="shared_a",
-            shared_b="shared_b",
-            acc_name="acc",
-            a_stride=32,
-            b_stride=34,  # B has padding, no swizzle
-            sg_row=mir.MValue("sg_row", mir.ScalarType("u32")),
-            sg_col=mir.MValue("sg_col", mir.ScalarType("u32")),
-            num_8m=2,
-            num_8n=2,
-            bk=32,
-            in_type="float",
-            a_swizzle_bits=5,
-            a_swizzle_shift=5,
-            b_swizzle_bits=0,
-            b_swizzle_shift=0,
-        )
-        func = mir.MFunction("test", kernel_type="gemm")
-        lines = []
-        _emit_mma_inner_loop(op, lines, 0, func)
-        msl = "\n".join(lines)
-
-        assert "thread_elements()" in msl  # A uses swizzle
-        assert "simdgroup_load" in msl  # B uses normal load
-
 
 class TestSwizzlePass:
     """Test swizzle_shared_memory compiler pass."""
@@ -870,13 +770,18 @@ class TestSwizzlePass:
             tile_cols=64,
             dst_stride=64,
         )
-        mma = mir.MMAInnerLoop(
-            shared_a="shared_a",
-            shared_b="shared_b",
-            a_stride=32,
-            b_stride=64,
+        sg_load_a = mir.MSimdgroupLoad(
+            tile_name="a_tile",
+            src_array="shared_a",
+            stride=32,
         )
-        func.ops = [load_a, load_b, mma]
+        sg_load_b = mir.MSimdgroupLoad(
+            tile_name="b_tile",
+            src_array="shared_b",
+            stride=64,
+            is_b=True,
+        )
+        func.ops = [load_a, load_b, sg_load_a, sg_load_b]
 
         from metile.compiler.passes import swizzle_shared_memory
 
@@ -892,11 +797,11 @@ class TestSwizzlePass:
         assert load_b.swizzle_shift == 6
         assert load_b.dst_stride == 64
 
-        # MMA
-        assert mma.a_swizzle_bits == 5
-        assert mma.a_swizzle_shift == 5
-        assert mma.b_swizzle_bits == 5
-        assert mma.b_swizzle_shift == 6
+        # Simdgroup loads
+        assert sg_load_a.swizzle_bits == 5
+        assert sg_load_a.swizzle_shift == 5
+        assert sg_load_b.swizzle_bits == 5
+        assert sg_load_b.swizzle_shift == 6
 
     def test_pass_skips_non_power_of_2(self):
         """Pass returns unchanged function for non-power-of-2 tile_cols."""

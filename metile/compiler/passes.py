@@ -67,9 +67,6 @@ def pad_shared_memory(func: mir.MFunction, pad: int | None = None) -> mir.MFunct
             # Keep layout info in sync
             if op.load_layout is not None:
                 op.load_layout.tile.smem_stride = op.tile_cols + p
-        elif isinstance(op, mir.MMAInnerLoop):
-            op.a_stride += array_pads.get(op.shared_a, pad or 2)
-            op.b_stride += array_pads.get(op.shared_b, pad or 2)
         elif isinstance(op, mir.MSimdgroupLoad):
             p = array_pads.get(op.src_array, pad or 2)
             op.stride += p
@@ -223,17 +220,13 @@ def add_simdgroup_barriers(func: mir.MFunction) -> mir.MFunction:
     These zero-cost barriers help the Metal compiler schedule
     simdgroup loads and MMA operations more efficiently.
 
-    For decomposed IR: inserts MSimdgroupBarrierOp between each
-    load and MMA op in kk ForLoops.
-    For legacy IR: sets the use_simdgroup_barrier flag on MMAInnerLoop.
+    Inserts MSimdgroupBarrierOp between each load and MMA op in kk ForLoops.
     """
     if func.kernel_type not in ("gemm", "persistent_gemm", "specialized_gemm"):
         return func
 
     def _add_barriers(op):
-        if isinstance(op, mir.MMAInnerLoop):
-            op.use_simdgroup_barrier = True
-        elif isinstance(op, mir.MForLoop) and getattr(op, "_unroll", False):
+        if isinstance(op, mir.MForLoop) and getattr(op, "_unroll", False):
             _insert_barriers(op)
 
     _walk_ops(func.ops, _add_barriers)
@@ -258,19 +251,14 @@ def serpentine_mma(func: mir.MFunction) -> mir.MFunction:
     ...,2,1,0. This keeps recently-used B fragments alive in registers
     across consecutive M iterations, improving data reuse.
 
-    For decomposed IR: reorders MSimdgroupLoad/MMA ops within kk ForLoops
-    so that odd M rows iterate N in reverse.
-    For legacy IR: sets the serpentine flag on MMAInnerLoop.
+    Reorders MSimdgroupLoad/MMA ops within kk ForLoops so that odd M rows
+    iterate N in reverse.
     """
     if func.kernel_type not in ("gemm", "persistent_gemm", "specialized_gemm"):
         return func
 
     def _transform(op):
-        # Legacy path
-        if isinstance(op, mir.MMAInnerLoop):
-            op.serpentine = True
-        # New decomposed path: find kk ForLoops and reorder
-        elif isinstance(op, mir.MForLoop) and getattr(op, "_unroll", False):
+        if isinstance(op, mir.MForLoop) and getattr(op, "_unroll", False):
             _reorder_serpentine(op)
 
     _walk_ops(func.ops, _transform)
@@ -335,18 +323,15 @@ def preload_mma_tiles(func: mir.MFunction) -> mir.MFunction:
 
     Separates simdgroup loads from MMA compute for better instruction-level
     parallelism. Instead of interleaving load-A/load-B/MMA, the restructured
-    loop does: load all A tiles → load all B tiles → all MMA operations.
+    loop does: load all A tiles -> load all B tiles -> all MMA operations.
 
-    For decomposed IR: reorders ops in kk ForLoop bodies.
-    For legacy IR: sets the preload_tiles flag on MMAInnerLoop.
+    Reorders ops in kk ForLoop bodies.
     """
     if func.kernel_type not in ("gemm", "persistent_gemm", "specialized_gemm"):
         return func
 
     def _enable_preload(op):
-        if isinstance(op, mir.MMAInnerLoop):
-            op.preload_tiles = True
-        elif isinstance(op, mir.MForLoop) and getattr(op, "_unroll", False):
+        if isinstance(op, mir.MForLoop) and getattr(op, "_unroll", False):
             _reorder_preload(op)
 
     _walk_ops(func.ops, _enable_preload)
@@ -447,13 +432,6 @@ def swizzle_shared_memory(func: mir.MFunction) -> mir.MFunction:
                 op.dst_stride = op.tile_cols
                 if op.load_layout is not None:
                     op.load_layout.tile.smem_stride = op.tile_cols
-        elif isinstance(op, mir.MMAInnerLoop):
-            sw_a = array_swizzle.get(op.shared_a)
-            sw_b = array_swizzle.get(op.shared_b)
-            if sw_a:
-                op.a_swizzle_bits, op.a_swizzle_shift = sw_a
-            if sw_b:
-                op.b_swizzle_bits, op.b_swizzle_shift = sw_b
         elif isinstance(op, mir.MSimdgroupLoad):
             sw = array_swizzle.get(op.src_array)
             if sw:
@@ -527,15 +505,6 @@ def _walk_ops(ops: list[mir.MOp], fn):
         fn(op)
         if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
             _walk_ops(op.body, fn)
-
-
-def _apply_pad(op: mir.MOp, pad: int):
-    """Apply padding to cooperative loads and MMA loops."""
-    if isinstance(op, mir.MCooperativeLoad):
-        op.dst_stride = op.tile_cols + pad
-    elif isinstance(op, mir.MMAInnerLoop):
-        op.a_stride += pad
-        op.b_stride += pad
 
 
 def _update_alloc_size(alloc: mir.MThreadgroupAlloc, ops: list[mir.MOp], pad: int):
@@ -768,85 +737,6 @@ def _dce_constants(ops: list[mir.MOp]) -> list[mir.MOp]:
             if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
                 op.body = _filter(op.body)
             if not _should_remove(op):
-                result.append(op)
-        return result
-
-    return _filter(ops)
-
-
-def _dce(ops: list[mir.MOp]) -> list[mir.MOp]:
-    """Dead Code Elimination: remove ops whose results are never used.
-
-    Counts references to each MValue across the entire op graph.
-    An op is dead if it has a result value with zero references
-    and no side effects (stores, barriers, allocs are never removed).
-    """
-    # Count references: how many times each MValue id is used as an operand
-    ref_counts: dict[int, int] = {}
-
-    def _count_refs_in_value(val):
-        if val is not None and isinstance(val, mir.MValue):
-            ref_counts[id(val)] = ref_counts.get(id(val), 0) + 1
-
-    def _count_refs(op):
-        # Count all MValue fields on this op (except result)
-        for attr_name in vars(op):
-            if attr_name == "result":
-                continue
-            val = getattr(op, attr_name)
-            if isinstance(val, mir.MValue):
-                _count_refs_in_value(val)
-            elif isinstance(val, list):
-                for item in val:
-                    if isinstance(item, mir.MValue):
-                        _count_refs_in_value(item)
-
-    def _count_all(ops_list):
-        for op in ops_list:
-            _count_refs(op)
-            if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
-                _count_all(op.body)
-
-    _count_all(ops)
-
-    # Side-effecting ops that must never be removed
-    SIDE_EFFECT_TYPES = (
-        mir.DeviceStore,
-        mir.MThreadgroupStore,
-        mir.MThreadgroupAlloc,
-        mir.MBarrier,
-        mir.MCooperativeLoad,
-        mir.MAccumulatorStore,
-        mir.MSimdgroupStore,
-        mir.MAccElemApply,
-        mir.MCoopTensorStore,
-        mir.MCoopTensorEpilogue,
-        mir.MCoopTensorLoad,
-        mir.MMatmul2dRun,
-        mir.MVarAssign,
-        mir.MVarDecl,
-        # Thread position ops: referenced by name in emitter, not by MValue
-        mir.ThreadPositionInGrid,
-        mir.ThreadgroupPositionInGrid,
-        mir.ThreadPositionInThreadgroup,
-        mir.MSimdgroupId,
-        mir.MThreadInSimdgroup,
-    )
-
-    def _is_dead(op):
-        if isinstance(op, SIDE_EFFECT_TYPES):
-            return False
-        if not hasattr(op, "result") or op.result is None:
-            return False  # no result = side-effecting
-        # Dead if result has zero references
-        return ref_counts.get(id(op.result), 0) == 0
-
-    def _filter(ops_list):
-        result = []
-        for op in ops_list:
-            if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
-                op.body = _filter(op.body)
-            if not _is_dead(op):
                 result.append(op)
         return result
 

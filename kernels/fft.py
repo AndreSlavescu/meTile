@@ -8,8 +8,16 @@ from metile.runtime.metal_device import MetalDevice
 
 @metile.kernel
 def fft_kernel(
-    X_re, X_im, Y_re, Y_im, BIT_REV, TW_re, TW_im, N,
-    NUM_STAGES: metile.constexpr, BLOCK: metile.constexpr,
+    X_re,
+    X_im,
+    Y_re,
+    Y_im,
+    BIT_REV,
+    TW_re,
+    TW_im,
+    N,
+    NUM_STAGES: metile.constexpr,
+    BLOCK: metile.constexpr,
 ):
     row = metile.program_id(0)
     tid = metile.thread_id()
@@ -109,8 +117,16 @@ def _make_fft_kernel_large(elems_per_thread):
 
     @metile.kernel
     def fft_kernel_large(
-        X_re, X_im, Y_re, Y_im, BIT_REV, TW_re, TW_im, N,
-        NUM_STAGES: metile.constexpr, BLOCK: metile.constexpr,
+        X_re,
+        X_im,
+        Y_re,
+        Y_im,
+        BIT_REV,
+        TW_re,
+        TW_im,
+        N,
+        NUM_STAGES: metile.constexpr,
+        BLOCK: metile.constexpr,
     ):
         row = metile.program_id(0)
         tid = metile.thread_id()
@@ -301,10 +317,16 @@ def fft_dispatch(batch, N, x_re_buf, x_im_buf, y_re_buf, y_im_buf):
     kern = _FFT_KERNELS[elems]
     grid = (batch,)
     return kern[grid].prepare(
-        x_re_buf, x_im_buf, y_re_buf, y_im_buf,
+        x_re_buf,
+        x_im_buf,
+        y_re_buf,
+        y_im_buf,
         metile.Buffer(data=perm),
-        metile.Buffer(data=tw_re), metile.Buffer(data=tw_im),
-        N, NUM_STAGES=num_stages, BLOCK=block,
+        metile.Buffer(data=tw_re),
+        metile.Buffer(data=tw_im),
+        N,
+        NUM_STAGES=num_stages,
+        BLOCK=block,
     )
 
 
