@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 _root = str(Path(__file__).resolve().parent.parent)
@@ -11,10 +12,21 @@ import numpy as np
 from benchutils import bench
 
 import metile
-from metile.runtime.metal_device import MetalDevice
+
+# Cooldown between kernel groups to avoid thermal carry-over
+_COOLDOWN = 2.0
+
+# Longer measurement window for CI stability
+_WARMUP_MS = 100
+_REP_MS = 500
 
 
-def bench_gemm(dev):
+def _bench(dispatch):
+    """Bench with CI-tuned parameters for stability."""
+    return bench(dispatch, warmup_ms=_WARMUP_MS, rep_ms=_REP_MS)
+
+
+def bench_gemm():
     """Benchmark GEMM at representative sizes."""
     from kernels.gemm import matmul
 
@@ -25,12 +37,12 @@ def bench_gemm(dev):
         C = metile.Buffer.zeros((M * N,))
         grid = (metile.cdiv(M, 64), metile.cdiv(N, 64))
         dispatch = matmul[grid].prepare(A, B, C, M, N, K, BLOCK_M=64, BLOCK_N=64, BLOCK_K=32)
-        t = bench(dispatch, warmup_ms=50, rep_ms=200)
+        t = _bench(dispatch)
         results[f"gemm_{M}x{N}x{K}"] = t
     return results
 
 
-def bench_softmax(dev):
+def bench_softmax():
     """Benchmark softmax."""
     from kernels.softmax import softmax
 
@@ -39,12 +51,12 @@ def bench_softmax(dev):
         X = metile.Buffer(data=np.random.randn(nrows, hidden).astype(np.float32).ravel())
         Out = metile.Buffer.zeros((nrows * hidden,))
         dispatch = softmax[(nrows,)].prepare(X, Out, hidden, BLOCK=256)
-        t = bench(dispatch, warmup_ms=50, rep_ms=200)
+        t = _bench(dispatch)
         results[f"softmax_{nrows}x{hidden}"] = t
     return results
 
 
-def bench_layernorm(dev):
+def bench_layernorm():
     """Benchmark layernorm."""
     from kernels.layernorm import layernorm
 
@@ -55,14 +67,13 @@ def bench_layernorm(dev):
         B = metile.Buffer(data=np.random.randn(hidden).astype(np.float32))
         Out = metile.Buffer.zeros((nrows * hidden,))
         dispatch = layernorm[(nrows,)].prepare(X, W, B, Out, hidden, BLOCK=256)
-        t = bench(dispatch, warmup_ms=50, rep_ms=200)
+        t = _bench(dispatch)
         results[f"layernorm_{nrows}x{hidden}"] = t
     return results
 
 
-def bench_fft(dev):
+def bench_fft():
     """Benchmark FFT."""
-
     from kernels.fft import fft_dispatch
 
     results = {}
@@ -72,18 +83,25 @@ def bench_fft(dev):
         yr = metile.Buffer.zeros((batch * N,))
         yi = metile.Buffer.zeros((batch * N,))
         dispatch = fft_dispatch(batch, N, xr, xi, yr, yi)
-        t = bench(dispatch, warmup_ms=50, rep_ms=200)
+        t = _bench(dispatch)
         results[f"fft_{batch}x{N}"] = t
     return results
 
 
 def run_all():
-    dev = MetalDevice.get()
     results = {}
-    results.update(bench_gemm(dev))
-    results.update(bench_softmax(dev))
-    results.update(bench_layernorm(dev))
-    results.update(bench_fft(dev))
+
+    groups = [
+        ("GEMM", bench_gemm),
+        ("Softmax", bench_softmax),
+        ("LayerNorm", bench_layernorm),
+        ("FFT", bench_fft),
+    ]
+
+    for _name, fn in groups:
+        time.sleep(_COOLDOWN)
+        results.update(fn())
+
     return results
 
 
@@ -149,7 +167,6 @@ def main():
         ok = compare(results, args.compare, args.threshold)
         sys.exit(0 if ok else 1)
     elif not args.output:
-        # Just print results
         for k, v in sorted(results.items()):
             print(f"  {k:<30} {v * 1e6:>10.1f} us")
 

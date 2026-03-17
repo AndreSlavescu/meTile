@@ -19,7 +19,12 @@ def lower(func: tir.Function) -> mir.MFunction:
     if _is_gemm(func):
         from metile.runtime.metal_device import MetalDevice
 
-        if MetalDevice.get().supports_tensor_ops:
+        dtype = "f32"
+        for p in func.params:
+            if isinstance(p.type, PtrType):
+                dtype = p.type.dtype
+                break
+        if MetalDevice.get().supports_tensor_ops and dtype == "f32":
             return _lower_tensor_ops_gemm(func)
         return _lower_gemm(func)
     ctx = _ElementwiseLoweringContext(func)

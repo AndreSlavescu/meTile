@@ -778,10 +778,10 @@ def _emit_coop_tensor_init(op, lines, indent):
 
     if op.use_separated:
         lines.append(
-            f"{pad}auto ct_a = op.get_left_input_cooperative_tensor<{in_type}, {in_type}, {in_type}>();"
+            f"{pad}auto ct_a = op.get_left_input_cooperative_tensor<{in_type}, {in_type}, {acc_type}>();"
         )
         lines.append(
-            f"{pad}auto ct_b = op.get_right_input_cooperative_tensor<{in_type}, {in_type}, {in_type}>();"
+            f"{pad}auto ct_b = op.get_right_input_cooperative_tensor<{in_type}, {in_type}, {acc_type}>();"
         )
         lines.append(f"{pad}auto {op.ct_name} = op.get_destination_cooperative_tensor<")
         lines.append(f"{pad}    decltype(ct_a), decltype(ct_b), {acc_type}>();")
