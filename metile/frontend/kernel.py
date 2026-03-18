@@ -23,6 +23,7 @@ from metile.compiler.passes import (
     vectorize_loads,
 )
 from metile.frontend.tracing import TracingContext, TracingProxy, constexpr
+from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
 from metile.ir.types import I32, PtrType, ScalarType
 from metile.runtime.buffer import MtileBuffer
@@ -32,6 +33,24 @@ from metile.runtime.metal_device import MetalDevice, MTLSize
 _kernel_cache: dict = {}
 # Scalar buffer cache: (value, format_char) -> metal_buffer
 _scalar_buffer_cache: dict = {}
+
+_ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4}
+
+
+def _validate_threadgroup_memory(metal_ir: mir.MFunction):
+    """Raise RuntimeError if threadgroup memory exceeds hardware limit."""
+    total_bytes = 0
+    for op in metal_ir.ops:
+        if isinstance(op, mir.MThreadgroupAlloc):
+            total_bytes += op.size * _ELEM_SIZES.get(op.elem_type, 4)
+    if total_bytes == 0:
+        return
+    limit = MetalDevice.get().max_threadgroup_memory
+    if total_bytes > limit:
+        raise RuntimeError(
+            f"Kernel '{metal_ir.name}' requires {total_bytes} bytes threadgroup memory "
+            f"but device limit is {limit} bytes. Reduce tile sizes."
+        )
 
 
 def _dump(path: str, content: str):
@@ -410,6 +429,9 @@ class KernelLauncher:
                 _dump(
                     os.path.join(_debug_dir, "metal_ir", f"{metal_ir.name}.post_opt.txt"), ir_text
                 )
+
+        # Validate threadgroup memory fits within hardware limit
+        _validate_threadgroup_memory(metal_ir)
 
         # Step 4: Generate MSL
         msl_source = emit(metal_ir)

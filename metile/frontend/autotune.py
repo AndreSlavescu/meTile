@@ -150,7 +150,7 @@ class AutotunedLauncher:
         t0 = time.perf_counter()
         for _ in range(at.rep):
             launcher(*args, **merged)
-        dev.sync()
+            dev.sync()
         return (time.perf_counter() - t0) / at.rep
 
 

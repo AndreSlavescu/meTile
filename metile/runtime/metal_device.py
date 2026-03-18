@@ -327,6 +327,11 @@ class MetalDevice:
             return False
 
     @cached_property
+    def max_threadgroup_memory(self) -> int:
+        """Max threadgroup memory in bytes (MTLDevice.maxThreadgroupMemoryLength)."""
+        return _send_uint64(self.device, "maxThreadgroupMemoryLength")
+
+    @cached_property
     def supports_tensor_ops(self) -> bool:
         """Check if device supports Metal 4 tensor_ops (M5+ and Xcode required)."""
         if not self.has_metal_compiler:
