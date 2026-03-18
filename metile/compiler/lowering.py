@@ -25,7 +25,15 @@ def lower(func: tir.Function) -> mir.MFunction:
                 dtype = p.type.dtype
                 break
         if MetalDevice.get().supports_tensor_ops and dtype == "f32":
-            return _lower_tensor_ops_gemm(func)
+            # tensor_ops matmul2d requires SM,SN <= 32 for valid descriptor
+            constexprs = func.constexprs
+            BM = constexprs.get("BLOCK_M", 128)
+            BN = constexprs.get("BLOCK_N", 64)
+            WM = constexprs.get("WM", 2)
+            WN = constexprs.get("WN", 2)
+            SM, SN = BM // WM, BN // WN
+            if SM <= 32 and SN <= 32:
+                return _lower_tensor_ops_gemm(func)
         return _lower_gemm(func)
     ctx = _ElementwiseLoweringContext(func)
     return ctx.lower()
@@ -874,14 +882,19 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
 def _detect_epilogue(ops: list) -> list[tuple]:
     """Detect element-wise epilogue ops between GEMM dot loop and tile store.
 
-    Finds ops that produce TileType results (operating on the accumulator)
-    between the ForRange containing Dot and the TileStore. Distinguishes
-    these from offset computations (which produce ScalarType/I32).
+    Traces the chain of element-wise ops applied to the accumulator after
+    the GEMM loop and before the tile store. Handles arbitrary compositions
+    of unary, binary-with-constant, and binary-with-original-accumulator ops.
 
-    Supported patterns:
-      - Select with Compare(gt, acc, 0) → ReLU: ("relu",)
-      - Unary(fn, acc) → element-wise math: ("unary", fn_name)
-      - BinOp(mul, acc, scalar) → scale: ("scale",)
+    Returns a list of epilogue tuples:
+      - ("relu",)                         — max(val, 0)
+      - ("unary", fn_name)                — fn(val)
+      - ("scale",)                        — val *= _scale (non-constant scalar)
+      - ("binop", op, "lhs"|"rhs", float) — binary op with a constant
+            "lhs"/"rhs" indicates which side the CONSTANT is on
+      - ("binop_orig", op, "lhs"|"rhs")   — binary op referencing original acc
+            "lhs"/"rhs" indicates which side the ORIGINAL acc is on
+      - ("save_orig",)                    — prepended when binop_orig is used
     """
     for_idx = store_idx = None
     for i, op in enumerate(ops):
@@ -893,28 +906,90 @@ def _detect_epilogue(ops: list) -> list[tuple]:
     if for_idx is None or store_idx is None or store_idx <= for_idx + 1:
         return []
 
+    # Find the accumulator value name (last Dot result in the loop body)
+    acc_name = _find_dot_result_name(ops[for_idx].body)
+    if acc_name is None:
+        return []
+
     epilogue = []
+    chain_name = acc_name
+    needs_orig = False
+
     for op in ops[for_idx + 1 : store_idx]:
         if not hasattr(op, "result") or op.result is None:
             continue
         rt = op.result.type
         if not isinstance(rt, TileType):
             continue
-        # This op produces a TileType result → epilogue op
+
         if isinstance(op, tir.Select):
-            # ReLU: where(acc > 0, acc, 0)
             cond_op = op.condition.defining_op
             if cond_op and isinstance(cond_op, tir.Compare) and cond_op.predicate == "gt":
                 epilogue.append(("relu",))
             else:
-                # Generic clamp/select — treat as relu-like for now
                 epilogue.append(("relu",))
+            chain_name = op.result.name
+
         elif isinstance(op, tir.Unary):
             epilogue.append(("unary", op.op))
-        elif isinstance(op, tir.BinOp) and op.op == "mul":
-            epilogue.append(("scale",))
+            chain_name = op.result.name
+
+        elif isinstance(op, tir.BinOp):
+            lhs_tile = isinstance(op.lhs.type, TileType)
+            rhs_tile = isinstance(op.rhs.type, TileType)
+
+            if lhs_tile and not rhs_tile:
+                # chain OP scalar_const
+                const_val = _extract_constant(op.rhs)
+                if const_val is not None:
+                    epilogue.append(("binop", op.op, "rhs", const_val))
+                elif op.op == "mul":
+                    epilogue.append(("scale",))
+                else:
+                    return []  # non-constant scalar for non-mul op, can't fuse
+            elif rhs_tile and not lhs_tile:
+                # scalar_const OP chain
+                const_val = _extract_constant(op.lhs)
+                if const_val is not None:
+                    epilogue.append(("binop", op.op, "lhs", const_val))
+                else:
+                    return []  # non-constant scalar on lhs, can't fuse
+            elif lhs_tile and rhs_tile:
+                # Both TileType: one must be original acc, other is chain
+                lhs_is_orig = op.lhs.name == acc_name and op.lhs.name != chain_name
+                rhs_is_orig = op.rhs.name == acc_name and op.rhs.name != chain_name
+                if lhs_is_orig:
+                    epilogue.append(("binop_orig", op.op, "lhs"))
+                    needs_orig = True
+                elif rhs_is_orig:
+                    epilogue.append(("binop_orig", op.op, "rhs"))
+                    needs_orig = True
+                else:
+                    return []  # can't fuse: two non-acc tile operands
+            else:
+                return []
+            chain_name = op.result.name
+
+    if needs_orig:
+        epilogue.insert(0, ("save_orig",))
 
     return epilogue
+
+
+def _find_dot_result_name(body_ops: list) -> str | None:
+    """Find the name of the last Dot result in a loop body."""
+    name = None
+    for op in body_ops:
+        if isinstance(op, tir.Dot) and op.result:
+            name = op.result.name
+    return name
+
+
+def _extract_constant(val) -> float | None:
+    """Extract a numeric literal from a Value, or None."""
+    if val.defining_op and isinstance(val.defining_op, tir.Constant):
+        return float(val.defining_op.value)
+    return None
 
 
 def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
