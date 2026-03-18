@@ -1,5 +1,3 @@
-"""Fused MLP benchmark: meTile fused GEMM+activation vs MLX compile."""
-
 import sys
 import time
 from pathlib import Path
