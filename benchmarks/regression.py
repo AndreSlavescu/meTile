@@ -20,6 +20,9 @@ _COOLDOWN = 2.0
 _WARMUP_MS = 100
 _REP_MS = 500
 
+# Multiple full rounds. Then run geometric mean across rounds absorbs runner variance
+_NUM_ROUNDS = 3
+
 
 def _bench(dispatch):
     """Bench with CI-tuned parameters for stability."""
@@ -88,9 +91,18 @@ def bench_fft():
     return results
 
 
-def run_all():
-    results = {}
+def _geomean(values):
+    """Geometric mean — robust central tendency for timing data."""
+    return float(np.exp(np.mean(np.log(values))))
 
+
+def run_all(num_rounds=_NUM_ROUNDS):
+    """Run the full benchmark suite multiple rounds, return geometric mean per kernel.
+
+    Each round re-runs every kernel group with cooldowns. The geometric mean
+    across rounds dampens outliers from thermal throttling, DVFS transients,
+    and runner load spikes.
+    """
     groups = [
         ("GEMM", bench_gemm),
         ("Softmax", bench_softmax),
@@ -98,11 +110,19 @@ def run_all():
         ("FFT", bench_fft),
     ]
 
-    for _name, fn in groups:
-        time.sleep(_COOLDOWN)
-        results.update(fn())
+    # Collect per-kernel times across rounds
+    all_times: dict[str, list[float]] = {}
 
-    return results
+    for rnd in range(num_rounds):
+        if rnd > 0:
+            time.sleep(_COOLDOWN)
+        for _name, fn in groups:
+            time.sleep(_COOLDOWN)
+            for key, t in fn().items():
+                all_times.setdefault(key, []).append(t)
+
+    # Geometric mean across rounds
+    return {k: _geomean(v) for k, v in all_times.items()}
 
 
 def compare(current, baseline_path, threshold=0.15):
