@@ -79,19 +79,25 @@ def _emit_epilogue_chain(operations: list, elem_expr: str, lines: list, pad: str
                 lines.append(f"{pad}    _v *= _scale;")
             elif epi[0] == "binop":
                 _, op_name, const_side, const_val = epi
-                sym = _BINOP_SYMBOLS_EPILOGUE.get(op_name, "+")
                 lit = _format_float_literal(const_val)
-                if const_side == "lhs":
-                    lines.append(f"{pad}    _v = {lit} {sym} _v;")
-                else:
-                    lines.append(f"{pad}    _v = _v {sym} {lit};")
+                if op_name in _BINOP_SYMBOLS_EPILOGUE:
+                    sym = _BINOP_SYMBOLS_EPILOGUE[op_name]
+                    if const_side == "lhs":
+                        lines.append(f"{pad}    _v = {lit} {sym} _v;")
+                    else:
+                        lines.append(f"{pad}    _v = _v {sym} {lit};")
+                elif op_name in ("max", "min"):
+                    lines.append(f"{pad}    _v = {op_name}(_v, {lit});")
             elif epi[0] == "binop_orig":
                 _, op_name, orig_side = epi
-                sym = _BINOP_SYMBOLS_EPILOGUE.get(op_name, "+")
-                if orig_side == "lhs":
-                    lines.append(f"{pad}    _v = _orig {sym} _v;")
-                else:
-                    lines.append(f"{pad}    _v = _v {sym} _orig;")
+                if op_name in _BINOP_SYMBOLS_EPILOGUE:
+                    sym = _BINOP_SYMBOLS_EPILOGUE[op_name]
+                    if orig_side == "lhs":
+                        lines.append(f"{pad}    _v = _orig {sym} _v;")
+                    else:
+                        lines.append(f"{pad}    _v = _v {sym} _orig;")
+                elif op_name in ("max", "min"):
+                    lines.append(f"{pad}    _v = {op_name}(_v, _orig);")
         lines.append(f"{pad}    {elem_expr} = _v;")
         lines.append(f"{pad}}}")
     else:

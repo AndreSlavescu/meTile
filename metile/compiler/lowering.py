@@ -943,8 +943,10 @@ def _detect_epilogue(ops: list) -> list[tuple]:
                 const_val = _extract_constant(op.rhs)
                 if const_val is not None:
                     epilogue.append(("binop", op.op, "rhs", const_val))
-                else:
+                elif op.op == "mul":
                     epilogue.append(("scale",))
+                else:
+                    return []  # non-constant scalar for non-mul op, can't fuse
             elif rhs_tile and not lhs_tile:
                 # scalar_const OP chain
                 const_val = _extract_constant(op.lhs)
