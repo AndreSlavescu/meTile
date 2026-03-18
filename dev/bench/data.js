@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773814546514,
+  "lastUpdate": 1773816526231,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -369,6 +369,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 512.38,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "65c69768073a40ccdb1b3c415f8bae75d8c8fc75",
+          "message": "mlp fused kernel + compiler improvements (#4)\n\n* mlp fused kernel + compiler improvements\n\n* remove header\n\n* non-constant scalar coercion + max / min epilogue emission",
+          "timestamp": "2026-03-18T02:47:07-04:00",
+          "tree_id": "53b5230a6afcb7bb5e8091bcd71cc3b8b4817af3",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/65c69768073a40ccdb1b3c415f8bae75d8c8fc75"
+        },
+        "date": 1773816525282,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 411.45,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3686.95,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 323.12,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1120.3,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 341.65,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1090,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 292.93,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 317.82,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 294.19,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 386.85,
             "unit": "us"
           }
         ]
