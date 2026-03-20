@@ -2,7 +2,7 @@ Language Reference
 ==================
 
 meTile provides a Python eDSL (embedded domain-specific language) for writing GPU kernels. Functions
-decorated with ``@metile.kernel`` are traced and compiled to Metal shaders — they are not executed
+decorated with ``@metile.kernel`` are traced and compiled to Metal shaders. They are not executed
 as regular Python.
 
 This page documents every construct available inside a ``@metile.kernel`` function.
@@ -19,9 +19,9 @@ Kernel Definition
 
 Parameters are either:
 
-- **Pointers** — numpy arrays or ``metile.Buffer`` objects become ``device float*`` in Metal
-- **Scalars** — Python ints/floats become ``constant int&`` or ``constant float&``
-- **Constexprs** — annotated with ``metile.constexpr``, baked into the shader at compile time
+- **Pointers**: numpy arrays or ``metile.Buffer`` objects become ``device float*`` in Metal
+- **Scalars**: Python ints/floats become ``constant int&`` or ``constant float&``
+- **Constexprs**: annotated with ``metile.constexpr``, baked into the shader at compile time
 
 Constexprs are passed as keyword arguments at launch:
 

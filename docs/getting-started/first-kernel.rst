@@ -30,7 +30,7 @@ Let's break this down line by line.
    Device pointers to GPU memory. These map to ``device float*`` in Metal.
 
 ``N``
-   A runtime scalar — passed as a ``constant int&`` to the shader.
+   A runtime scalar, passed as a ``constant int&`` to the shader.
 
 ``BLOCK: metile.constexpr``
    A **compile-time constant**. The value is baked directly into the shader. Changing it
@@ -75,7 +75,7 @@ Launching
 
 ``metile.Buffer``
    Wraps a Metal buffer in unified memory. CPU and GPU share the same physical memory on
-   Apple Silicon — there is no copy between host and device.
+   Apple Silicon, so there is no copy between host and device.
 
 ``metile.Buffer.zeros((N,))``
    Allocates a zeroed buffer of ``N`` float32 elements.
@@ -100,6 +100,10 @@ When you call ``add[grid](...)``, meTile:
 5. **Compiles** with ``xcrun metal -O2`` (or JIT if Xcode is unavailable)
 6. **Dispatches** the compute pipeline on the GPU
 
+.. image:: /_static/compilation-pipeline.svg
+   :alt: meTile compilation pipeline: Python to Tile IR to Metal IR to MSL to GPU
+   :width: 100%
+
 You can inspect any stage with the ``METILE_DEBUG`` environment variable:
 
 .. code-block:: bash
@@ -112,6 +116,6 @@ You can inspect any stage with the ``METILE_DEBUG`` environment variable:
 What's Next
 -----------
 
-- :doc:`/guide/language` — full language reference for what you can write inside ``@metile.kernel``
-- :doc:`/examples/softmax` — a more complex kernel with reductions and multiple passes
-- :doc:`/examples/matmul` — tile-level matrix multiply with ``dot`` and ``tile_load``
+- :doc:`/guide/language` for the full language reference
+- :doc:`/examples/softmax` for a more complex kernel with reductions and multiple passes
+- :doc:`/examples/matmul` for tile-level matrix multiply with ``dot`` and ``tile_load``

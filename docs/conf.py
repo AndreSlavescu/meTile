@@ -1,5 +1,5 @@
 project = "meTile"
-copyright = "2025, Andre Slavescu"
+copyright = "2026, Andre Slavescu"
 author = "Andre Slavescu"
 
 extensions = [

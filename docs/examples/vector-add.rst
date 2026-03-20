@@ -37,9 +37,9 @@ The simplest meTile kernel: add two arrays element by element.
 Concepts Introduced
 -------------------
 
-- ``@metile.kernel`` — compile a Python function to Metal
-- ``metile.program_id`` — which program instance am I?
-- ``metile.arange`` — tile of consecutive indices
-- ``metile.load`` / ``metile.store`` — masked memory access
-- ``metile.Buffer`` — zero-copy GPU memory
-- ``kernel[grid]()`` — launch with a grid of instances
+- ``@metile.kernel``: compile a Python function to Metal
+- ``metile.program_id``: which program instance am I?
+- ``metile.arange``: tile of consecutive indices
+- ``metile.load`` / ``metile.store``: masked memory access
+- ``metile.Buffer``: zero-copy GPU memory
+- ``kernel[grid]()``: launch with a grid of instances

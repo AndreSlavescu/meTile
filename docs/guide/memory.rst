@@ -1,8 +1,12 @@
 Memory Model
 ============
 
-Apple Silicon has a **unified memory architecture** — the CPU and GPU share the same physical
+Apple Silicon has a **unified memory architecture** where the CPU and GPU share the same physical
 memory. meTile exposes this directly through ``metile.Buffer``.
+
+.. image:: /_static/unified-memory.svg
+   :alt: Unified memory: CPU and GPU both access the same physical memory through metile.Buffer
+   :width: 100%
 
 
 Buffers
@@ -13,7 +17,7 @@ Buffers
    import numpy as np
    import metile
 
-   # Create from numpy (zero-copy — the GPU reads the same memory)
+   # Create from numpy (zero-copy, the GPU reads the same memory)
    x = metile.Buffer(data=np.random.randn(1024).astype(np.float32))
 
    # Allocate zeroed
@@ -71,6 +75,16 @@ memory access:
    x = metile.load(X + offs, mask=mask)       # masked-off lanes read 0
    metile.store(Out + offs, x, mask=mask)      # masked-off lanes are skipped
 
+.. code-block:: text
+
+   N = 10, BLOCK = 4, pid = 2 (last instance)
+
+   offs = [8, 9, 10, 11]
+   mask = [T, T, F, F] # values 10 and 11 are out of bounds
+
+   load:  reads x[8], x[9], returns 0 for indices 10, 11
+   store: writes out[8], out[9], skips indices 10, 11
+
 Masking is essential for correctness. Without it, the last program instance would read/write
 past the end of the array.
 
@@ -85,5 +99,5 @@ For kernels that need inter-thread communication within a threadgroup, use share
    buf = metile.shared(size=256, dtype="f32")
    metile.barrier()   # synchronize all threads in the threadgroup
 
-Shared memory is threadgroup-local — it is not visible to other threadgroups. Use
+Shared memory is threadgroup-local and not visible to other threadgroups. Use
 ``metile.barrier()`` to synchronize access within a threadgroup.

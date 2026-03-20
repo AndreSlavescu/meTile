@@ -30,7 +30,7 @@ Basic GEMM
 Launching
 ---------
 
-The grid is 2D — one program instance per output tile:
+The grid is 2D, one program instance per output tile:
 
 .. code-block:: python
 
@@ -64,8 +64,8 @@ The compiler maps ``dot`` to the appropriate hardware:
 Fused GEMM + ReLU
 ------------------
 
-Element-wise operations after the GEMM loop are fused into the kernel's epilogue —
-they run on register-resident data with zero extra memory traffic:
+Element-wise operations after the GEMM loop are fused into the kernel's epilogue.
+They run on register-resident data with zero extra memory traffic:
 
 .. code-block:: python
 
@@ -80,7 +80,7 @@ they run on register-resident data with zero extra memory traffic:
            a = metile.tile_load(A, pid_m * BLOCK_M, k, K, (BLOCK_M, BLOCK_K))
            b = metile.tile_load(B, k, pid_n * BLOCK_N, N, (BLOCK_K, BLOCK_N))
            acc = metile.dot(a, b, acc)
-       acc = metile.where(acc > 0, acc, 0)   # fused ReLU — no global memory round-trip
+       acc = metile.where(acc > 0, acc, 0)   # fused ReLU, no global memory round-trip
        metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
 
 
@@ -132,9 +132,9 @@ See :doc:`/guide/autotuning` for the full autotuning guide.
 Concepts Introduced
 -------------------
 
-- ``metile.zeros`` — register-resident accumulator initialization
-- ``metile.dot`` — tile-level matrix multiply-accumulate
-- ``metile.tile_load`` / ``metile.tile_store`` — 2D strided memory access
-- 2D grids — ``kernel[(grid_m, grid_n)]``
-- Fused epilogues — element-wise ops after GEMM are free
-- Tile swizzle — cache-friendly scheduling patterns
+- ``metile.zeros``: register-resident accumulator initialization
+- ``metile.dot``: tile-level matrix multiply-accumulate
+- ``metile.tile_load`` / ``metile.tile_store``: 2D strided memory access
+- 2D grids: ``kernel[(grid_m, grid_n)]``
+- Fused epilogues: element-wise ops after GEMM are free
+- Tile swizzle: cache-friendly scheduling patterns

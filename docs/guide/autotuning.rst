@@ -52,6 +52,20 @@ On the first call with new key values, the autotuner:
 
 Subsequent calls with the same key values use the cached winner with zero overhead.
 
+.. code-block:: text
+
+   First call (M=1024, N=1024, K=1024):
+   +--------------------------------------------------+
+   |  Config(BM=64,  BN=64,  BK=32):   1.26ms         |
+   |  Config(BM=128, BN=128, BK=64):   0.62ms  <--    |  winner cached
+   |  Config(BM=128, BN=128, BK=128):  0.91ms         |
+   +--------------------------------------------------+
+
+   Subsequent calls (same M, N, K):
+   +--------------------------------------------------+
+   |  cached -> Config(BM=128, BN=128, BK=64)         |  no re-tuning
+   +--------------------------------------------------+
+
 
 Config Object
 -------------
@@ -117,6 +131,6 @@ fast dispatcher that skips all Python overhead on subsequent calls:
 
    dispatch = autotuned_matmul[grid].prepare(A, B, C, M, N, K)
 
-   # Hot loop — minimal Python overhead per call
+   # hot path with minimal python overhead
    for _ in range(1000):
        dispatch()

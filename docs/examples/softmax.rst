@@ -53,30 +53,12 @@ Each program instance handles one row. The grid is 1D with one instance per row:
    softmax[(rows,)](X, Out, cols, BLOCK=256)
 
 
-How It Works
-------------
-
-The kernel makes three passes over each row:
-
-1. **Find max** — ``metile.maximum`` computes element-wise max across tiles, then
-   ``metile.max`` reduces the tile to a scalar. This is needed for numerical stability
-   (subtracting the max prevents overflow in ``exp``).
-
-2. **Sum exponentials** — accumulates ``exp(x - m)`` across all tiles, then
-   ``metile.sum`` reduces to a scalar denominator.
-
-3. **Normalize** — divides each ``exp(x - m)`` by the sum.
-
-Each pass iterates over the row in chunks of ``BLOCK`` elements using ``tile_range``.
-The ``mask`` ensures correctness when ``N`` is not a multiple of ``BLOCK``.
-
-
 Concepts Introduced
 -------------------
 
-- ``metile.tile_range`` — tiling loop for iterating over a dimension
-- ``metile.maximum`` / ``metile.max`` — element-wise max and reduction
-- ``metile.sum`` — sum reduction
-- ``metile.exp`` — element-wise exponential
-- Multi-pass algorithms — reading the same data multiple times in different passes
+- ``metile.tile_range``: tiling loop for iterating over a dimension
+- ``metile.maximum`` / ``metile.max``: element-wise max and reduction
+- ``metile.sum``: sum reduction
+- ``metile.exp``: element-wise exponential
+- Multi-pass algorithms: reading the same data multiple times in different passes
 - Scalar accumulators (``m``, ``s``) carried across loop iterations
