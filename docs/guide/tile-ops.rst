@@ -12,13 +12,13 @@ The Two Backends
 meTile automatically selects the best backend for your hardware when compiling GEMM kernels:
 
 **Simdgroup Matrix (M1/M2/M3)**
-   Uses ``simdgroup_matrix<float, 8, 8>`` — Apple's 8x8 matrix multiply-accumulate
+   Uses ``simdgroup_matrix<float, 8, 8>``, Apple's 8x8 matrix multiply-accumulate
    primitive. Each simdgroup (32 threads) collaboratively computes an 8x8 tile.
    The compiler tiles the output across multiple simdgroups and uses threadgroup
    (shared) memory to stage data.
 
 **Metal 4 Tensor Ops (M4+)**
-   Uses ``matmul2d`` with ``cooperative_tensor`` — Metal 4's hardware matrix multiply
+   Uses ``matmul2d`` with ``cooperative_tensor``, Metal 4's hardware matrix multiply
    descriptors. Each simdgroup independently loads data from device memory into
    register-resident cooperative tensors and runs the MMA. No threadgroup memory needed.
 
@@ -29,20 +29,12 @@ your hardware and chooses the right path.
 How Tiling Works
 ----------------
 
-A GEMM kernel tiles the computation into blocks:
+A GEMM kernel tiles the computation into blocks. Each program instance computes
+one output tile, iterating over K to accumulate partial products:
 
-.. code-block:: text
-
-   Output C (M x N)              Each tile is BLOCK_M x BLOCK_N
-   ┌─────────┬─────────┐
-   │ (0,0)   │ (0,1)   │        Each program instance computes one tile.
-   │ 128x128 │ 128x128 │        The K dimension is tiled with BLOCK_K.
-   ├─────────┼─────────┤
-   │ (1,0)   │ (1,1)   │        grid = (ceil(M/BLOCK_M), ceil(N/BLOCK_N))
-   │ 128x128 │ 128x128 │
-   └─────────┴─────────┘
-
-Inside each tile, the K-loop accumulates partial results:
+.. image:: /_static/tiling-overview.svg
+   :alt: Output matrix tiled into blocks, with K-loop detail showing tile_load and dot accumulation
+   :width: 100%
 
 .. code-block:: python
 
@@ -81,7 +73,11 @@ The tile sizes are compile-time constants that control how the hardware is used:
      - 2, 4
 
 ``WM`` and ``WN`` control how many simdgroups tile the output block. With ``WM=4, WN=4``,
-16 simdgroups each handle a ``(BLOCK_M/WM) x (BLOCK_N/WN)`` = 32x32 subtile.
+16 simdgroups each handle a ``(BLOCK_M/WM) x (BLOCK_N/WN)`` = 32x32 subtile:
+
+.. image:: /_static/simdgroup-layout.svg
+   :alt: 4x4 simdgroup grid layout, 16 simdgroups each handling a 32x32 subtile
+   :width: 100%
 
 
 Fused Epilogues
@@ -94,7 +90,7 @@ and fuses them into the kernel. No extra memory traffic:
 
    acc = metile.dot(a, b, acc)
 
-   # These are fused into the GEMM — no global memory round-trip
+   # These are fused into the GEMM, no global memory round-trip
    acc = metile.where(acc > 0, acc, 0)      # ReLU
    acc = acc * scale                          # scale
    acc = metile.exp(acc)                      # unary
@@ -109,14 +105,14 @@ Tile Scheduling
 For 2D grids, the order in which tiles are assigned to threadgroups affects L2 cache locality.
 meTile supports several scheduling patterns:
 
-**Morton (Z-order)** — default
-   Tiles are assigned in 2x2 blocks following a Z-curve. Adjacent threadgroups share
-   A-row and B-column data in L2 cache.
+.. image:: /_static/morton-swizzle.svg
+   :alt: Morton Z-order vs linear tile scheduling, showing how 2x2 blocks share L2 cache
+   :width: 100%
 
-**Diagonal**
+**Diagonal**:
    Column assignment is rotated by the row index. Distributes memory traffic.
 
-**Linear**
+**Linear**:
    Simple row-major assignment. No locality optimization.
 
 The compiler applies Morton scheduling by default. You can override it:

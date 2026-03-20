@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 400" font-family="'Comfortaa', 'Nunito', 'Varela Round', system-ui, sans-serif">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&amp;display=swap');
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#444"/>
+    </marker>
+    <marker id="arrow-both" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#2563eb"/>
+    </marker>
+  </defs>
+
+  <rect width="680" height="400" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="340" y="34" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Unified Memory on Apple Silicon</text>
+
+  <!-- ====== CPU side ====== -->
+  <rect x="40" y="60" width="200" height="130" rx="14" fill="#fce4ec" stroke="#333" stroke-width="2"/>
+  <text x="140" y="90" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">CPU</text>
+
+  <rect x="60" y="102" width="160" height="36" rx="8" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
+  <text x="140" y="126" text-anchor="middle" font-size="12" fill="#333">Python / numpy</text>
+
+  <rect x="60" y="146" width="160" height="30" rx="8" fill="#fff" stroke="#333" stroke-width="1.5"/>
+  <text x="140" y="166" text-anchor="middle" font-size="11" fill="#555" font-family="'JetBrains Mono', 'Fira Code', monospace">out.numpy()</text>
+
+  <!-- ====== GPU side ====== -->
+  <rect x="440" y="60" width="200" height="130" rx="14" fill="#bbdefb" stroke="#333" stroke-width="2"/>
+  <text x="540" y="90" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Apple GPU</text>
+
+  <rect x="460" y="102" width="160" height="36" rx="8" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
+  <text x="540" y="126" text-anchor="middle" font-size="12" fill="#333">Metal compute kernel</text>
+
+  <rect x="460" y="146" width="160" height="30" rx="8" fill="#fff" stroke="#333" stroke-width="1.5"/>
+  <text x="540" y="166" text-anchor="middle" font-size="11" fill="#555" font-family="'JetBrains Mono', 'Fira Code', monospace">device float* A</text>
+
+  <!-- ====== Shared memory block (center bottom) ====== -->
+  <rect x="155" y="260" width="370" height="100" rx="16" fill="#c8e6c9" stroke="#333" stroke-width="2"/>
+  <text x="340" y="295" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Shared Physical Memory</text>
+
+  <rect x="195" y="310" width="280" height="34" rx="8" fill="#fff" stroke="#333" stroke-width="1.5"/>
+  <text x="335" y="333" text-anchor="middle" font-size="12" fill="#555" font-family="'JetBrains Mono', 'Fira Code', monospace">metile.Buffer(data=np_array)</text>
+
+  <!-- ====== Arrows: CPU <-> Memory ====== -->
+  <line x1="140" y1="190" x2="260" y2="260" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-both)"/>
+  <line x1="260" y1="260" x2="140" y2="190" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-both)"/>
+
+  <!-- ====== Arrows: GPU <-> Memory ====== -->
+  <line x1="540" y1="190" x2="420" y2="260" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-both)"/>
+  <line x1="420" y1="260" x2="540" y2="190" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-both)"/>
+
+  <!-- ====== "no copy" callout ====== -->
+  <rect x="260" y="210" width="160" height="32" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="340" y="231" text-anchor="middle" font-size="13" font-weight="bold" fill="#2563eb">zero copy</text>
+
+  <!-- ====== Bottom note ====== -->
+  <text x="340" y="386" text-anchor="middle" font-size="11" fill="#888">Both CPU and GPU read/write the same physical address. No transfers needed.</text>
+</svg>

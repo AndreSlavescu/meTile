@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 900" font-family="'Comfortaa', 'Nunito', 'Varela Round', system-ui, sans-serif">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&amp;display=swap');
+    </style>
+    <marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#444"/>
+    </marker>
+  </defs>
+
+  <rect width="780" height="900" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="390" y="36" text-anchor="middle" font-size="20" font-weight="bold" fill="#2563eb">GEMM Tiling: C = A x B</text>
+
+  <!-- ====== Top row: A @ B = C ====== -->
+
+  <!-- Matrix A -->
+  <text x="110" y="82" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">A</text>
+  <text x="110" y="96" text-anchor="middle" font-size="12" fill="#555">M x K</text>
+  <rect x="40" y="104" width="140" height="200" rx="12" fill="#c8e6c9" stroke="#333" stroke-width="2"/>
+  <!-- Highlighted row block (top: first BM rows) -->
+  <rect x="48" y="112" width="124" height="36" rx="6" fill="#66bb6a" opacity="0.4" stroke="#2e7d32" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="110" y="136" text-anchor="middle" font-size="10" font-weight="bold" fill="#1b5e20">BM rows</text>
+  <!-- Dimension labels -->
+  <text x="110" y="320" text-anchor="middle" font-size="11" fill="#888">K</text>
+  <text x="24" y="204" font-size="11" fill="#888" transform="rotate(-90, 24, 204)">M</text>
+
+  <!-- x symbol -->
+  <text x="210" y="210" text-anchor="middle" font-size="24" font-weight="bold" fill="#333">x</text>
+
+  <!-- Matrix B (K x N): width=200 for N, height=140 for K -->
+  <text x="340" y="82" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">B</text>
+  <text x="340" y="96" text-anchor="middle" font-size="12" fill="#555">K x N</text>
+  <rect x="240" y="104" width="200" height="140" rx="12" fill="#bbdefb" stroke="#333" stroke-width="2"/>
+  <!-- Highlighted: BK x BN = half K height (70px) x quarter N width (50px) -->
+  <rect x="248" y="112" width="50" height="62" rx="6" fill="#42a5f5" opacity="0.4" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="273" y="148" text-anchor="middle" font-size="9" font-weight="bold" fill="#0d47a1">BN</text>
+  <!-- Dimension labels -->
+  <text x="340" y="260" text-anchor="middle" font-size="11" fill="#888">N</text>
+  <text x="228" y="174" font-size="11" fill="#888" transform="rotate(-90, 228, 174)">K</text>
+
+  <!-- = symbol -->
+  <text x="470" y="210" text-anchor="middle" font-size="24" font-weight="bold" fill="#333">=</text>
+
+  <!-- Matrix C with grid (M x N): 240w x 200h, 4x4 grid -> 60w x 50h cells -->
+  <text x="620" y="82" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">C</text>
+  <rect x="500" y="104" width="240" height="200" rx="12" fill="#fff9c4" stroke="#333" stroke-width="2"/>
+
+  <!-- 4x4 grid lines: cells are 60w x 50h -->
+  <line x1="560" y1="104" x2="560" y2="304" stroke="#e0e0e0" stroke-width="1"/>
+  <line x1="620" y1="104" x2="620" y2="304" stroke="#e0e0e0" stroke-width="1"/>
+  <line x1="680" y1="104" x2="680" y2="304" stroke="#e0e0e0" stroke-width="1"/>
+  <line x1="500" y1="154" x2="740" y2="154" stroke="#e0e0e0" stroke-width="1"/>
+  <line x1="500" y1="204" x2="740" y2="204" stroke="#e0e0e0" stroke-width="1"/>
+  <line x1="500" y1="254" x2="740" y2="254" stroke="#e0e0e0" stroke-width="1"/>
+
+  <!-- Highlighted tile (0,0): inset within first cell -->
+  <rect x="505" y="109" width="50" height="40" rx="4" fill="#ffb74d" opacity="0.5" stroke="#e65100" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- Tile labels: centered in each 60x50 cell -->
+  <text x="530" y="134" text-anchor="middle" font-size="9" font-weight="bold" fill="#bf360c">(0,0)</text>
+  <text x="590" y="134" text-anchor="middle" font-size="8" fill="#999">(0,1)</text>
+  <text x="650" y="134" text-anchor="middle" font-size="8" fill="#999">(0,2)</text>
+  <text x="710" y="134" text-anchor="middle" font-size="8" fill="#999">(0,3)</text>
+  <text x="530" y="184" text-anchor="middle" font-size="8" fill="#999">(1,0)</text>
+  <text x="590" y="184" text-anchor="middle" font-size="8" fill="#999">(1,1)</text>
+  <text x="650" y="184" text-anchor="middle" font-size="8" fill="#999">(1,2)</text>
+  <text x="710" y="184" text-anchor="middle" font-size="8" fill="#999">(1,3)</text>
+  <text x="530" y="234" text-anchor="middle" font-size="8" fill="#999">(2,0)</text>
+  <text x="590" y="234" text-anchor="middle" font-size="8" fill="#999">(2,1)</text>
+  <text x="650" y="234" text-anchor="middle" font-size="8" fill="#999">(2,2)</text>
+  <text x="710" y="234" text-anchor="middle" font-size="8" fill="#999">(2,3)</text>
+  <text x="530" y="284" text-anchor="middle" font-size="8" fill="#999">(3,0)</text>
+  <text x="590" y="284" text-anchor="middle" font-size="8" fill="#999">(3,1)</text>
+  <text x="650" y="284" text-anchor="middle" font-size="8" fill="#999">(3,2)</text>
+  <text x="710" y="284" text-anchor="middle" font-size="8" fill="#999">(3,3)</text>
+
+  <!-- Dimension labels -->
+  <text x="620" y="320" text-anchor="middle" font-size="11" fill="#888">N</text>
+  <text x="488" y="204" font-size="11" fill="#888" transform="rotate(-90, 488, 204)">M</text>
+
+  <!-- Grid note -->
+  <text x="620" y="340" text-anchor="middle" font-size="12" fill="#555">grid = (ceil(M/BM), ceil(N/BN))</text>
+  <text x="620" y="358" text-anchor="middle" font-size="12" fill="#555">one program instance per tile</text>
+
+  <!-- ====== Arrow down to K-loop section ====== -->
+  <line x1="390" y1="370" x2="390" y2="410" stroke="#444" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- ====== K-loop detail ====== -->
+  <text x="390" y="440" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Inside pid=(0,0): the K-loop</text>
+
+  <!-- Iteration 1 box -->
+  <rect x="40" y="460" width="700" height="130" rx="14" fill="#fce4ec" stroke="#333" stroke-width="2"/>
+  <text x="390" y="485" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">Iteration k = 0</text>
+
+  <!-- A tile -->
+  <rect x="70" y="500" width="120" height="70" rx="10" fill="#c8e6c9" stroke="#333" stroke-width="1.5"/>
+  <text x="130" y="530" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">A tile</text>
+  <text x="130" y="550" text-anchor="middle" font-size="11" fill="#555">BM x BK</text>
+
+  <!-- x -->
+  <text x="215" y="540" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">x</text>
+
+  <!-- B tile -->
+  <rect x="240" y="500" width="120" height="70" rx="10" fill="#bbdefb" stroke="#333" stroke-width="1.5"/>
+  <text x="300" y="530" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">B tile</text>
+  <text x="300" y="550" text-anchor="middle" font-size="11" fill="#555">BK x BN</text>
+
+  <!-- += -->
+  <text x="392" y="540" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">+=</text>
+
+  <!-- acc -->
+  <rect x="430" y="500" width="130" height="70" rx="10" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
+  <text x="495" y="528" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">acc</text>
+  <text x="495" y="548" text-anchor="middle" font-size="11" fill="#555">BM x BN</text>
+  <text x="495" y="562" text-anchor="middle" font-size="10" fill="#999">(in registers)</text>
+
+  <!-- dot label -->
+  <rect x="590" y="515" width="120" height="36" rx="8" fill="#e8eaf6" stroke="#333" stroke-width="1.5"/>
+  <text x="650" y="539" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">metile.dot()</text>
+
+  <!-- Arrow between iterations -->
+  <line x1="390" y1="590" x2="390" y2="618" stroke="#444" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="420" y="610" font-size="12" fill="#555" font-style="italic">k += BK</text>
+
+  <!-- Iteration 2 box -->
+  <rect x="40" y="624" width="700" height="130" rx="14" fill="#fce4ec" stroke="#333" stroke-width="2"/>
+  <text x="390" y="649" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">Iteration k = BK</text>
+
+  <rect x="70" y="664" width="120" height="70" rx="10" fill="#c8e6c9" stroke="#333" stroke-width="1.5"/>
+  <text x="130" y="694" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">A tile</text>
+  <text x="130" y="714" text-anchor="middle" font-size="11" fill="#555">BM x BK</text>
+
+  <text x="215" y="704" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">x</text>
+
+  <rect x="240" y="664" width="120" height="70" rx="10" fill="#bbdefb" stroke="#333" stroke-width="1.5"/>
+  <text x="300" y="694" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">B tile</text>
+  <text x="300" y="714" text-anchor="middle" font-size="11" fill="#555">BK x BN</text>
+
+  <text x="392" y="704" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">+=</text>
+
+  <rect x="430" y="664" width="130" height="70" rx="10" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
+  <text x="495" y="692" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">acc</text>
+  <text x="495" y="712" text-anchor="middle" font-size="11" fill="#555">BM x BN</text>
+  <text x="495" y="726" text-anchor="middle" font-size="10" fill="#999">(accumulated)</text>
+
+  <rect x="590" y="679" width="120" height="36" rx="8" fill="#e8eaf6" stroke="#333" stroke-width="1.5"/>
+  <text x="650" y="703" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">metile.dot()</text>
+
+  <!-- More iterations dots -->
+  <text x="390" y="778" text-anchor="middle" font-size="18" fill="#999">. . .   repeated K / BK times   . . .</text>
+
+  <!-- Arrow to store -->
+  <line x1="390" y1="790" x2="390" y2="818" stroke="#444" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- Final store -->
+  <rect x="200" y="824" width="380" height="56" rx="14" fill="#c8e6c9" stroke="#333" stroke-width="2"/>
+  <text x="390" y="852" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">metile.tile_store(C, ..., acc)</text>
+  <text x="390" y="870" text-anchor="middle" font-size="11" fill="#555">write BM x BN result to global memory</text>
+</svg>

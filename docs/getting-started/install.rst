@@ -5,7 +5,7 @@ Requirements
 ------------
 
 - macOS 13 (Ventura) or later
-- Apple Silicon (M1, M2, M3, M4 — any variant)
+- Apple Silicon (M1, or later)
 - Python 3.10+
 
 Install
