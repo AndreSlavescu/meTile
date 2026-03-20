@@ -211,7 +211,6 @@ def vectorize_loads(func: mir.MFunction, vec_size: int = 4) -> mir.MFunction:
     return func
 
 
-
 def serpentine_mma(func: mir.MFunction) -> mir.MFunction:
     """Enable serpentine (zigzag) N-traversal in MMA inner loops.
 
@@ -758,12 +757,11 @@ def validate_pass_order(pass_names: list[str]) -> None:
     index_of = {name: i for i, name in enumerate(pass_names)}
 
     for before, after in _PASS_ORDER_CONSTRAINTS:
-        if before in index_of and after in index_of:
-            if index_of[before] > index_of[after]:
-                raise PassOrderError(
-                    f"Pass '{before}' must run before '{after}', "
-                    f"but '{after}' appears first in the pass list."
-                )
+        if before in index_of and after in index_of and index_of[before] > index_of[after]:
+            raise PassOrderError(
+                f"Pass '{before}' must run before '{after}', "
+                f"but '{after}' appears first in the pass list."
+            )
 
     for a, b in _MUTUALLY_EXCLUSIVE:
         if a in index_of and b in index_of:

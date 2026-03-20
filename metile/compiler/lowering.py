@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
-from metile.ir.layout import Layout, row_major, _ceil_div
+from metile.ir.layout import Layout, _ceil_div, row_major
 from metile.ir.types import I32, U32, PtrType, ScalarType, TileType
 
 
@@ -125,9 +125,7 @@ def _extract_gemm_params(
     return ptr_A, ptr_B, ptr_C, M_val, N_val, K_val
 
 
-def _lower_params(
-    func: tir.Function, mfunc: mir.MFunction
-) -> dict[str, mir.MValue]:
+def _lower_params(func: tir.Function, mfunc: mir.MFunction) -> dict[str, mir.MValue]:
     """Lower Tile IR params to Metal IR params. Returns param value map."""
     param_values: dict[str, mir.MValue] = {}
     for p in func.params:
@@ -393,9 +391,7 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
     B_STRIDE = BN
 
     # Validate threadgroup memory fits
-    _check_tg_memory(
-        {"shared_a": BM * A_STRIDE, "shared_b": BK * B_STRIDE}, msl_type, "GEMM"
-    )
+    _check_tg_memory({"shared_a": BM * A_STRIDE, "shared_b": BK * B_STRIDE}, msl_type, "GEMM")
 
     mfunc.threadgroup_size = (TG_SIZE, 1, 1)
 
@@ -497,8 +493,9 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
 
     # MMA inner loop
     loop_body.append(
-        _build_kk_loop(NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b",
-                        A_STRIDE, B_STRIDE, msl_type, BK)
+        _build_kk_loop(
+            NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b", A_STRIDE, B_STRIDE, msl_type, BK
+        )
     )
 
     # Barrier
@@ -747,8 +744,16 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
 
     # Consumers: compute MMA from current buffer
     kk_loop_main = _build_kk_loop(
-        NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b",
-        A_STRIDE, B_STRIDE, msl_type, BK,
+        NUM_8M,
+        NUM_8N,
+        sg_row,
+        sg_col,
+        "shared_a",
+        "shared_b",
+        A_STRIDE,
+        B_STRIDE,
+        msl_type,
+        BK,
     )
     mma_ops = [kk_loop_main]
     loop_body.append(
@@ -781,8 +786,16 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
 
     # --- Epilogue: consumers compute last tile from current buffer ---
     kk_loop_epilogue = _build_kk_loop(
-        NUM_8M, NUM_8N, sg_row, sg_col, "sa_curr", "sb_curr",
-        A_STRIDE, B_STRIDE, msl_type, BK,
+        NUM_8M,
+        NUM_8N,
+        sg_row,
+        sg_col,
+        "sa_curr",
+        "sb_curr",
+        A_STRIDE,
+        B_STRIDE,
+        msl_type,
+        BK,
     )
     mfunc.add_op(
         mir.MSimdgroupRoleBlock(
@@ -1049,7 +1062,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
         # cooperative_tensors with no shared threadgroup memory.
         #
         # Always use 2x when BK >= 2*bk_inner. User K_UNROLL can override.
-        effective_unroll = 2 if BK >= 2 * bk_inner else 1
+        effective_unroll = 2 if 2 * bk_inner <= BK else 1
         effective_unroll = max(effective_unroll, k_unroll)
 
         k_body = []
@@ -1381,8 +1394,9 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
     loop_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
 
     loop_body.append(
-        _build_kk_loop(NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b",
-                        A_STRIDE, B_STRIDE, msl_type, BK)
+        _build_kk_loop(
+            NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b", A_STRIDE, B_STRIDE, msl_type, BK
+        )
     )
 
     loop_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
