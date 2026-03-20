@@ -1,6 +1,6 @@
 BENCH_FILES := $(filter-out benchmarks/benchutils.py benchmarks/__init__.py, $(wildcard benchmarks/*.py))
 
-.PHONY: lint format check test bench code-qual ci
+.PHONY: lint format check test bench code-qual ci docs
 
 lint:
 	ruff check metile/ tests/ benchmarks/ kernels/
@@ -24,3 +24,6 @@ bench:
 	@for f in $(BENCH_FILES); do echo "=== $$f ===" && python $$f && echo; done
 
 ci: check code-qual test
+
+docs:
+	$(MAKE) -C docs html
