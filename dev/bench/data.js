@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773993821219,
+  "lastUpdate": 1774033635919,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -665,6 +665,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 416.22,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "719726bb5c8a5b634e8846e0de6315131a6e7939",
+          "message": "Docs updates with diagrams (#7)\n\ndocs updates with diagrams",
+          "timestamp": "2026-03-20T15:05:32-04:00",
+          "tree_id": "d0fd48f1918d55dea0e2f75d570cd96d6817b56c",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/719726bb5c8a5b634e8846e0de6315131a6e7939"
+        },
+        "date": 1774033633997,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 384.28,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 2337.05,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 358.83,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1002.08,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 361.37,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1009.82,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 300.45,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 316.61,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 315.37,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 429.82,
             "unit": "us"
           }
         ]
