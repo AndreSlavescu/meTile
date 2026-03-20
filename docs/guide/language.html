@@ -255,7 +255,7 @@
           <section id="language-reference">
 <h1>Language Reference<a class="headerlink" href="#language-reference" title="Link to this heading">¶</a></h1>
 <p>meTile provides a Python eDSL (embedded domain-specific language) for writing GPU kernels. Functions
-decorated with <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> are traced and compiled to Metal shaders — they are not executed
+decorated with <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> are traced and compiled to Metal shaders. They are not executed
 as regular Python.</p>
 <p>This page documents every construct available inside a <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> function.</p>
 <section id="kernel-definition">
@@ -267,9 +267,9 @@ as regular Python.</p>
 </div>
 <p>Parameters are either:</p>
 <ul class="simple">
-<li><p><strong>Pointers</strong> — numpy arrays or <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code> objects become <code class="docutils literal notranslate"><span class="pre">device</span> <span class="pre">float*</span></code> in Metal</p></li>
-<li><p><strong>Scalars</strong> — Python ints/floats become <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">int&amp;</span></code> or <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">float&amp;</span></code></p></li>
-<li><p><strong>Constexprs</strong> — annotated with <code class="docutils literal notranslate"><span class="pre">metile.constexpr</span></code>, baked into the shader at compile time</p></li>
+<li><p><strong>Pointers</strong>: numpy arrays or <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code> objects become <code class="docutils literal notranslate"><span class="pre">device</span> <span class="pre">float*</span></code> in Metal</p></li>
+<li><p><strong>Scalars</strong>: Python ints/floats become <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">int&amp;</span></code> or <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">float&amp;</span></code></p></li>
+<li><p><strong>Constexprs</strong>: annotated with <code class="docutils literal notranslate"><span class="pre">metile.constexpr</span></code>, baked into the shader at compile time</p></li>
 </ul>
 <p>Constexprs are passed as keyword arguments at launch:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">my_kernel</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
@@ -601,7 +601,7 @@ Supported patterns: <code class="docutils literal notranslate"><span class="pre"
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             

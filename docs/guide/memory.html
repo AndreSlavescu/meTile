@@ -254,14 +254,16 @@
         <article role="main" id="furo-main-content">
           <section id="memory-model">
 <h1>Memory Model<a class="headerlink" href="#memory-model" title="Link to this heading">¶</a></h1>
-<p>Apple Silicon has a <strong>unified memory architecture</strong> — the CPU and GPU share the same physical
+<p>Apple Silicon has a <strong>unified memory architecture</strong> where the CPU and GPU share the same physical
 memory. meTile exposes this directly through <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code>.</p>
+<a class="reference internal image-reference" href="../_images/unified-memory.svg"><img alt="Unified memory: CPU and GPU both access the same physical memory through metile.Buffer" src="../_images/unified-memory.svg" style="width: 100%;" />
+</a>
 <section id="buffers">
 <h2>Buffers<a class="headerlink" href="#buffers" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
-<span class="c1"># Create from numpy (zero-copy — the GPU reads the same memory)</span>
+<span class="c1"># Create from numpy (zero-copy, the GPU reads the same memory)</span>
 <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
 
 <span class="c1"># Allocate zeroed</span>
@@ -312,6 +314,15 @@ memory access:</p>
 <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>      <span class="c1"># masked-off lanes are skipped</span>
 </pre></div>
 </div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>N = 10, BLOCK = 4, pid = 2 (last instance)
+
+offs = [8, 9, 10, 11]
+mask = [T, T, F, F] # values 10 and 11 are out of bounds
+
+load:  reads x[8], x[9], returns 0 for indices 10, 11
+store: writes out[8], out[9], skips indices 10, 11
+</pre></div>
+</div>
 <p>Masking is essential for correctness. Without it, the last program instance would read/write
 past the end of the array.</p>
 </section>
@@ -322,7 +333,7 @@ past the end of the array.</p>
 <span class="n">metile</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>   <span class="c1"># synchronize all threads in the threadgroup</span>
 </pre></div>
 </div>
-<p>Shared memory is threadgroup-local — it is not visible to other threadgroups. Use
+<p>Shared memory is threadgroup-local and not visible to other threadgroups. Use
 <code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code> to synchronize access within a threadgroup.</p>
 </section>
 </section>
@@ -356,7 +367,7 @@ past the end of the array.</p>
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             

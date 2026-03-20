@@ -68,5 +68,5 @@ Concepts Introduced
 - Three-pass algorithm (mean, variance, normalize)
 - Scalar accumulators across tiled loops
 - ``metile.sum`` reduction
-- ``metile.sqrt`` — element-wise square root
+- ``metile.sqrt``: element-wise square root
 - Loading separate weight/bias arrays (shared across all rows)

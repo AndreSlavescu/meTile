@@ -277,7 +277,7 @@ code, compiles it to a Metal shader, and dispatches it on the GPU.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">X,</span> <span class="pre">Y,</span> <span class="pre">Out</span></code></dt><dd><p>Device pointers to GPU memory. These map to <code class="docutils literal notranslate"><span class="pre">device</span> <span class="pre">float*</span></code> in Metal.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">N</span></code></dt><dd><p>A runtime scalar — passed as a <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">int&amp;</span></code> to the shader.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">N</span></code></dt><dd><p>A runtime scalar, passed as a <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">int&amp;</span></code> to the shader.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">BLOCK:</span> <span class="pre">metile.constexpr</span></code></dt><dd><p>A <strong>compile-time constant</strong>. The value is baked directly into the shader. Changing it
 triggers recompilation.</p>
@@ -314,7 +314,7 @@ Instance 0 handles <code class="docutils literal notranslate"><span class="pre">
 </div>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code></dt><dd><p>Wraps a Metal buffer in unified memory. CPU and GPU share the same physical memory on
-Apple Silicon — there is no copy between host and device.</p>
+Apple Silicon, so there is no copy between host and device.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">metile.Buffer.zeros((N,))</span></code></dt><dd><p>Allocates a zeroed buffer of <code class="docutils literal notranslate"><span class="pre">N</span></code> float32 elements.</p>
 </dd>
@@ -336,6 +336,8 @@ is compiled on first call and cached for subsequent calls with the same constexp
 <li><p><strong>Compiles</strong> with <code class="docutils literal notranslate"><span class="pre">xcrun</span> <span class="pre">metal</span> <span class="pre">-O2</span></code> (or JIT if Xcode is unavailable)</p></li>
 <li><p><strong>Dispatches</strong> the compute pipeline on the GPU</p></li>
 </ol>
+<a class="reference internal image-reference" href="../_images/compilation-pipeline.svg"><img alt="meTile compilation pipeline: Python to Tile IR to Metal IR to MSL to GPU" src="../_images/compilation-pipeline.svg" style="width: 100%;" />
+</a>
 <p>You can inspect any stage with the <code class="docutils literal notranslate"><span class="pre">METILE_DEBUG</span></code> environment variable:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">METILE_DEBUG</span><span class="o">=</span>msl<span class="w"> </span>python<span class="w"> </span>my_script.py<span class="w">       </span><span class="c1"># see the generated Metal shader</span>
 <span class="nv">METILE_DEBUG</span><span class="o">=</span>tile_ir<span class="w"> </span>python<span class="w"> </span>my_script.py<span class="w">   </span><span class="c1"># see the Tile IR</span>
@@ -346,9 +348,9 @@ is compiled on first call and cached for subsequent calls with the same constexp
 <section id="what-s-next">
 <h2>What’s Next<a class="headerlink" href="#what-s-next" title="Link to this heading">¶</a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> — full language reference for what you can write inside <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code></p></li>
-<li><p><a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> — a more complex kernel with reductions and multiple passes</p></li>
-<li><p><a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> — tile-level matrix multiply with <code class="docutils literal notranslate"><span class="pre">dot</span></code> and <code class="docutils literal notranslate"><span class="pre">tile_load</span></code></p></li>
+<li><p><a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> for the full language reference</p></li>
+<li><p><a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> for a more complex kernel with reductions and multiple passes</p></li>
+<li><p><a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> for tile-level matrix multiply with <code class="docutils literal notranslate"><span class="pre">dot</span></code> and <code class="docutils literal notranslate"><span class="pre">tile_load</span></code></p></li>
 </ul>
 </section>
 </section>
@@ -382,7 +384,7 @@ is compiled on first call and cached for subsequent calls with the same constexp
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             

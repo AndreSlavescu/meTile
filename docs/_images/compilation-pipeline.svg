@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 920" font-family="'Comfortaa', 'Nunito', 'Varela Round', system-ui, sans-serif">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&amp;display=swap');
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#444"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="680" height="920" fill="#fff"/>
+
+  <!-- ====== Stage 1: Input Python code ====== -->
+  <text x="340" y="36" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Input Python code</text>
+
+  <rect x="120" y="50" width="440" height="120" rx="16" fill="#fff" stroke="#333" stroke-width="2"/>
+  <text font-family="'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" font-size="13" fill="#333">
+    <tspan x="148" y="80" fill="#7c3aed">@metile.kernel</tspan>
+    <tspan x="148" y="100" fill="#7c3aed">def</tspan><tspan fill="#333"> matmul(A, B, C, M, N, K, ...):</tspan>
+    <tspan x="168" y="120">acc = metile.zeros((BM, BN))</tspan>
+    <tspan x="168" y="140" fill="#7c3aed">for</tspan><tspan fill="#333"> k </tspan><tspan fill="#7c3aed">in</tspan><tspan fill="#333"> metile.tile_range(...):</tspan>
+    <tspan x="188" y="156" fill="#888">acc = metile.dot(a, b, acc)</tspan>
+  </text>
+
+  <!-- Arrow -->
+  <line x1="340" y1="170" x2="340" y2="210" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="356" y="196" font-size="12" fill="#555" font-style="italic">trace</text>
+
+  <!-- ====== Stage 2: Tile IR ====== -->
+  <text x="340" y="234" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Tile IR</text>
+
+  <rect x="120" y="248" width="440" height="100" rx="16" fill="#fce4ec" stroke="#333" stroke-width="2"/>
+  <text x="340" y="278" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Hardware-agnostic operations</text>
+
+  <rect x="160" y="292" width="360" height="40" rx="10" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
+  <text x="340" y="317" text-anchor="middle" font-size="13" fill="#333">Dot, TileLoad, TileStore, ForRange, Zeros, ...</text>
+
+  <!-- Arrow -->
+  <line x1="340" y1="348" x2="340" y2="388" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="356" y="374" font-size="12" fill="#555" font-style="italic">lower</text>
+
+  <!-- ====== Stage 3: Metal IR ====== -->
+  <text x="340" y="412" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Metal IR</text>
+
+  <rect x="120" y="426" width="440" height="120" rx="16" fill="#fce4ec" stroke="#333" stroke-width="2"/>
+  <text x="340" y="456" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Apple GPU primitives</text>
+
+  <!-- Two sub-boxes side by side -->
+  <rect x="145" y="468" width="190" height="60" rx="10" fill="#bbdefb" stroke="#333" stroke-width="1.5"/>
+  <text x="240" y="494" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">Simdgroup MMA</text>
+  <text x="240" y="512" text-anchor="middle" font-size="11" fill="#555">M1 / M2 / M3</text>
+
+  <rect x="345" y="468" width="190" height="60" rx="10" fill="#bbdefb" stroke="#333" stroke-width="1.5"/>
+  <text x="440" y="494" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">Tensor Ops</text>
+  <text x="440" y="512" text-anchor="middle" font-size="11" fill="#555">M4+</text>
+
+  <!-- Arrow -->
+  <line x1="340" y1="546" x2="340" y2="586" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="356" y="572" font-size="12" fill="#555" font-style="italic">optimize</text>
+
+  <!-- ====== Stage 4: Optimization Passes ====== -->
+  <text x="340" y="610" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Optimization Passes</text>
+
+  <rect x="120" y="624" width="440" height="56" rx="16" fill="#fce4ec" stroke="#333" stroke-width="2"/>
+  <rect x="145" y="636" width="390" height="30" rx="8" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
+  <text x="340" y="657" text-anchor="middle" font-size="11" fill="#333">vectorize, serpentine MMA, double-buffer, split-K, swizzle, fold</text>
+
+  <!-- Arrow -->
+  <line x1="340" y1="680" x2="340" y2="720" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="356" y="706" font-size="12" fill="#555" font-style="italic">emit</text>
+
+  <!-- ====== Stage 5: MSL Source ====== -->
+  <text x="340" y="744" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">MSL Source</text>
+
+  <rect x="120" y="758" width="440" height="72" rx="16" fill="#fff" stroke="#333" stroke-width="2"/>
+  <text font-family="'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" font-size="11" fill="#555">
+    <tspan x="148" y="782">[[kernel]] void mtile_matmul(</tspan>
+    <tspan x="168" y="798">device float* A [[buffer(0)]], ...)</tspan>
+    <tspan x="148" y="814">{ ... simdgroup_multiply_accumulate ... }</tspan>
+  </text>
+
+  <!-- Arrow -->
+  <line x1="340" y1="830" x2="340" y2="860" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="356" y="851" font-size="12" fill="#555" font-style="italic">xcrun metal -O2</text>
+
+  <!-- ====== Stage 6: Binary ====== -->
+  <rect x="120" y="866" width="440" height="40" rx="16" fill="#c8e6c9" stroke="#333" stroke-width="2"/>
+  <text x="340" y="892" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Metal Compute Pipeline (.metallib)</text>
+</svg>

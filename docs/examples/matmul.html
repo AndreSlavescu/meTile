@@ -278,7 +278,7 @@
 </section>
 <section id="launching">
 <h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">¶</a></h2>
-<p>The grid is 2D — one program instance per output tile:</p>
+<p>The grid is 2D, one program instance per output tile:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span>
@@ -309,8 +309,8 @@ threadgroup memory</p></li>
 </section>
 <section id="fused-gemm-relu">
 <h2>Fused GEMM + ReLU<a class="headerlink" href="#fused-gemm-relu" title="Link to this heading">¶</a></h2>
-<p>Element-wise operations after the GEMM loop are fused into the kernel’s epilogue —
-they run on register-resident data with zero extra memory traffic:</p>
+<p>Element-wise operations after the GEMM loop are fused into the kernel’s epilogue.
+They run on register-resident data with zero extra memory traffic:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">matmul_relu</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span>
                 <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
@@ -322,7 +322,7 @@ they run on register-resident data with zero extra memory traffic:</p>
         <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
         <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
         <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">acc</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>   <span class="c1"># fused ReLU — no global memory round-trip</span>
+    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">acc</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>   <span class="c1"># fused ReLU, no global memory round-trip</span>
     <span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
 </pre></div>
 </div>
@@ -368,12 +368,12 @@ Use <code class="docutils literal notranslate"><span class="pre">tile_swizzle</s
 <section id="concepts-introduced">
 <h2>Concepts Introduced<a class="headerlink" href="#concepts-introduced" title="Link to this heading">¶</a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.zeros</span></code> — register-resident accumulator initialization</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.dot</span></code> — tile-level matrix multiply-accumulate</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.tile_load</span></code> / <code class="docutils literal notranslate"><span class="pre">metile.tile_store</span></code> — 2D strided memory access</p></li>
-<li><p>2D grids — <code class="docutils literal notranslate"><span class="pre">kernel[(grid_m,</span> <span class="pre">grid_n)]</span></code></p></li>
-<li><p>Fused epilogues — element-wise ops after GEMM are free</p></li>
-<li><p>Tile swizzle — cache-friendly scheduling patterns</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.zeros</span></code>: register-resident accumulator initialization</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.dot</span></code>: tile-level matrix multiply-accumulate</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.tile_load</span></code> / <code class="docutils literal notranslate"><span class="pre">metile.tile_store</span></code>: 2D strided memory access</p></li>
+<li><p>2D grids: <code class="docutils literal notranslate"><span class="pre">kernel[(grid_m,</span> <span class="pre">grid_n)]</span></code></p></li>
+<li><p>Fused epilogues: element-wise ops after GEMM are free</p></li>
+<li><p>Tile swizzle: cache-friendly scheduling patterns</p></li>
 </ul>
 </section>
 </section>
@@ -407,7 +407,7 @@ Use <code class="docutils literal notranslate"><span class="pre">tile_swizzle</s
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             

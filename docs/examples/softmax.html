@@ -300,28 +300,14 @@
 </pre></div>
 </div>
 </section>
-<section id="how-it-works">
-<h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">¶</a></h2>
-<p>The kernel makes three passes over each row:</p>
-<ol class="arabic simple">
-<li><p><strong>Find max</strong> — <code class="docutils literal notranslate"><span class="pre">metile.maximum</span></code> computes element-wise max across tiles, then
-<code class="docutils literal notranslate"><span class="pre">metile.max</span></code> reduces the tile to a scalar. This is needed for numerical stability
-(subtracting the max prevents overflow in <code class="docutils literal notranslate"><span class="pre">exp</span></code>).</p></li>
-<li><p><strong>Sum exponentials</strong> — accumulates <code class="docutils literal notranslate"><span class="pre">exp(x</span> <span class="pre">-</span> <span class="pre">m)</span></code> across all tiles, then
-<code class="docutils literal notranslate"><span class="pre">metile.sum</span></code> reduces to a scalar denominator.</p></li>
-<li><p><strong>Normalize</strong> — divides each <code class="docutils literal notranslate"><span class="pre">exp(x</span> <span class="pre">-</span> <span class="pre">m)</span></code> by the sum.</p></li>
-</ol>
-<p>Each pass iterates over the row in chunks of <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> elements using <code class="docutils literal notranslate"><span class="pre">tile_range</span></code>.
-The <code class="docutils literal notranslate"><span class="pre">mask</span></code> ensures correctness when <code class="docutils literal notranslate"><span class="pre">N</span></code> is not a multiple of <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code>.</p>
-</section>
 <section id="concepts-introduced">
 <h2>Concepts Introduced<a class="headerlink" href="#concepts-introduced" title="Link to this heading">¶</a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.tile_range</span></code> — tiling loop for iterating over a dimension</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.maximum</span></code> / <code class="docutils literal notranslate"><span class="pre">metile.max</span></code> — element-wise max and reduction</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.sum</span></code> — sum reduction</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.exp</span></code> — element-wise exponential</p></li>
-<li><p>Multi-pass algorithms — reading the same data multiple times in different passes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.tile_range</span></code>: tiling loop for iterating over a dimension</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.maximum</span></code> / <code class="docutils literal notranslate"><span class="pre">metile.max</span></code>: element-wise max and reduction</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.sum</span></code>: sum reduction</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.exp</span></code>: element-wise exponential</p></li>
+<li><p>Multi-pass algorithms: reading the same data multiple times in different passes</p></li>
 <li><p>Scalar accumulators (<code class="docutils literal notranslate"><span class="pre">m</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code>) carried across loop iterations</p></li>
 </ul>
 </section>
@@ -356,7 +342,7 @@ The <code class="docutils literal notranslate"><span class="pre">mask</span></co
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             
@@ -384,7 +370,6 @@ The <code class="docutils literal notranslate"><span class="pre">mask</span></co
             <ul>
 <li><a class="reference internal" href="#">Softmax</a><ul>
 <li><a class="reference internal" href="#launching">Launching</a></li>
-<li><a class="reference internal" href="#how-it-works">How It Works</a></li>
 <li><a class="reference internal" href="#concepts-introduced">Concepts Introduced</a></li>
 </ul>
 </li>

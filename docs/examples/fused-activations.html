@@ -258,7 +258,7 @@
 to run different computations on different simdgroup subsets within a single kernel.</p>
 <section id="simple-activations">
 <h2>Simple Activations<a class="headerlink" href="#simple-activations" title="Link to this heading">¶</a></h2>
-<p>Element-wise kernels follow the same pattern as vector add — load, compute, store:</p>
+<p>Element-wise kernels follow the same pattern as vector add (load, compute, store):</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
@@ -286,7 +286,7 @@ to run different computations on different simdgroup subsets within a single ker
 <section id="fused-gemm-activation">
 <h2>Fused GEMM + Activation<a class="headerlink" href="#fused-gemm-activation" title="Link to this heading">¶</a></h2>
 <p>When an activation follows a <code class="docutils literal notranslate"><span class="pre">dot</span></code> operation, the compiler fuses it into the GEMM epilogue.
-The activation runs on register-resident data — no global memory round-trip:</p>
+The activation runs on register-resident data, no global memory round-trip:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">matmul_gelu</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span>
                 <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
@@ -298,7 +298,7 @@ The activation runs on register-resident data — no global memory round-trip:</
         <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
         <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
         <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-    <span class="c1"># Fused GELU epilogue — runs on accumulator registers</span>
+    <span class="c1"># Fused GELU epilogue, runs on accumulator registers</span>
     <span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.702</span> <span class="o">*</span> <span class="n">acc</span><span class="p">))</span>
     <span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
 </pre></div>
@@ -308,7 +308,7 @@ The activation runs on register-resident data — no global memory round-trip:</
 <h2>Simdgroup Roles<a class="headerlink" href="#simdgroup-roles" title="Link to this heading">¶</a></h2>
 <p>Apple GPUs organize threads into 32-thread <strong>simdgroups</strong>. A threadgroup can contain
 multiple simdgroups. With <code class="docutils literal notranslate"><span class="pre">simdgroup_role</span></code>, you can assign different work to different
-simdgroup subsets — useful for computing multiple outputs in a single dispatch:</p>
+simdgroup subsets, useful for computing multiple outputs in a single dispatch:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">exp_sqrt</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">out_exp</span><span class="p">,</span> <span class="n">out_sqrt</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
     <span class="n">pid</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
@@ -327,13 +327,11 @@ simdgroup subsets — useful for computing multiple outputs in a single dispatch
 </pre></div>
 </div>
 <p>With <code class="docutils literal notranslate"><span class="pre">num_roles=2</span></code>, the threadgroup’s simdgroups are split in half. Role 0 computes
-exponentials while role 1 computes square roots — simultaneously, in the same kernel launch.</p>
-<p>This is useful when you need multiple derived outputs from the same input and want to
-avoid the overhead of multiple kernel dispatches.</p>
+exponentials while role 1 computes square roots, simultaneously, in the same kernel launch.</p>
 </section>
 <section id="geglu-gated-gelu">
 <h2>GEGLU (Gated GELU)<a class="headerlink" href="#geglu-gated-gelu" title="Link to this heading">¶</a></h2>
-<p>A practical use of simdgroup roles — computing the gate and up projections of GEGLU
+<p>A practical use of simdgroup roles for computing the gate and up projections of GEGLU
 in parallel:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">geglu</span><span class="p">(</span><span class="n">X_gate</span><span class="p">,</span> <span class="n">X_up</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
@@ -358,8 +356,8 @@ in parallel:</p>
 <ul class="simple">
 <li><p>Element-wise activation patterns</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">metile.exp</span></code> for activation functions</p></li>
-<li><p>Fused GEMM epilogues — zero-cost post-GEMM operations</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role</span></code> — split work across simdgroup subsets</p></li>
+<li><p>Fused GEMM epilogues: zero-cost post-GEMM operations</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role</span></code>: split work across simdgroup subsets</p></li>
 <li><p>Multiple outputs from a single kernel</p></li>
 </ul>
 </section>
@@ -394,7 +392,7 @@ in parallel:</p>
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             

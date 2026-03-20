@@ -298,6 +298,19 @@ the autotuner re-benchmarks all configs.</p>
 <li><p>Dispatches with the winning config</p></li>
 </ol>
 <p>Subsequent calls with the same key values use the cached winner with zero overhead.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>First call (M=1024, N=1024, K=1024):
++--------------------------------------------------+
+|  Config(BM=64,  BN=64,  BK=32):   1.26ms         |
+|  Config(BM=128, BN=128, BK=64):   0.62ms  &lt;--    |  winner cached
+|  Config(BM=128, BN=128, BK=128):  0.91ms         |
++--------------------------------------------------+
+
+Subsequent calls (same M, N, K):
++--------------------------------------------------+
+|  cached -&gt; Config(BM=128, BN=128, BK=64)         |  no re-tuning
++--------------------------------------------------+
+</pre></div>
+</div>
 </section>
 <section id="config-object">
 <h2>Config Object<a class="headerlink" href="#config-object" title="Link to this heading">¶</a></h2>
@@ -348,7 +361,7 @@ kernel’s signature are stored in <code class="docutils literal notranslate"><s
 fast dispatcher that skips all Python overhead on subsequent calls:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">dispatch</span> <span class="o">=</span> <span class="n">autotuned_matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">]</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
 
-<span class="c1"># Hot loop — minimal Python overhead per call</span>
+<span class="c1"># hot path with minimal python overhead</span>
 <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1000</span><span class="p">):</span>
     <span class="n">dispatch</span><span class="p">()</span>
 </pre></div>
@@ -385,7 +398,7 @@ fast dispatcher that skips all Python overhead on subsequent calls:</p>
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             

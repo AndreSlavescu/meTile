@@ -8,7 +8,7 @@ to run different computations on different simdgroup subsets within a single ker
 Simple Activations
 ------------------
 
-Element-wise kernels follow the same pattern as vector add — load, compute, store:
+Element-wise kernels follow the same pattern as vector add (load, compute, store):
 
 .. code-block:: python
 
@@ -39,7 +39,7 @@ Fused GEMM + Activation
 ------------------------
 
 When an activation follows a ``dot`` operation, the compiler fuses it into the GEMM epilogue.
-The activation runs on register-resident data — no global memory round-trip:
+The activation runs on register-resident data, no global memory round-trip:
 
 .. code-block:: python
 
@@ -54,7 +54,7 @@ The activation runs on register-resident data — no global memory round-trip:
            a = metile.tile_load(A, pid_m * BLOCK_M, k, K, (BLOCK_M, BLOCK_K))
            b = metile.tile_load(B, k, pid_n * BLOCK_N, N, (BLOCK_K, BLOCK_N))
            acc = metile.dot(a, b, acc)
-       # Fused GELU epilogue — runs on accumulator registers
+       # Fused GELU epilogue, runs on accumulator registers
        acc = acc / (1.0 + metile.exp(-1.702 * acc))
        metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
 
@@ -64,7 +64,7 @@ Simdgroup Roles
 
 Apple GPUs organize threads into 32-thread **simdgroups**. A threadgroup can contain
 multiple simdgroups. With ``simdgroup_role``, you can assign different work to different
-simdgroup subsets — useful for computing multiple outputs in a single dispatch:
+simdgroup subsets, useful for computing multiple outputs in a single dispatch:
 
 .. code-block:: python
 
@@ -85,16 +85,13 @@ simdgroup subsets — useful for computing multiple outputs in a single dispatch
            metile.store(out_sqrt + offs, metile.sqrt(metile.abs(x)), mask=mask)
 
 With ``num_roles=2``, the threadgroup's simdgroups are split in half. Role 0 computes
-exponentials while role 1 computes square roots — simultaneously, in the same kernel launch.
-
-This is useful when you need multiple derived outputs from the same input and want to
-avoid the overhead of multiple kernel dispatches.
+exponentials while role 1 computes square roots, simultaneously, in the same kernel launch.
 
 
 GEGLU (Gated GELU)
 -------------------
 
-A practical use of simdgroup roles — computing the gate and up projections of GEGLU
+A practical use of simdgroup roles for computing the gate and up projections of GEGLU
 in parallel:
 
 .. code-block:: python
@@ -121,6 +118,6 @@ Concepts Introduced
 
 - Element-wise activation patterns
 - ``metile.exp`` for activation functions
-- Fused GEMM epilogues — zero-cost post-GEMM operations
-- ``metile.simdgroup_role`` — split work across simdgroup subsets
+- Fused GEMM epilogues: zero-cost post-GEMM operations
+- ``metile.simdgroup_role``: split work across simdgroup subsets
 - Multiple outputs from a single kernel

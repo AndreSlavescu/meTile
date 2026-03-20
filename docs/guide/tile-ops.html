@@ -261,12 +261,12 @@ hardware instructions.</p>
 <h2>The Two Backends<a class="headerlink" href="#the-two-backends" title="Link to this heading">¶</a></h2>
 <p>meTile automatically selects the best backend for your hardware when compiling GEMM kernels:</p>
 <dl class="simple">
-<dt><strong>Simdgroup Matrix (M1/M2/M3)</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;float,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code> — Apple’s 8x8 matrix multiply-accumulate
+<dt><strong>Simdgroup Matrix (M1/M2/M3)</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;float,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code>, Apple’s 8x8 matrix multiply-accumulate
 primitive. Each simdgroup (32 threads) collaboratively computes an 8x8 tile.
 The compiler tiles the output across multiple simdgroups and uses threadgroup
 (shared) memory to stage data.</p>
 </dd>
-<dt><strong>Metal 4 Tensor Ops (M4+)</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> with <code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code> — Metal 4’s hardware matrix multiply
+<dt><strong>Metal 4 Tensor Ops (M4+)</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> with <code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code>, Metal 4’s hardware matrix multiply
 descriptors. Each simdgroup independently loads data from device memory into
 register-resident cooperative tensors and runs the MMA. No threadgroup memory needed.</p>
 </dd>
@@ -276,18 +276,10 @@ your hardware and chooses the right path.</p>
 </section>
 <section id="how-tiling-works">
 <h2>How Tiling Works<a class="headerlink" href="#how-tiling-works" title="Link to this heading">¶</a></h2>
-<p>A GEMM kernel tiles the computation into blocks:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Output C (M x N)              Each tile is BLOCK_M x BLOCK_N
-┌─────────┬─────────┐
-│ (0,0)   │ (0,1)   │        Each program instance computes one tile.
-│ 128x128 │ 128x128 │        The K dimension is tiled with BLOCK_K.
-├─────────┼─────────┤
-│ (1,0)   │ (1,1)   │        grid = (ceil(M/BLOCK_M), ceil(N/BLOCK_N))
-│ 128x128 │ 128x128 │
-└─────────┴─────────┘
-</pre></div>
-</div>
-<p>Inside each tile, the K-loop accumulates partial results:</p>
+<p>A GEMM kernel tiles the computation into blocks. Each program instance computes
+one output tile, iterating over K to accumulate partial products:</p>
+<a class="reference internal image-reference" href="../_images/tiling-overview.svg"><img alt="Output matrix tiled into blocks, with K-loop detail showing tile_load and dot accumulation" src="../_images/tiling-overview.svg" style="width: 100%;" />
+</a>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
 <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
     <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
@@ -332,7 +324,9 @@ your hardware and chooses the right path.</p>
 </table>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">WM</span></code> and <code class="docutils literal notranslate"><span class="pre">WN</span></code> control how many simdgroups tile the output block. With <code class="docutils literal notranslate"><span class="pre">WM=4,</span> <span class="pre">WN=4</span></code>,
-16 simdgroups each handle a <code class="docutils literal notranslate"><span class="pre">(BLOCK_M/WM)</span> <span class="pre">x</span> <span class="pre">(BLOCK_N/WN)</span></code> = 32x32 subtile.</p>
+16 simdgroups each handle a <code class="docutils literal notranslate"><span class="pre">(BLOCK_M/WM)</span> <span class="pre">x</span> <span class="pre">(BLOCK_N/WN)</span></code> = 32x32 subtile:</p>
+<a class="reference internal image-reference" href="../_images/simdgroup-layout.svg"><img alt="4x4 simdgroup grid layout, 16 simdgroups each handling a 32x32 subtile" src="../_images/simdgroup-layout.svg" style="width: 100%;" />
+</a>
 </section>
 <section id="fused-epilogues">
 <h2>Fused Epilogues<a class="headerlink" href="#fused-epilogues" title="Link to this heading">¶</a></h2>
@@ -340,7 +334,7 @@ your hardware and chooses the right path.</p>
 and fuses them into the kernel. No extra memory traffic:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
 
-<span class="c1"># These are fused into the GEMM — no global memory round-trip</span>
+<span class="c1"># These are fused into the GEMM, no global memory round-trip</span>
 <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">acc</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>      <span class="c1"># ReLU</span>
 <span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">*</span> <span class="n">scale</span>                          <span class="c1"># scale</span>
 <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">acc</span><span class="p">)</span>                      <span class="c1"># unary</span>
@@ -353,13 +347,12 @@ scalar multiply, scalar add.</p>
 <h2>Tile Scheduling<a class="headerlink" href="#tile-scheduling" title="Link to this heading">¶</a></h2>
 <p>For 2D grids, the order in which tiles are assigned to threadgroups affects L2 cache locality.
 meTile supports several scheduling patterns:</p>
+<a class="reference internal image-reference" href="../_images/morton-swizzle.svg"><img alt="Morton Z-order vs linear tile scheduling, showing how 2x2 blocks share L2 cache" src="../_images/morton-swizzle.svg" style="width: 100%;" />
+</a>
 <dl class="simple">
-<dt><strong>Morton (Z-order)</strong> — default</dt><dd><p>Tiles are assigned in 2x2 blocks following a Z-curve. Adjacent threadgroups share
-A-row and B-column data in L2 cache.</p>
+<dt><strong>Diagonal</strong>:</dt><dd><p>Column assignment is rotated by the row index. Distributes memory traffic.</p>
 </dd>
-<dt><strong>Diagonal</strong></dt><dd><p>Column assignment is rotated by the row index. Distributes memory traffic.</p>
-</dd>
-<dt><strong>Linear</strong></dt><dd><p>Simple row-major assignment. No locality optimization.</p>
+<dt><strong>Linear</strong>:</dt><dd><p>Simple row-major assignment. No locality optimization.</p>
 </dd>
 </dl>
 <p>The compiler applies Morton scheduling by default. You can override it:</p>
@@ -401,7 +394,7 @@ A-row and B-column data in L2 cache.</p>
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Andre Slavescu
+                Copyright &#169; 2026, Andre Slavescu
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             
