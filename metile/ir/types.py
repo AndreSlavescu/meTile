@@ -61,8 +61,6 @@ class PtrType:
 
 
 # Common types
-F32 = ScalarType("f32")
-F16 = ScalarType("f16")
 I32 = ScalarType("i32")
 U32 = ScalarType("u32")
 BOOL = ScalarType("bool")

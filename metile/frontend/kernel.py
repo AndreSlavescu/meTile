@@ -395,7 +395,12 @@ class KernelLauncher:
         is_tensor_ops = metal_ir.kernel_type == "tensor_ops_gemm"
         is_specialized = metal_ir.kernel_type == "specialized_gemm"
         use_swizzle = constexprs.get("SWIZZLE_SMEM", False)
-        if is_specialized:
+        if is_tensor_ops:
+            # Tensor_ops kernels use register-resident cooperative_tensors —
+            # no threadgroup memory passes needed. K-loop unrolling and
+            # barrier removal are handled at lowering time.
+            pass
+        elif is_specialized:
             # Specialized GEMM: double-buffered + padded in lowering
             # Only apply vectorize and serpentine
             metal_ir = vectorize_loads(metal_ir, vec_size=4)

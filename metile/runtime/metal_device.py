@@ -63,11 +63,6 @@ def _send_ptr(obj, sel_name: str, *args, argtypes=None):
     return _send(obj, sel_name, *args, restype=ctypes.c_void_p, argtypes=argtypes)
 
 
-def _send_bool(obj, sel_name: str, *args, argtypes=None):
-    """Send message expecting a bool result."""
-    return _send(obj, sel_name, *args, restype=ctypes.c_bool, argtypes=argtypes)
-
-
 def _send_uint64(obj, sel_name: str, *args, argtypes=None):
     """Send message expecting a uint64 result."""
     return _send(obj, sel_name, *args, restype=ctypes.c_uint64, argtypes=argtypes)

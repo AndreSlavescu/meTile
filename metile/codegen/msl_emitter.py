@@ -397,9 +397,6 @@ def _emit_gemm_op(
     elif isinstance(op, mir.MSimdgroupMMA):
         _emit_simdgroup_mma(op, lines, indent)
 
-    elif isinstance(op, mir.MSimdgroupBarrierOp):
-        lines.append(f"{pad}simdgroup_barrier(mem_flags::mem_none);")
-
     elif isinstance(op, mir.MSimdgroupStore):
         _emit_simdgroup_store(op, lines, indent, func)
 
@@ -486,9 +483,6 @@ def _emit_gemm_op(
 
     elif isinstance(op, mir.MPersistentGrab):
         _emit_persistent_grab(op, lines, indent, func)
-
-    elif isinstance(op, mir.MBreak):
-        lines.append(f"{pad}break;")
 
 
 def _emit_cooperative_load(
@@ -1175,31 +1169,45 @@ def _emit_specialized_db_k_loop(
 def _emit_for_loop_guarded(op: mir.MForLoop, lines: list[str], indent: int, func: mir.MFunction):
     """Emit a tensor_ops K-loop with _valid_tile bounds guard.
 
-    Barriers remain outside the guard (all threads must reach them),
-    while loads/compute/inner loops are wrapped in if (_valid_tile).
+    The _valid_tile guard is hoisted outside the loop since a simdgroup's
+    validity is invariant across K iterations. Invalid simdgroups skip
+    the entire loop, avoiding both barrier stalls and wasted iterations.
+
+    Barriers inside the loop body are only emitted when threadgroup
+    synchronization is genuinely needed (i.e., when barrier ops exist in IR).
+    For preemptive tensor_ops with no shared memory, no barriers are emitted.
     """
     pad = "    " * indent
     end = _val_name_gemm(op.end, func) if isinstance(op.end, mir.MValue) else str(op.end)
-    lines.append(
-        f"{pad}for (int {op.iv_name} = {op.start}; {op.iv_name} < {end}; {op.iv_name} += {op.step}) {{"
-    )
 
-    # Separate barrier ops from compute ops
-    barriers = [b for b in op.body if isinstance(b, mir.MBarrier)]
+    # Check if any barriers exist (tensor_ops preemptive loops typically have none)
+    has_barriers = any(isinstance(b, mir.MBarrier) for b in op.body)
     compute_ops = [b for b in op.body if not isinstance(b, mir.MBarrier)]
 
-    # Emit barriers first (outside guard — all threads must participate)
-    for b_op in barriers:
-        _emit_gemm_op(b_op, lines, indent + 1, func)
-
-    # Emit compute inside guard
-    if compute_ops:
-        lines.append(f"{pad}    if (_valid_tile) {{")
+    if has_barriers:
+        # Barriers require all threads to participate — guard only compute ops
+        lines.append(
+            f"{pad}for (int {op.iv_name} = {op.start}; {op.iv_name} < {end}; {op.iv_name} += {op.step}) {{"
+        )
+        for b_op in op.body:
+            if isinstance(b_op, mir.MBarrier):
+                _emit_gemm_op(b_op, lines, indent + 1, func)
+            else:
+                lines.append(f"{pad}    if (_valid_tile) {{")
+                _emit_gemm_op(b_op, lines, indent + 2, func, _tensor_ops_preemptive=True)
+                lines.append(f"{pad}    }}")
+        lines.append(f"{pad}}}")
+    else:
+        # No barriers — hoist _valid_tile guard outside the entire loop.
+        # Invalid simdgroups skip all K iterations with zero overhead.
+        lines.append(f"{pad}if (_valid_tile) {{")
+        lines.append(
+            f"{pad}    for (int {op.iv_name} = {op.start}; {op.iv_name} < {end}; {op.iv_name} += {op.step}) {{"
+        )
         for body_op in compute_ops:
             _emit_gemm_op(body_op, lines, indent + 2, func, _tensor_ops_preemptive=True)
         lines.append(f"{pad}    }}")
-
-    lines.append(f"{pad}}}")
+        lines.append(f"{pad}}}")
 
 
 def _emit_for_loop(

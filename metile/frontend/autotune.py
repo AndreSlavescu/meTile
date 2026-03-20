@@ -88,12 +88,12 @@ class AutotunedLauncher:
         for cfg in at.configs:
             try:
                 dt = self._bench(cfg, args, kwargs, dev)
-                results.append((cfg, dt))
+                results.append((cfg, dt, None))
                 if dt < best_time:
                     best_time = dt
                     best = cfg
-            except Exception:
-                results.append((cfg, None))
+            except Exception as e:
+                results.append((cfg, None, e))
 
         if best is None:
             raise RuntimeError(f"All {len(at.configs)} configs failed for '{at.kernel_fn.name}'")
@@ -103,9 +103,13 @@ class AutotunedLauncher:
         if at.verbose:
             key_str = ", ".join(f"{k}={v}" for k, v in zip(at.key, key_values))
             print(f"autotune {at.kernel_fn.name} [{key_str}]: {best}")
-            for cfg, dt in results:
+            for cfg, dt, err in results:
                 tag = " <--" if cfg == best else ""
-                print(f"  {cfg}: {f'{dt * 1000:.2f}ms' if dt else 'FAILED'}{tag}")
+                if dt is not None:
+                    print(f"  {cfg}: {dt * 1000:.2f}ms{tag}")
+                else:
+                    reason = f" ({err})" if err else ""
+                    print(f"  {cfg}: FAILED{reason}")
 
         self._launch(best, args, kwargs)
         return best

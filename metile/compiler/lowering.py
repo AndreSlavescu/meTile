@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
-from metile.ir.layout import Layout, row_major
+from metile.ir.layout import Layout, row_major, _ceil_div
 from metile.ir.types import I32, U32, PtrType, ScalarType, TileType
 
 
@@ -19,11 +19,7 @@ def lower(func: tir.Function) -> mir.MFunction:
     if _is_gemm(func):
         from metile.runtime.metal_device import MetalDevice
 
-        dtype = "f32"
-        for p in func.params:
-            if isinstance(p.type, PtrType):
-                dtype = p.type.dtype
-                break
+        dtype, _ = _detect_dtype(func)
         if MetalDevice.get().supports_tensor_ops and dtype == "f32":
             # tensor_ops matmul2d requires SM,SN <= 32 for valid descriptor
             constexprs = func.constexprs
@@ -74,9 +70,192 @@ def _has_gemm_ops(ops: list) -> bool:
 
 _MSL_TYPES = {"f32": "float", "f16": "half", "i32": "int", "u32": "uint"}
 
+# Maximum threadgroup memory in bytes (Apple GPU limit)
+_MAX_TG_BYTES = 32768
 
-def _ceil_div(a: int, b: int) -> int:
-    return (a + b - 1) // b
+
+def _detect_dtype(func: tir.Function) -> tuple[str, str]:
+    """Detect dtype and MSL type from the first pointer parameter.
+
+    Returns (dtype, msl_type) e.g. ("f32", "float").
+    Raises LoweringError if no pointer parameters exist.
+    """
+    for p in func.params:
+        if isinstance(p.type, PtrType):
+            dtype = p.type.dtype
+            return dtype, _MSL_TYPES.get(dtype, "float")
+    raise LoweringError("No pointer parameters found — cannot detect dtype")
+
+
+def _extract_gemm_params(
+    func: tir.Function, param_values: dict[str, mir.MValue]
+) -> tuple[mir.MValue, mir.MValue, mir.MValue, mir.MValue, mir.MValue, mir.MValue]:
+    """Extract A, B, C pointers and M, N, K scalars from function params.
+
+    Tries named lookup first (M, N, K), then falls back to positional.
+    Returns (ptr_A, ptr_B, ptr_C, M_val, N_val, K_val).
+    """
+    ptr_A = ptr_B = ptr_C = M_val = N_val = K_val = None
+    for p in func.params:
+        pv = param_values[p.name]
+        if isinstance(p.type, PtrType):
+            if ptr_A is None:
+                ptr_A = pv
+            elif ptr_B is None:
+                ptr_B = pv
+            elif ptr_C is None:
+                ptr_C = pv
+        elif isinstance(p.type, ScalarType):
+            if p.name == "M":
+                M_val = pv
+            elif p.name == "N":
+                N_val = pv
+            elif p.name == "K":
+                K_val = pv
+
+    if K_val is None or M_val is None or N_val is None:
+        scalar_params = [p for p in func.params if isinstance(p.type, ScalarType)]
+        if len(scalar_params) >= 3:
+            M_val = param_values[scalar_params[0].name]
+            N_val = param_values[scalar_params[1].name]
+            K_val = param_values[scalar_params[2].name]
+        else:
+            raise LoweringError("Cannot determine M, N, K parameters")
+
+    return ptr_A, ptr_B, ptr_C, M_val, N_val, K_val
+
+
+def _lower_params(
+    func: tir.Function, mfunc: mir.MFunction
+) -> dict[str, mir.MValue]:
+    """Lower Tile IR params to Metal IR params. Returns param value map."""
+    param_values: dict[str, mir.MValue] = {}
+    for p in func.params:
+        if isinstance(p.type, PtrType):
+            mp = mir.MParam(name=p.name, type=p.type, is_output=p.is_output, is_scalar=False)
+        elif isinstance(p.type, ScalarType):
+            mp = mir.MParam(name=p.name, type=p.type, is_scalar=True)
+        else:
+            raise LoweringError(f"Unsupported param type: {p.type}")
+        mfunc.params.append(mp)
+        param_values[p.name] = mir.MValue(p.name, p.type)
+    return param_values
+
+
+def _build_kk_loop(
+    NUM_8M: int,
+    NUM_8N: int,
+    sg_row: mir.MValue,
+    sg_col: mir.MValue,
+    src_a: str,
+    src_b: str,
+    A_STRIDE: int,
+    B_STRIDE: int,
+    msl_type: str,
+    BK: int,
+) -> mir.MForLoop:
+    """Build the MMA inner loop (kk) with simdgroup loads and MMA ops.
+
+    Constructs the standard pattern: for each mi, load A tile, then for each ni
+    load B tile and issue MMA. Returns an MForLoop marked for unrolling.
+    """
+    kk_body = []
+    for mi in range(NUM_8M):
+        kk_body.append(
+            mir.MSimdgroupLoad(
+                tile_name="a_tile",
+                tile_idx=mi,
+                src_array=src_a,
+                sg_offset=sg_row,
+                tile_offset=mi * 8,
+                kk_var="kk",
+                stride=A_STRIDE,
+                is_b=False,
+                in_type=msl_type,
+            )
+        )
+        for ni in range(NUM_8N):
+            kk_body.append(
+                mir.MSimdgroupLoad(
+                    tile_name="b_tile",
+                    tile_idx=ni,
+                    src_array=src_b,
+                    sg_offset=sg_col,
+                    tile_offset=ni * 8,
+                    kk_var="kk",
+                    stride=B_STRIDE,
+                    is_b=True,
+                    in_type=msl_type,
+                )
+            )
+            kk_body.append(
+                mir.MSimdgroupMMA(
+                    acc_name="acc",
+                    a_tile="a_tile",
+                    b_tile="b_tile",
+                    mi=mi,
+                    ni=ni,
+                )
+            )
+
+    kk_loop = mir.MForLoop(iv_name="kk", start=0, end=BK, step=8, body=kk_body)
+    kk_loop._unroll = True  # mark for #pragma clang loop unroll(full)
+    return kk_loop
+
+
+def _build_acc_stores(
+    NUM_8M: int,
+    NUM_8N: int,
+    ptr_C: mir.MValue,
+    block_row: mir.MValue,
+    block_col: mir.MValue,
+    sg_row: mir.MValue,
+    sg_col: mir.MValue,
+    N_val: mir.MValue,
+    M_val: mir.MValue,
+    out_type: str,
+) -> list[mir.MSimdgroupStore]:
+    """Build accumulator store ops for all (mi, ni) tiles."""
+    stores = []
+    for mi in range(NUM_8M):
+        for ni in range(NUM_8N):
+            stores.append(
+                mir.MSimdgroupStore(
+                    acc_name="acc",
+                    mi=mi,
+                    ni=ni,
+                    device_ptr=ptr_C,
+                    block_row=block_row,
+                    block_col=block_col,
+                    sg_row=sg_row,
+                    sg_col=sg_col,
+                    mi_offset=mi * 8,
+                    ni_offset=ni * 8,
+                    stride=N_val,
+                    m_bound=M_val,
+                    n_bound=N_val,
+                    out_type=out_type,
+                    acc_type="float",
+                )
+            )
+    return stores
+
+
+def _check_tg_memory(allocs: dict[str, int], elem_type: str, label: str):
+    """Validate that threadgroup memory allocations fit within hardware limits.
+
+    allocs: mapping of alloc_name -> num_elements
+    elem_type: MSL element type ("float", "half", etc.)
+    label: description for error message (e.g. "GEMM")
+    """
+    elem_sizes = {"float": 4, "half": 2, "int": 4, "uint": 4}
+    elem_sz = elem_sizes.get(elem_type, 4)
+    total_bytes = sum(sz * elem_sz for sz in allocs.values())
+    if total_bytes > _MAX_TG_BYTES:
+        raise LoweringError(
+            f"{label} requires {total_bytes} bytes threadgroup memory "
+            f"(limit {_MAX_TG_BYTES}). Reduce tile sizes."
+        )
 
 
 def _compute_simdgroup_layout(BM: int, BN: int, NUM_SG: int) -> mir.SimdgroupLayout:
@@ -188,25 +367,8 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
     """
     mfunc = mir.MFunction(name=f"mtile_{func.name}", kernel_type="gemm")
 
-    # Detect dtype from first pointer param
-    dtype = "f32"
-    for p in func.params:
-        if isinstance(p.type, PtrType):
-            dtype = p.type.dtype
-            break
-    msl_type = _MSL_TYPES.get(dtype, "float")
-
-    # Lower params
-    param_values: dict[str, mir.MValue] = {}
-    for p in func.params:
-        if isinstance(p.type, PtrType):
-            mp = mir.MParam(name=p.name, type=p.type, is_output=p.is_output, is_scalar=False)
-        elif isinstance(p.type, ScalarType):
-            mp = mir.MParam(name=p.name, type=p.type, is_scalar=True)
-        else:
-            raise LoweringError(f"Unsupported param type: {p.type}")
-        mfunc.params.append(mp)
-        param_values[p.name] = mir.MValue(p.name, p.type)
+    _, msl_type = _detect_dtype(func)
+    param_values = _lower_params(func, mfunc)
 
     # Extract tile shapes from constexprs and ops
     constexprs = func.constexprs
@@ -229,6 +391,11 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
     # Threadgroup memory strides (no padding initially - passes add it)
     A_STRIDE = BK
     B_STRIDE = BN
+
+    # Validate threadgroup memory fits
+    _check_tg_memory(
+        {"shared_a": BM * A_STRIDE, "shared_b": BK * B_STRIDE}, msl_type, "GEMM"
+    )
 
     mfunc.threadgroup_size = (TG_SIZE, 1, 1)
 
@@ -276,32 +443,7 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
     )
 
     # --- Find the K-param, A/B/C pointers from the traced IR ---
-    # Walk the Tile IR to find ForRange and extract pointers + stride refs
-    ptr_A = ptr_B = ptr_C = M_val = N_val = K_val = None
-    for p in func.params:
-        pv = param_values[p.name]
-        if isinstance(p.type, PtrType) and ptr_A is None:
-            ptr_A = pv
-        elif isinstance(p.type, PtrType) and ptr_B is None:
-            ptr_B = pv
-        elif isinstance(p.type, PtrType) and ptr_C is None:
-            ptr_C = pv
-        elif isinstance(p.type, ScalarType) and p.name == "M":
-            M_val = pv
-        elif isinstance(p.type, ScalarType) and p.name == "N":
-            N_val = pv
-        elif isinstance(p.type, ScalarType) and p.name == "K":
-            K_val = pv
-
-    if K_val is None or M_val is None or N_val is None:
-        # Try positional: params after the 3 pointers are M, N, K
-        scalar_params = [p for p in func.params if isinstance(p.type, ScalarType)]
-        if len(scalar_params) >= 3:
-            M_val = param_values[scalar_params[0].name]
-            N_val = param_values[scalar_params[1].name]
-            K_val = param_values[scalar_params[2].name]
-        else:
-            raise LoweringError("Cannot determine M, N, K parameters")
+    ptr_A, ptr_B, ptr_C, M_val, N_val, K_val = _extract_gemm_params(func, param_values)
 
     # --- K-loop ---
     loop_body: list[mir.MOp] = []
@@ -353,49 +495,11 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
     # Barrier
     loop_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
 
-    # MMA inner loop: explicit kk loop with individual load/MMA ops
-    kk_body = []
-    for mi in range(NUM_8M):
-        kk_body.append(
-            mir.MSimdgroupLoad(
-                tile_name="a_tile",
-                tile_idx=mi,
-                src_array="shared_a",
-                sg_offset=sg_row,
-                tile_offset=mi * 8,
-                kk_var="kk",
-                stride=A_STRIDE,
-                is_b=False,
-                in_type=msl_type,
-            )
-        )
-        for ni in range(NUM_8N):
-            kk_body.append(
-                mir.MSimdgroupLoad(
-                    tile_name="b_tile",
-                    tile_idx=ni,
-                    src_array="shared_b",
-                    sg_offset=sg_col,
-                    tile_offset=ni * 8,
-                    kk_var="kk",
-                    stride=B_STRIDE,
-                    is_b=True,
-                    in_type=msl_type,
-                )
-            )
-            kk_body.append(
-                mir.MSimdgroupMMA(
-                    acc_name="acc",
-                    a_tile="a_tile",
-                    b_tile="b_tile",
-                    mi=mi,
-                    ni=ni,
-                )
-            )
-
-    kk_loop = mir.MForLoop(iv_name="kk", start=0, end=BK, step=8, body=kk_body)
-    kk_loop._unroll = True  # mark for #pragma clang loop unroll(full)
-    loop_body.append(kk_loop)
+    # MMA inner loop
+    loop_body.append(
+        _build_kk_loop(NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b",
+                        A_STRIDE, B_STRIDE, msl_type, BK)
+    )
 
     # Barrier
     loop_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
@@ -424,28 +528,10 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
         )
 
     # --- Store accumulators ---
-    out_type = msl_type
-    for mi in range(NUM_8M):
-        for ni in range(NUM_8N):
-            mfunc.add_op(
-                mir.MSimdgroupStore(
-                    acc_name="acc",
-                    mi=mi,
-                    ni=ni,
-                    device_ptr=ptr_C,
-                    block_row=block_row,
-                    block_col=block_col,
-                    sg_row=sg_row,
-                    sg_col=sg_col,
-                    mi_offset=mi * 8,
-                    ni_offset=ni * 8,
-                    stride=N_val,
-                    m_bound=M_val,
-                    n_bound=N_val,
-                    out_type=out_type,
-                    acc_type="float",
-                )
-            )
+    for store_op in _build_acc_stores(
+        NUM_8M, NUM_8N, ptr_C, block_row, block_col, sg_row, sg_col, N_val, M_val, msl_type
+    ):
+        mfunc.add_op(store_op)
 
     return mfunc
 
@@ -462,25 +548,8 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
     """
     mfunc = mir.MFunction(name=f"mtile_{func.name}", kernel_type="specialized_gemm")
 
-    # Detect dtype
-    dtype = "f32"
-    for p in func.params:
-        if isinstance(p.type, PtrType):
-            dtype = p.type.dtype
-            break
-    msl_type = _MSL_TYPES.get(dtype, "float")
-
-    # Lower params
-    param_values: dict[str, mir.MValue] = {}
-    for p in func.params:
-        if isinstance(p.type, PtrType):
-            mp = mir.MParam(name=p.name, type=p.type, is_output=p.is_output, is_scalar=False)
-        elif isinstance(p.type, ScalarType):
-            mp = mir.MParam(name=p.name, type=p.type, is_scalar=True)
-        else:
-            raise LoweringError(f"Unsupported param type: {p.type}")
-        mfunc.params.append(mp)
-        param_values[p.name] = mir.MValue(p.name, p.type)
+    _, msl_type = _detect_dtype(func)
+    param_values = _lower_params(func, mfunc)
 
     # Find the K-loop ForRange and extract producer/consumer roles
     k_loop = None
@@ -526,18 +595,11 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
     NUM_8M = SG_M // 8
     NUM_8N = SG_N // 8
 
-    # Inline padding to avoid bank conflicts (same logic as passes._optimal_pad)
-    from math import gcd as _gcd
+    # Use shared padding logic from passes module
+    from metile.compiler.passes import _optimal_pad
 
-    def _opt_pad(stride):
-        for p in range(1, 5):
-            g = _gcd(stride + p, 32)
-            if g & (g - 1) != 0 or g == 1:
-                return p
-        return 2
-
-    A_PAD = _opt_pad(BK)
-    B_PAD = _opt_pad(BN)
+    A_PAD = _optimal_pad(BK)
+    B_PAD = _optimal_pad(BN)
     A_STRIDE = BK + A_PAD
     B_STRIDE = BN + B_PAD
 
@@ -601,30 +663,7 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
     )
 
     # --- Extract A, B, C, M, N, K ---
-    ptr_A = ptr_B = ptr_C = M_val = N_val = K_val = None
-    for p in func.params:
-        pv = param_values[p.name]
-        if isinstance(p.type, PtrType) and ptr_A is None:
-            ptr_A = pv
-        elif isinstance(p.type, PtrType) and ptr_B is None:
-            ptr_B = pv
-        elif isinstance(p.type, PtrType) and ptr_C is None:
-            ptr_C = pv
-        elif isinstance(p.type, ScalarType) and p.name == "M":
-            M_val = pv
-        elif isinstance(p.type, ScalarType) and p.name == "N":
-            N_val = pv
-        elif isinstance(p.type, ScalarType) and p.name == "K":
-            K_val = pv
-
-    if K_val is None or M_val is None or N_val is None:
-        scalar_params = [p for p in func.params if isinstance(p.type, ScalarType)]
-        if len(scalar_params) >= 3:
-            M_val = param_values[scalar_params[0].name]
-            N_val = param_values[scalar_params[1].name]
-            K_val = param_values[scalar_params[2].name]
-        else:
-            raise LoweringError("Cannot determine M, N, K parameters")
+    ptr_A, ptr_B, ptr_C, M_val, N_val, K_val = _extract_gemm_params(func, param_values)
 
     # Helper to create a cooperative load op for a given buffer
     def _make_coop_load(
@@ -707,47 +746,10 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
     )
 
     # Consumers: compute MMA from current buffer
-    kk_body_main = []
-    for mi in range(NUM_8M):
-        kk_body_main.append(
-            mir.MSimdgroupLoad(
-                tile_name="a_tile",
-                tile_idx=mi,
-                src_array="shared_a",
-                sg_offset=sg_row,
-                tile_offset=mi * 8,
-                kk_var="kk",
-                stride=A_STRIDE,
-                is_b=False,
-                in_type=msl_type,
-            )
-        )
-        for ni in range(NUM_8N):
-            kk_body_main.append(
-                mir.MSimdgroupLoad(
-                    tile_name="b_tile",
-                    tile_idx=ni,
-                    src_array="shared_b",
-                    sg_offset=sg_col,
-                    tile_offset=ni * 8,
-                    kk_var="kk",
-                    stride=B_STRIDE,
-                    is_b=True,
-                    in_type=msl_type,
-                )
-            )
-            kk_body_main.append(
-                mir.MSimdgroupMMA(
-                    acc_name="acc",
-                    a_tile="a_tile",
-                    b_tile="b_tile",
-                    mi=mi,
-                    ni=ni,
-                )
-            )
-
-    kk_loop_main = mir.MForLoop(iv_name="kk", start=0, end=BK, step=8, body=kk_body_main)
-    kk_loop_main._unroll = True
+    kk_loop_main = _build_kk_loop(
+        NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b",
+        A_STRIDE, B_STRIDE, msl_type, BK,
+    )
     mma_ops = [kk_loop_main]
     loop_body.append(
         mir.MSimdgroupRoleBlock(
@@ -778,47 +780,10 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
     mfunc.add_op(k_loop)
 
     # --- Epilogue: consumers compute last tile from current buffer ---
-    kk_body_epilogue = []
-    for mi in range(NUM_8M):
-        kk_body_epilogue.append(
-            mir.MSimdgroupLoad(
-                tile_name="a_tile",
-                tile_idx=mi,
-                src_array="sa_curr",
-                sg_offset=sg_row,
-                tile_offset=mi * 8,
-                kk_var="kk",
-                stride=A_STRIDE,
-                is_b=False,
-                in_type=msl_type,
-            )
-        )
-        for ni in range(NUM_8N):
-            kk_body_epilogue.append(
-                mir.MSimdgroupLoad(
-                    tile_name="b_tile",
-                    tile_idx=ni,
-                    src_array="sb_curr",
-                    sg_offset=sg_col,
-                    tile_offset=ni * 8,
-                    kk_var="kk",
-                    stride=B_STRIDE,
-                    is_b=True,
-                    in_type=msl_type,
-                )
-            )
-            kk_body_epilogue.append(
-                mir.MSimdgroupMMA(
-                    acc_name="acc",
-                    a_tile="a_tile",
-                    b_tile="b_tile",
-                    mi=mi,
-                    ni=ni,
-                )
-            )
-
-    kk_loop_epilogue = mir.MForLoop(iv_name="kk", start=0, end=BK, step=8, body=kk_body_epilogue)
-    kk_loop_epilogue._unroll = True
+    kk_loop_epilogue = _build_kk_loop(
+        NUM_8M, NUM_8N, sg_row, sg_col, "sa_curr", "sb_curr",
+        A_STRIDE, B_STRIDE, msl_type, BK,
+    )
     mfunc.add_op(
         mir.MSimdgroupRoleBlock(
             role=1,
@@ -843,28 +808,9 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
         )
 
     # --- Store accumulators (consumers only) ---
-    store_ops = []
-    for mi in range(NUM_8M):
-        for ni in range(NUM_8N):
-            store_ops.append(
-                mir.MSimdgroupStore(
-                    acc_name="acc",
-                    mi=mi,
-                    ni=ni,
-                    device_ptr=ptr_C,
-                    block_row=block_row,
-                    block_col=block_col,
-                    sg_row=sg_row,
-                    sg_col=sg_col,
-                    mi_offset=mi * 8,
-                    ni_offset=ni * 8,
-                    stride=N_val,
-                    m_bound=M_val,
-                    n_bound=N_val,
-                    out_type=msl_type,
-                    acc_type="float",
-                )
-            )
+    store_ops = _build_acc_stores(
+        NUM_8M, NUM_8N, ptr_C, block_row, block_col, sg_row, sg_col, N_val, M_val, msl_type
+    )
     mfunc.add_op(
         mir.MSimdgroupRoleBlock(
             role=1,
@@ -927,7 +873,9 @@ def _detect_epilogue(ops: list) -> list[tuple]:
             if cond_op and isinstance(cond_op, tir.Compare) and cond_op.predicate == "gt":
                 epilogue.append(("relu",))
             else:
-                epilogue.append(("relu",))
+                # Non-gt Select patterns (e.g. clamp, abs-via-select) are not
+                # currently fusible — bail out of epilogue detection.
+                return []
             chain_name = op.result.name
 
         elif isinstance(op, tir.Unary):
@@ -1003,25 +951,8 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     """
     mfunc = mir.MFunction(name=f"mtile_{func.name}", kernel_type="tensor_ops_gemm")
 
-    # Detect dtype from first pointer param
-    dtype = "f32"
-    for p in func.params:
-        if isinstance(p.type, PtrType):
-            dtype = p.type.dtype
-            break
-    msl_type = _MSL_TYPES.get(dtype, "float")
-
-    # Lower params
-    param_values: dict[str, mir.MValue] = {}
-    for p in func.params:
-        if isinstance(p.type, PtrType):
-            mp = mir.MParam(name=p.name, type=p.type, is_output=p.is_output, is_scalar=False)
-        elif isinstance(p.type, ScalarType):
-            mp = mir.MParam(name=p.name, type=p.type, is_scalar=True)
-        else:
-            raise LoweringError(f"Unsupported param type: {p.type}")
-        mfunc.params.append(mp)
-        param_values[p.name] = mir.MValue(p.name, p.type)
+    _, msl_type = _detect_dtype(func)
+    param_values = _lower_params(func, mfunc)
 
     # Extract tile shapes — defaults tuned from benchmarks
     constexprs = func.constexprs
@@ -1043,33 +974,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     NUM_SG = WM * WN
     mfunc.threadgroup_size = (NUM_SG * 32, 1, 1)
 
-    # Find A, B, C pointers and M, N, K scalars
-    ptr_A = ptr_B = ptr_C = M_val = N_val = K_val = None
-    for p in func.params:
-        pv = param_values[p.name]
-        if isinstance(p.type, PtrType):
-            if ptr_A is None:
-                ptr_A = pv
-            elif ptr_B is None:
-                ptr_B = pv
-            elif ptr_C is None:
-                ptr_C = pv
-        elif isinstance(p.type, ScalarType):
-            if p.name == "M":
-                M_val = pv
-            elif p.name == "N":
-                N_val = pv
-            elif p.name == "K":
-                K_val = pv
-
-    if K_val is None or M_val is None or N_val is None:
-        scalar_params = [p for p in func.params if isinstance(p.type, ScalarType)]
-        if len(scalar_params) >= 3:
-            M_val = param_values[scalar_params[0].name]
-            N_val = param_values[scalar_params[1].name]
-            K_val = param_values[scalar_params[2].name]
-        else:
-            raise LoweringError("Cannot determine M, N, K parameters")
+    ptr_A, ptr_B, ptr_C, _M_val, _N_val, K_val = _extract_gemm_params(func, param_values)
 
     # Detect epilogue ops
     epilogue = _detect_epilogue(func.ops)
@@ -1139,18 +1044,24 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     # 5. K-loop with loads and compute
     if use_separated:
         # Separated mode: cooperative_tensor loads + op.run
-        if num_stages >= 2:
-            # Pipelined (double-buffered) separated K-loop
-            # This is complex enough that we keep it as a single MForLoop
-            # with MCoopTensorLoad + MMatmul2dRun inside
-            k_body = []
+        # No barriers needed; preemptive simdgroups are independent, each
+        # loading directly from device memory into register-resident
+        # cooperative_tensors with no shared threadgroup memory.
+        #
+        # Always use 2x when BK >= 2*bk_inner. User K_UNROLL can override.
+        effective_unroll = 2 if BK >= 2 * bk_inner else 1
+        effective_unroll = max(effective_unroll, k_unroll)
+
+        k_body = []
+        for u in range(effective_unroll):
+            k_offset = f"k + {bk_inner * u}" if u > 0 else "k"
             k_body.append(
                 mir.MCoopTensorLoad(
                     ct_name="ct_a",
                     tensor_name="tA",
                     slice_d0=bk_inner,
                     slice_d1=SM,
-                    offset_0="k",
+                    offset_0=k_offset,
                     offset_1="tile_row",
                 )
             )
@@ -1161,7 +1072,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                     slice_d0=SN,
                     slice_d1=bk_inner,
                     offset_0="tile_col",
-                    offset_1="k",
+                    offset_1=k_offset,
                 )
             )
             k_body.append(
@@ -1172,103 +1083,12 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                     use_tensor_view=False,
                 )
             )
-            k_loop = mir.MForLoop(iv_name="k", start=0, end=K_val, step=bk_inner, body=k_body)
-            if num_stages >= 2:
-                k_loop._num_stages = num_stages
-            mfunc.add_op(k_loop)
-        else:
-            # Simple separated K-loop
-            # Two-level loop when BK > bk_inner: outer steps by BK (with barrier),
-            # inner steps by bk_inner (load+run). Barrier only at outer boundary
-            # to avoid restricting the Metal compiler's optimization window.
-            if bk_inner < BK:
-                # Inner loop body: load + run (no barrier)
-                inner_body = []
-                inner_body.append(
-                    mir.MCoopTensorLoad(
-                        ct_name="ct_a",
-                        tensor_name="tA",
-                        slice_d0=bk_inner,
-                        slice_d1=SM,
-                        offset_0="k",
-                        offset_1="tile_row",
-                    )
-                )
-                inner_body.append(
-                    mir.MCoopTensorLoad(
-                        ct_name="ct_b",
-                        tensor_name="tB",
-                        slice_d0=SN,
-                        slice_d1=bk_inner,
-                        offset_0="tile_col",
-                        offset_1="k",
-                    )
-                )
-                inner_body.append(
-                    mir.MMatmul2dRun(
-                        ct_a="ct_a",
-                        ct_b="ct_b",
-                        ct_out="cT",
-                        use_tensor_view=False,
-                    )
-                )
-                # Inner loop iterates bk_inner steps within each BK block
-                inner_loop = mir.MForLoop(
-                    iv_name="k1",
-                    start=0,
-                    end=BK,
-                    step=bk_inner,
-                    body=inner_body,
-                )
-                # Mark inner loop so emitter uses "k0 + k1" as the k variable
-                inner_loop._inner_k = True
 
-                # Outer loop with barrier at each BK step
-                outer_body = [
-                    mir.MBarrier(kind="threadgroup", flags="mem_none"),
-                    inner_loop,
-                ]
-                outer_loop = mir.MForLoop(
-                    iv_name="k0",
-                    start=0,
-                    end=K_val,
-                    step=BK,
-                    body=outer_body,
-                )
-                mfunc.add_op(outer_loop)
-            else:
-                k_body = []
-                k_body.append(mir.MBarrier(kind="threadgroup", flags="mem_none"))
-                k_body.append(
-                    mir.MCoopTensorLoad(
-                        ct_name="ct_a",
-                        tensor_name="tA",
-                        slice_d0=bk_inner,
-                        slice_d1=SM,
-                        offset_0="k",
-                        offset_1="tile_row",
-                    )
-                )
-                k_body.append(
-                    mir.MCoopTensorLoad(
-                        ct_name="ct_b",
-                        tensor_name="tB",
-                        slice_d0=SN,
-                        slice_d1=bk_inner,
-                        offset_0="tile_col",
-                        offset_1="k",
-                    )
-                )
-                k_body.append(
-                    mir.MMatmul2dRun(
-                        ct_a="ct_a",
-                        ct_b="ct_b",
-                        ct_out="cT",
-                        use_tensor_view=False,
-                    )
-                )
-                k_loop = mir.MForLoop(iv_name="k", start=0, end=K_val, step=bk_inner, body=k_body)
-                mfunc.add_op(k_loop)
+        k_step = bk_inner * effective_unroll
+        k_loop = mir.MForLoop(iv_name="k", start=0, end=K_val, step=k_step, body=k_body)
+        if num_stages >= 2:
+            k_loop._num_stages = num_stages
+        mfunc.add_op(k_loop)
     else:
         # Direct tensor view mode: pass slices directly to op.run
         k_body = []
@@ -1335,13 +1155,7 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
 
     total_tiles = persistent_op.total
 
-    # Detect dtype from first pointer param
-    dtype = "f32"
-    for p in func.params:
-        if isinstance(p.type, PtrType):
-            dtype = p.type.dtype
-            break
-    msl_type = _MSL_TYPES.get(dtype, "float")
+    _, msl_type = _detect_dtype(func)
 
     # Lower params — identify A, B, C, counter, M, N, K
     param_values: dict[str, mir.MValue] = {}
@@ -1566,50 +1380,10 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
 
     loop_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
 
-    kk_body_persistent = []
-    for mi in range(NUM_8M):
-        kk_body_persistent.append(
-            mir.MSimdgroupLoad(
-                tile_name="a_tile",
-                tile_idx=mi,
-                src_array="shared_a",
-                sg_offset=sg_row,
-                tile_offset=mi * 8,
-                kk_var="kk",
-                stride=A_STRIDE,
-                is_b=False,
-                in_type=msl_type,
-            )
-        )
-        for ni in range(NUM_8N):
-            kk_body_persistent.append(
-                mir.MSimdgroupLoad(
-                    tile_name="b_tile",
-                    tile_idx=ni,
-                    src_array="shared_b",
-                    sg_offset=sg_col,
-                    tile_offset=ni * 8,
-                    kk_var="kk",
-                    stride=B_STRIDE,
-                    is_b=True,
-                    in_type=msl_type,
-                )
-            )
-            kk_body_persistent.append(
-                mir.MSimdgroupMMA(
-                    acc_name="acc",
-                    a_tile="a_tile",
-                    b_tile="b_tile",
-                    mi=mi,
-                    ni=ni,
-                )
-            )
-
-    kk_loop_persistent = mir.MForLoop(
-        iv_name="kk", start=0, end=BK, step=8, body=kk_body_persistent
+    loop_body.append(
+        _build_kk_loop(NUM_8M, NUM_8N, sg_row, sg_col, "shared_a", "shared_b",
+                        A_STRIDE, B_STRIDE, msl_type, BK)
     )
-    kk_loop_persistent._unroll = True
-    loop_body.append(kk_loop_persistent)
 
     loop_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
 
@@ -1623,28 +1397,10 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
     while_body.append(k_loop)
 
     # 5. Store accumulators
-    out_type = msl_type
-    for mi in range(NUM_8M):
-        for ni in range(NUM_8N):
-            while_body.append(
-                mir.MSimdgroupStore(
-                    acc_name="acc",
-                    mi=mi,
-                    ni=ni,
-                    device_ptr=ptr_C,
-                    block_row=block_row_mv,
-                    block_col=block_col_mv,
-                    sg_row=sg_row,
-                    sg_col=sg_col,
-                    mi_offset=mi * 8,
-                    ni_offset=ni * 8,
-                    stride=N_val,
-                    m_bound=M_val,
-                    n_bound=N_val,
-                    out_type=out_type,
-                    acc_type="float",
-                )
-            )
+    for store_op in _build_acc_stores(
+        NUM_8M, NUM_8N, ptr_C, block_row_mv, block_col_mv, sg_row, sg_col, N_val, M_val, msl_type
+    ):
+        while_body.append(store_op)
 
     # 6. Barrier before next iteration (protect shared memory)
     while_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
@@ -1924,6 +1680,28 @@ class _ElementwiseLoweringContext:
 
         elif isinstance(op, tir.SimdgroupRole):
             return self._lower_simdgroup_role(op)
+
+        elif isinstance(op, tir.TileSwizzle):
+            # TileSwizzle is metadata-only — the swizzle_pattern is read from
+            # func.swizzle_pattern during GEMM lowering. Skip in elementwise.
+            return None
+
+        elif isinstance(op, tir.Zeros):
+            # Zeros is consumed implicitly by the GEMM accumulator path.
+            # In elementwise context, lower to a zero constant.
+            m_op = mir.MConstant(value=0, dtype=op.dtype)
+            mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
+            m_op.result = mv
+            self.value_map[op.result.name] = mv
+            return [m_op]
+
+        elif isinstance(op, (tir.Dot, tir.TileLoad, tir.TileStore, tir.PersistentRange)):
+            # These ops are handled by the specialized GEMM/persistent lowering
+            # paths, not the elementwise _lower_op dispatch.
+            raise LoweringError(
+                f"{type(op).__name__} encountered in elementwise lowering — "
+                f"this op requires a GEMM kernel context"
+            )
 
         else:
             raise LoweringError(f"Unsupported Tile IR op: {type(op).__name__}")

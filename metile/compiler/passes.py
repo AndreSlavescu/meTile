@@ -119,20 +119,17 @@ def split_elementwise_loops(func: mir.MFunction) -> mir.MFunction:
     if func.kernel_type not in ("elementwise", "row_parallel"):
         return func
 
-    func.ops = _split_ew_recursive(func.ops)
+    counter = [0]  # per-function counter, avoids global state leaking across calls
+    func.ops = _split_ew_recursive(func.ops, counter)
     return func
 
 
-_ew_split_counter = 0
-
-
-def _split_ew_recursive(ops: list[mir.MOp]) -> list[mir.MOp]:
-    global _ew_split_counter
+def _split_ew_recursive(ops: list[mir.MOp], counter: list[int]) -> list[mir.MOp]:
     new_ops = []
     for op in ops:
         if isinstance(op, mir.MForLoop) and _has_ifblock(op.body):
-            new_ops.extend(_split_ew_for_loop(op, _ew_split_counter))
-            _ew_split_counter += 1
+            new_ops.extend(_split_ew_for_loop(op, counter[0]))
+            counter[0] += 1
         else:
             new_ops.append(op)
     return new_ops
@@ -213,35 +210,6 @@ def vectorize_loads(func: mir.MFunction, vec_size: int = 4) -> mir.MFunction:
     _walk_ops(func.ops, _vectorize)
     return func
 
-
-def add_simdgroup_barriers(func: mir.MFunction) -> mir.MFunction:
-    """Add simdgroup_barrier hints in MMA inner loops.
-
-    These zero-cost barriers help the Metal compiler schedule
-    simdgroup loads and MMA operations more efficiently.
-
-    Inserts MSimdgroupBarrierOp between each load and MMA op in kk ForLoops.
-    """
-    if func.kernel_type not in ("gemm", "persistent_gemm", "specialized_gemm"):
-        return func
-
-    def _add_barriers(op):
-        if isinstance(op, mir.MForLoop) and getattr(op, "_unroll", False):
-            _insert_barriers(op)
-
-    _walk_ops(func.ops, _add_barriers)
-    return func
-
-
-def _insert_barriers(kk_loop: mir.MForLoop):
-    """Insert MSimdgroupBarrierOp between loads and MMA ops in kk body."""
-    old_body = kk_loop.body
-    new_body = []
-    for op in old_body:
-        if isinstance(op, (mir.MSimdgroupLoad, mir.MSimdgroupMMA)):
-            new_body.append(mir.MSimdgroupBarrierOp())
-        new_body.append(op)
-    kk_loop.body = new_body
 
 
 def serpentine_mma(func: mir.MFunction) -> mir.MFunction:
@@ -351,8 +319,6 @@ def _reorder_preload(kk_loop: mir.MForLoop):
             b_loads.append(op)
         elif isinstance(op, mir.MSimdgroupMMA):
             mma_ops.append(op)
-        elif isinstance(op, mir.MSimdgroupBarrierOp):
-            pass  # drop existing barriers, we'll re-insert if needed
         else:
             other.append(op)
     if a_loads and b_loads and mma_ops:
@@ -513,13 +479,8 @@ def _update_alloc_size(alloc: mir.MThreadgroupAlloc, ops: list[mir.MOp], pad: in
         if isinstance(op, mir.MCooperativeLoad) and op.tg_array == alloc.alloc_name:
             alloc.size = op.tile_rows * (op.tile_cols + pad)
             return
-        if isinstance(op, mir.MForLoop):
-            _update_alloc_size(alloc, op.body, pad)
-            return
-        if isinstance(op, mir.MWhileTrue):
-            _update_alloc_size(alloc, op.body, pad)
-            return
-        if isinstance(op, mir.MSimdgroupRoleBlock):
+        # Recurse into nested blocks but continue searching siblings
+        if isinstance(op, (mir.MForLoop, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
             _update_alloc_size(alloc, op.body, pad)
 
 
@@ -666,6 +627,18 @@ def _try_fold(op: mir.MOp):
             op.result.defining_op = op.rhs.defining_op
             return
 
+        # Case 4: Absorbing element elimination
+        # x * 0 -> 0, 0 * x -> 0
+        if op.op == "mul" and (_is_constant_val(op.rhs, 0) or _is_constant_val(op.lhs, 0)):
+            zero_side = op.rhs if _is_constant_val(op.rhs, 0) else op.lhs
+            op.result.defining_op = zero_side.defining_op
+            return
+        # x & 0 -> 0, 0 & x -> 0
+        if op.op == "and" and (_is_constant_val(op.rhs, 0) or _is_constant_val(op.lhs, 0)):
+            zero_side = op.rhs if _is_constant_val(op.rhs, 0) else op.lhs
+            op.result.defining_op = zero_side.defining_op
+            return
+
     elif isinstance(op, mir.MCast) and op.result is not None:
         # Case 2: Cast of constant -> constant in target type
         inner = op.value
@@ -678,15 +651,27 @@ def _try_fold(op: mir.MOp):
             op.result.defining_op = folded
 
 
+def _stable_val_key(val: mir.MValue | None) -> str | None:
+    """Return a stable identity key for an MValue, suitable for CSE hashing.
+
+    Uses the value's name rather than id() to avoid false matches from
+    address reuse after garbage collection and to correctly deduplicate
+    values that were forwarded by constant folding.
+    """
+    if val is None:
+        return None
+    return val.name
+
+
 def _cse_key(op: mir.MOp):
     """Generate a hashable key for an op, or None if not eligible for CSE."""
     if isinstance(op, mir.MBinOp) and op.result is not None:
-        lhs_id = id(op.lhs) if op.lhs else None
-        rhs_id = id(op.rhs) if op.rhs else None
-        return ("binop", op.op, lhs_id, rhs_id)
+        lhs_key = _stable_val_key(op.lhs)
+        rhs_key = _stable_val_key(op.rhs)
+        return ("binop", op.op, lhs_key, rhs_key)
     if isinstance(op, mir.MCast) and op.result is not None:
-        val_id = id(op.value) if op.value else None
-        return ("cast", val_id, op.target_dtype)
+        val_key = _stable_val_key(op.value)
+        return ("cast", val_key, op.target_dtype)
     return None
 
 
@@ -741,3 +726,47 @@ def _dce_constants(ops: list[mir.MOp]) -> list[mir.MOp]:
         return result
 
     return _filter(ops)
+
+
+# ---------------------------------------------------------------------------
+# Pass ordering validation
+# ---------------------------------------------------------------------------
+
+# Known ordering constraints between passes. Each entry is (before, after).
+_PASS_ORDER_CONSTRAINTS = [
+    ("split_k_loop", "double_buffer_k_loop"),
+    ("split_k_loop", "vectorize_loads"),
+]
+
+# Mutually exclusive passes — running both is an error.
+_MUTUALLY_EXCLUSIVE = [
+    ("pad_shared_memory", "swizzle_shared_memory"),
+]
+
+
+class PassOrderError(Exception):
+    pass
+
+
+def validate_pass_order(pass_names: list[str]) -> None:
+    """Validate that a list of pass names respects ordering constraints.
+
+    Raises PassOrderError if:
+    - A required-before pass appears after its dependent.
+    - Two mutually exclusive passes are both present.
+    """
+    index_of = {name: i for i, name in enumerate(pass_names)}
+
+    for before, after in _PASS_ORDER_CONSTRAINTS:
+        if before in index_of and after in index_of:
+            if index_of[before] > index_of[after]:
+                raise PassOrderError(
+                    f"Pass '{before}' must run before '{after}', "
+                    f"but '{after}' appears first in the pass list."
+                )
+
+    for a, b in _MUTUALLY_EXCLUSIVE:
+        if a in index_of and b in index_of:
+            raise PassOrderError(
+                f"Passes '{a}' and '{b}' are mutually exclusive — run one or the other."
+            )

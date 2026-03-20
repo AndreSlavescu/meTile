@@ -194,8 +194,6 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(
             f"{pad}simdgroup_mma({op.acc_name}[{op.mi}][{op.ni}], {op.a_tile}[{op.mi}], {op.b_tile}[{op.ni}])"
         )
-    elif isinstance(op, mir.MSimdgroupBarrierOp):
-        lines.append(f"{pad}simdgroup_barrier()")
     elif isinstance(op, mir.MSimdgroupStore):
         lines.append(
             f"{pad}simdgroup_store({op.acc_name}[{op.mi}][{op.ni}], {_val(op.device_ptr)})"
@@ -295,8 +293,6 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}}}")
     elif isinstance(op, mir.MPersistentGrab):
         lines.append(f"{pad}{prefix}persistent_grab(total={op.total_tiles})")
-    elif isinstance(op, mir.MBreak):
-        lines.append(f"{pad}break")
 
     else:
         lines.append(f"{pad}{prefix}{type(op).__name__}(...)")

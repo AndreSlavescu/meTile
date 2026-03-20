@@ -450,14 +450,6 @@ class MPersistentGrab(MOp):
         return U32
 
 
-@dataclass
-class MBreak(MOp):
-    """break statement."""
-
-    def result_type(self):
-        return None
-
-
 # ---------------------------------------------------------------------------
 # Decomposed simdgroup primitives
 # ---------------------------------------------------------------------------
@@ -524,14 +516,6 @@ class MSimdgroupMMA(MOp):
     b_tile: str = "b_tile"
     mi: int = 0
     ni: int = 0
-
-    def result_type(self):
-        return None
-
-
-@dataclass
-class MSimdgroupBarrierOp(MOp):
-    """simdgroup_barrier(mem_flags::mem_none) scheduling hint."""
 
     def result_type(self):
         return None

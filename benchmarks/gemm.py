@@ -15,13 +15,14 @@ from kernels.gemm import matmul
 from metile.runtime.metal_device import MetalDevice
 
 GEMM_CONFIGS = [
-    # 4 SGs (2x2)
+    # 4 SGs (2x2), BK=32 baseline
+    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=32, WM=2, WN=2, K_UNROLL=1),
+    # 4 SGs (2x2), larger BK → unrolled K-loop (BK/32 copies per iteration)
     metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=64, WM=2, WN=2, K_UNROLL=1),
     metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=128, WM=2, WN=2, K_UNROLL=1),
-    # 8 SGs (2x4)
-    metile.Config(BLOCK_M=128, BLOCK_N=64, BLOCK_K=64, WM=2, WN=4, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=64, BLOCK_K=128, WM=2, WN=4, K_UNROLL=1),
-    # 16 SGs (4x4)
+    # 16 SGs (4x4), BK=32 baseline
+    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=32, WM=4, WN=4, K_UNROLL=1),
+    # 16 SGs (4x4), larger BK → unrolled (BK/32 = 2x, 4x, 8x, 16x unroll)
     metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=64, WM=4, WN=4, K_UNROLL=1),
     metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=128, WM=4, WN=4, K_UNROLL=1),
     metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=256, WM=4, WN=4, K_UNROLL=1),
