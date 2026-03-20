@@ -13,6 +13,11 @@ dev = [
     "ruff>=0.4",
     "vulture>=2.11",
 ]
+docs = [
+    "sphinx>=7.0",
+    "furo>=2024.1",
+    "sphinx-copybutton>=0.5",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]
