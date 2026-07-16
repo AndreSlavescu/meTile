@@ -6,7 +6,19 @@ from metile.compiler.schedules import resolve_schedule, schedule_coordinates, va
 
 
 @pytest.mark.parametrize("grid_m,grid_n", [(1, 1), (3, 5), (4, 4), (8, 12), (6, 10)])
-@pytest.mark.parametrize("pattern", ["auto", "hilbert", "morton", "diagonal", "linear"])
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "auto",
+        "grouped2",
+        "grouped4",
+        "grouped8",
+        "hilbert",
+        "morton",
+        "diagonal",
+        "linear",
+    ],
+)
 def test_schedules_visit_every_tile_once(grid_m, grid_n, pattern):
     coordinates = list(schedule_coordinates(grid_m, grid_n, pattern))
     assert len(coordinates) == grid_m * grid_n

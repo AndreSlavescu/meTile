@@ -587,7 +587,7 @@ class MTensorViewDecl(MOp):
 class MTileSchedule(MOp):
     """Compute tile coordinates with optional cache-friendly scheduling.
 
-    Patterns: "auto", "hilbert", "morton", "diagonal", or "linear".
+    Patterns include grouped M-tile families, Hilbert, Morton, diagonal, and linear.
     """
 
     pattern: str = "auto"
@@ -613,6 +613,7 @@ class MBlockScaledTensorViewDecl(MOp):
     k: int = 0
     block_k: int = 32
     block_n: int = 64
+    stage_type: str = "float"
 
     def result_type(self):
         return None
@@ -629,6 +630,57 @@ class MBlockScaledTileLoad(MOp):
     block_k: int = 32
     block_n: int = 64
     num_threads: int = 128
+    stage_type: str = "float"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxGemmSetup(MOp):
+    """Set up one 32x32 register-fragment GEMM tile per simdgroup."""
+
+    block_m: int = 64
+    block_n: int = 64
+    wm: int = 2
+    wn: int = 2
+    m: int = 0
+    n: int = 0
+    k: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxGemmRun(MOp):
+    """Load aligned 16x16 fragments and execute two 16x32x16 MPP MMAs."""
+
+    ptr_a: MValue = None
+    ptr_b: MValue = None
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxBlockScaledRun(MOp):
+    """Decode one aligned MXFP fragment and execute NAX register MMAs."""
+
+    ptr_a: MValue = None
+    ptr_values: MValue = None
+    ptr_scales: MValue = None
+    bits: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxGemmStore(MOp):
+    """Store the four 16x16 accumulator fragments for one simdgroup."""
+
+    ptr_c: MValue = None
 
     def result_type(self):
         return None
@@ -668,6 +720,8 @@ class MCoopTensorInit(MOp):
     ct_name: str = "cT"
     acc_type: str = "float"
     in_type: str = "float"
+    left_type: str | None = None
+    right_type: str | None = None
     use_separated: bool = False
     left_address_space: str = "device"
     right_address_space: str = "device"

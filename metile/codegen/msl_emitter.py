@@ -126,7 +126,9 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
     # Find setup op to determine if we need sgid
     need_sgid = False
     for op in func.ops:
-        if isinstance(op, mir.MMatmul2dSetup) and not op.cooperative:
+        if isinstance(op, mir.MNaxGemmSetup) or (
+            isinstance(op, mir.MMatmul2dSetup) and not op.cooperative
+        ):
             need_sgid = True
             break
 
@@ -138,7 +140,9 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
         "using namespace mpp::tensor_ops;",
         "",
     ]
-    if any(isinstance(op, mir.MBlockScaledTensorViewDecl) for op in func.ops):
+    if any(isinstance(op, mir.MBlockScaledTensorViewDecl) for op in func.ops) or _uses_op_type(
+        func.ops, mir.MNaxBlockScaledRun
+    ):
         lines.extend(_block_scaled_helpers())
 
     # Function signature
@@ -160,9 +164,12 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
         params.append("    uint lid [[thread_index_in_threadgroup]]")
     if need_sgid:
         params.append("    uint sgid [[simdgroup_index_in_threadgroup]]")
+    if _uses_op_type(func.ops, mir.MThreadInSimdgroup):
+        params.append("    uint slid [[thread_index_in_simdgroup]]")
 
     params_str = ",\n".join(params)
-    lines.append(f"[[kernel]] void {func.name}(")
+    max_threads = func.threadgroup_size[0] * func.threadgroup_size[1] * func.threadgroup_size[2]
+    lines.append(f"[[kernel, max_total_threads_per_threadgroup({max_threads})]] void {func.name}(")
     lines.append(params_str)
     lines.append(") {")
 
@@ -422,6 +429,18 @@ def _emit_gemm_op(
 
     elif isinstance(op, mir.MBlockScaledTileLoad):
         _emit_block_scaled_tile_load(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxGemmSetup):
+        _emit_nax_gemm_setup(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxGemmRun):
+        _emit_nax_gemm_run(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxBlockScaledRun):
+        _emit_nax_block_scaled_run(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxGemmStore):
+        _emit_nax_gemm_store(op, lines, indent, func)
 
     elif isinstance(op, mir.MMatmul2dSetup):
         _emit_matmul2d_setup(op, lines, indent, func)
@@ -783,20 +802,33 @@ def _emit_tensor_view_decl(op, lines, indent, func):
 def _block_scaled_helpers():
     return [
         "inline float mtile_decode_e2m1(uchar bits) {",
-        "    const ushort raw = ushort(bits & 7u) << 9u;",
-        "    const float magnitude = float(as_type<half>(raw)) * 16384.0f;",
-        "    return (bits & 8u) ? -magnitude : magnitude;",
+        "    const ushort raw = (ushort(bits & 7u) << 9u) | (ushort(bits & 8u) << 12u);",
+        "    return float(as_type<half>(raw)) * 16384.0f;",
+        "}",
+        "",
+        "inline float4 mtile_decode_e2m1(uchar4 bits) {",
+        "    const ushort4 raw = (ushort4(bits & 7u) << 9u) | (ushort4(bits & 8u) << 12u);",
+        "    return float4(as_type<half4>(raw)) * 16384.0f;",
         "}",
         "",
         "inline float mtile_decode_e4m3(uchar bits) {",
-        "    const ushort raw = ushort(bits & 127u) << 7u;",
-        "    const float magnitude = float(as_type<half>(raw)) * 256.0f;",
-        "    return (bits & 128u) ? -magnitude : magnitude;",
+        "    const ushort raw = (ushort(bits & 127u) << 7u) | (ushort(bits & 128u) << 8u);",
+        "    return float(as_type<half>(raw)) * 256.0f;",
+        "}",
+        "",
+        "inline float4 mtile_decode_e4m3(uchar4 bits) {",
+        "    const ushort4 raw = (ushort4(bits & 127u) << 7u) | (ushort4(bits & 128u) << 8u);",
+        "    return float4(as_type<half4>(raw)) * 256.0f;",
         "}",
         "",
         "inline float mtile_decode_e8m0(uchar bits) {",
         "    const uint raw = bits == 0u ? 0x00400000u : uint(bits) << 23u;",
         "    return as_type<float>(raw);",
+        "}",
+        "",
+        "inline float4 mtile_decode_e8m0(uchar4 bits) {",
+        "    const uint4 raw = select(uint4(bits) << 23u, uint4(0x00400000u), bits == 0u);",
+        "    return as_type<float4>(raw);",
         "}",
         "",
     ]
@@ -813,8 +845,10 @@ def _emit_block_scaled_tensor_views(op, lines, indent, func):
     lines.append(f"{pad}    {a_name}, dextents<int32_t, 2>(K, M));")
     lines.append(f"{pad}auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(")
     lines.append(f"{pad}    {c_name}, dextents<int32_t, 2>(N, M));")
-    lines.append(f"{pad}threadgroup float b_tile[{op.block_k * op.block_n}];")
-    lines.append(f"{pad}auto tB = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(")
+    lines.append(f"{pad}threadgroup {op.stage_type} b_tile[{op.block_k * op.block_n}];")
+    lines.append(
+        f"{pad}auto tB = tensor<threadgroup {op.stage_type}, dextents<int32_t, 2>, tensor_inline>("
+    )
     lines.append(f"{pad}    b_tile, dextents<int32_t, 2>({op.block_n}, {op.block_k}));")
     lines.append("")
 
@@ -824,10 +858,15 @@ def _emit_block_scaled_tile_load(op, lines, indent, func):
     values = _val_name_gemm(op.ptr_values, func)
     scales = _val_name_gemm(op.ptr_scales, func)
     total = op.block_k * op.block_n
+    scale_groups = op.block_k // 32
     lines.append(f"{pad}const uint scale_n = lid % {op.block_n}u;")
+    lines.append(f"{pad}float block_scales[{scale_groups}];")
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (uint group = 0u; group < {scale_groups}u; ++group) {{")
     lines.append(
-        f"{pad}const float block_scale = mtile_decode_e8m0({scales}[(uint(k) / 32u) * {op.matrix_n}u + pid_n * {op.block_n}u + scale_n]);"
+        f"{pad}    block_scales[group] = mtile_decode_e8m0({scales}[(uint(k) / 32u + group) * {op.matrix_n}u + pid_n * {op.block_n}u + scale_n]);"
     )
+    lines.append(f"{pad}}}")
     lines.append(f"{pad}for (uint index = lid; index < {total}u; index += {op.num_threads}u) {{")
     lines.append(f"{pad}    const uint local_k = index / {op.block_n}u;")
     lines.append(f"{pad}    const uint local_n = index % {op.block_n}u;")
@@ -842,8 +881,193 @@ def _emit_block_scaled_tile_load(op, lines, indent, func):
         decode = "mtile_decode_e2m1(quantized)"
     else:
         decode = f"mtile_decode_e4m3({values}[element])"
-    lines.append(f"{pad}    b_tile[index] = block_scale * {decode};")
+    lines.append(
+        f"{pad}    b_tile[index] = {op.stage_type}(block_scales[local_k >> 5u] * {decode});"
+    )
     lines.append(f"{pad}}}")
+
+
+def _emit_nax_gemm_setup(op, lines, indent):
+    pad = "    " * indent
+    if op.m and op.n and op.k:
+        lines.append(f"{pad}constexpr uint M = {op.m}u;")
+        lines.append(f"{pad}constexpr uint N = {op.n}u;")
+        lines.append(f"{pad}constexpr uint K = {op.k}u;")
+    lines.append(f"{pad}const uint sg_row = sgid / {op.wn}u;")
+    lines.append(f"{pad}const uint sg_col = sgid % {op.wn}u;")
+    lines.append(f"{pad}const uint tile_row = pid_m * {op.block_m}u + sg_row * 32u;")
+    lines.append(f"{pad}const uint tile_col = pid_n * {op.block_n}u + sg_col * 32u;")
+    lines.append(f"{pad}const uint qid = slid >> 2u;")
+    lines.append(f"{pad}const uint frag_m = ((qid & 4u) | ((slid >> 1u) & 3u));")
+    lines.append(f"{pad}const uint frag_n = ((qid & 2u) | (slid & 1u)) * 4u;")
+    for name in ("d00", "d01", "d10", "d11"):
+        lines.append(f"{pad}metal::vec<float, 8> {name} = metal::vec<float, 8>(0.0f);")
+    lines.append(f"{pad}constexpr auto nax_desc = matmul2d_descriptor(")
+    lines.append(f"{pad}    16, 32, 16, false, false, true,")
+    lines.append(f"{pad}    matmul2d_descriptor::mode::multiply_accumulate);")
+    lines.append(f"{pad}matmul2d<nax_desc, execution_simdgroup> nax_mma;")
+    lines.append(
+        f"{pad}auto nax_a = nax_mma.get_left_input_cooperative_tensor<float, float, float>();"
+    )
+    lines.append(
+        f"{pad}auto nax_b = nax_mma.get_right_input_cooperative_tensor<float, float, float>();"
+    )
+    lines.append(f"{pad}auto nax_c = nax_mma.get_destination_cooperative_tensor<")
+    lines.append(f"{pad}    decltype(nax_a), decltype(nax_b), float>();")
+    lines.append("")
+
+
+def _emit_nax_vector(lines, pad, name, row0, row1, ptr, stride):
+    lines.append(
+        f"{pad}const float4 {name}0 = *((device const float4*)(&{ptr}[{row0} * {stride}]));"
+    )
+    lines.append(
+        f"{pad}const float4 {name}1 = *((device const float4*)(&{ptr}[{row1} * {stride}]));"
+    )
+    lines.append(f"{pad}const metal::vec<float, 8> {name} = metal::vec<float, 8>(")
+    lines.append(
+        f"{pad}    {name}0.x, {name}0.y, {name}0.z, {name}0.w, "
+        f"{name}1.x, {name}1.y, {name}1.z, {name}1.w);"
+    )
+
+
+def _emit_nax_gemm_run(op, lines, indent, func):
+    pad = "    " * indent
+    ptr_a = _val_name_gemm(op.ptr_a, func)
+    ptr_b = _val_name_gemm(op.ptr_b, func)
+    _emit_nax_vector(
+        lines,
+        pad,
+        "b0",
+        "(uint(k) + frag_m)",
+        "(uint(k) + frag_m + 8u)",
+        ptr_b,
+        "N + tile_col + frag_n",
+    )
+    _emit_nax_vector(
+        lines,
+        pad,
+        "b1",
+        "(uint(k) + frag_m)",
+        "(uint(k) + frag_m + 8u)",
+        ptr_b,
+        "N + tile_col + 16u + frag_n",
+    )
+    _emit_nax_mma(lines, pad, ptr_a)
+
+
+def _emit_nax_mma(lines, pad, ptr_a):
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    nax_b[i] = b0[i];")
+    lines.append(f"{pad}    nax_b[8 + i] = b1[i];")
+    lines.append(f"{pad}}}")
+    for row_fragment, a_name, d0, d1 in (
+        (0, "a0", "d00", "d01"),
+        (16, "a1", "d10", "d11"),
+    ):
+        row_offset = f"tile_row + {row_fragment}u + frag_m" if row_fragment else "tile_row + frag_m"
+        _emit_nax_vector(
+            lines,
+            pad,
+            a_name,
+            f"({row_offset})",
+            f"({row_offset} + 8u)",
+            ptr_a,
+            "K + uint(k) + frag_n",
+        )
+        lines.append(f"{pad}#pragma clang loop unroll(full)")
+        lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+        lines.append(f"{pad}    nax_a[i] = {a_name}[i];")
+        lines.append(f"{pad}    nax_c[i] = {d0}[i];")
+        lines.append(f"{pad}    nax_c[8 + i] = {d1}[i];")
+        lines.append(f"{pad}}}")
+        lines.append(f"{pad}nax_mma.run(nax_a, nax_b, nax_c);")
+        lines.append(f"{pad}#pragma clang loop unroll(full)")
+        lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+        lines.append(f"{pad}    {d0}[i] = nax_c[i];")
+        lines.append(f"{pad}    {d1}[i] = nax_c[8 + i];")
+        lines.append(f"{pad}}}")
+
+
+def _emit_nax_quantized_vector(lines, pad, name, row, col, values, scales, bits):
+    lines.append(f"{pad}const uint {name}_element = ({row}) * N + ({col});")
+    lines.append(
+        f"{pad}const uchar4 {name}_scales = "
+        f"*((device const uchar4*)(&{scales}[(({row}) >> 5u) * N + ({col})]));"
+    )
+    if bits == 4:
+        lines.append(
+            f"{pad}const ushort {name}_packed = "
+            f"*((device const ushort*)(&{values}[{name}_element >> 1u]));"
+        )
+        lines.append(
+            f"{pad}const uchar4 {name}_quantized = uchar4("
+            + ", ".join(f"uchar(({name}_packed >> {shift}u) & 15u)" for shift in (0, 4, 8, 12))
+            + ");"
+        )
+        decoder = "mtile_decode_e2m1"
+    else:
+        lines.append(
+            f"{pad}const uchar4 {name}_packed = "
+            f"*((device const uchar4*)(&{values}[{name}_element]));"
+        )
+        lines.append(f"{pad}const uchar4 {name}_quantized = {name}_packed;")
+        decoder = "mtile_decode_e4m3"
+    lines.append(
+        f"{pad}const float4 {name} = "
+        f"mtile_decode_e8m0({name}_scales) * {decoder}({name}_quantized);"
+    )
+
+
+def _emit_nax_block_scaled_run(op, lines, indent, func):
+    pad = "    " * indent
+    ptr_a = _val_name_gemm(op.ptr_a, func)
+    values = _val_name_gemm(op.ptr_values, func)
+    scales = _val_name_gemm(op.ptr_scales, func)
+    for fragment, col_offset in (("b0", "0u"), ("b1", "16u")):
+        col = f"tile_col + {col_offset} + frag_n"
+        _emit_nax_quantized_vector(
+            lines, pad, f"{fragment}0", "uint(k) + frag_m", col, values, scales, op.bits
+        )
+        _emit_nax_quantized_vector(
+            lines,
+            pad,
+            f"{fragment}1",
+            "uint(k) + frag_m + 8u",
+            col,
+            values,
+            scales,
+            op.bits,
+        )
+        lines.append(f"{pad}const metal::vec<float, 8> {fragment} = metal::vec<float, 8>(")
+        lines.append(
+            f"{pad}    {fragment}0.x, {fragment}0.y, {fragment}0.z, {fragment}0.w, "
+            f"{fragment}1.x, {fragment}1.y, {fragment}1.z, {fragment}1.w);"
+        )
+    _emit_nax_mma(lines, pad, ptr_a)
+
+
+def _emit_nax_gemm_store(op, lines, indent, func):
+    pad = "    " * indent
+    ptr_c = _val_name_gemm(op.ptr_c, func)
+    for name, row_offset, col_offset in (
+        ("d00", 0, 0),
+        ("d01", 0, 16),
+        ("d10", 16, 0),
+        ("d11", 16, 16),
+    ):
+        lines.append(
+            f"{pad}*((device float4*)(&{ptr_c}[(tile_row + {row_offset}u + frag_m) * N "
+            f"+ tile_col + {col_offset}u + frag_n])) = "
+            f"float4({name}[0], {name}[1], {name}[2], {name}[3]);"
+        )
+        lines.append(
+            f"{pad}*((device float4*)(&{ptr_c}[(tile_row + {row_offset + 8}u + frag_m) * N "
+            f"+ tile_col + {col_offset}u + frag_n])) = "
+            f"float4({name}[4], {name}[5], {name}[6], {name}[7]);"
+        )
+    lines.append("")
 
 
 def _emit_tile_schedule(op, lines, indent):
@@ -858,6 +1082,21 @@ def _emit_tile_schedule(op, lines, indent):
         return
     lines.append(f"{pad}const uint grid_m = (uint(M) + {BM}u - 1u) / {BM}u;")
     lines.append(f"{pad}const uint grid_n = (uint(N) + {BN}u - 1u) / {BN}u;")
+    if op.pattern.startswith("grouped"):
+        group = int(op.pattern.removeprefix("grouped"))
+        lines.append(f"{pad}uint pid_m, pid_n;")
+        lines.append(f"{pad}if ((grid_m % {group}u) == 0u) {{")
+        lines.append(f"{pad}    const uint linear_id = tgp_id.y * grid_m + tgp_id.x;")
+        lines.append(f"{pad}    const uint virtual_x = linear_id % (grid_n * {group}u);")
+        lines.append(f"{pad}    const uint virtual_y = linear_id / (grid_n * {group}u);")
+        lines.append(f"{pad}    pid_m = virtual_y * {group}u + virtual_x % {group}u;")
+        lines.append(f"{pad}    pid_n = virtual_x / {group}u;")
+        lines.append(f"{pad}}} else {{")
+        lines.append(f"{pad}    pid_m = tgp_id.x;")
+        lines.append(f"{pad}    pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
+        lines.append(f"{pad}}}")
+        lines.append("")
+        return
     if op.pattern == "linear":
         lines.append(f"{pad}const uint pid_m = tgp_id.x;")
         lines.append(f"{pad}const uint pid_n = tgp_id.y;")
@@ -918,6 +1157,14 @@ def _emit_static_tile_schedule(op, lines, indent):
         lines.append(f"{pad}const uint within = linear_id & 3u;")
         lines.append(f"{pad}const uint pid_m = (panel_id / {op.grid_n // 2}u) * 2u + within / 2u;")
         lines.append(f"{pad}const uint pid_n = (panel_id % {op.grid_n // 2}u) * 2u + within % 2u;")
+    elif op.pattern.startswith("grouped"):
+        group = int(op.pattern.removeprefix("grouped"))
+        virtual_width = op.grid_n * group
+        lines.append(f"{pad}const uint linear_id = tgp_id.y * {op.grid_m}u + tgp_id.x;")
+        lines.append(f"{pad}const uint virtual_x = linear_id % {virtual_width}u;")
+        lines.append(f"{pad}const uint virtual_y = linear_id / {virtual_width}u;")
+        lines.append(f"{pad}const uint pid_m = virtual_y * {group}u + virtual_x % {group}u;")
+        lines.append(f"{pad}const uint pid_n = virtual_x / {group}u;")
     else:
         lines.append(f"{pad}const uint linear_id = tgp_id.x * {op.grid_n}u + tgp_id.y;")
         lines.append(f"{pad}constexpr ulong hilbert_m = 0xEBFA5014ul;")
@@ -979,24 +1226,26 @@ def _emit_coop_tensor_init(op, lines, indent):
     """Emit cooperative_tensor declaration + zero-init."""
     pad = "    " * indent
     in_type = op.in_type
+    left_type = op.left_type or in_type
+    right_type = op.right_type or in_type
     acc_type = op.acc_type
 
     if op.use_separated:
         lines.append(
-            f"{pad}auto ct_a = op.get_left_input_cooperative_tensor<{in_type}, {in_type}, {acc_type}>();"
+            f"{pad}auto ct_a = op.get_left_input_cooperative_tensor<{left_type}, {right_type}, {acc_type}>();"
         )
         lines.append(
-            f"{pad}auto ct_b = op.get_right_input_cooperative_tensor<{in_type}, {in_type}, {acc_type}>();"
+            f"{pad}auto ct_b = op.get_right_input_cooperative_tensor<{left_type}, {right_type}, {acc_type}>();"
         )
         lines.append(f"{pad}auto {op.ct_name} = op.get_destination_cooperative_tensor<")
         lines.append(f"{pad}    decltype(ct_a), decltype(ct_b), {acc_type}>();")
     else:
         lines.append(f"{pad}auto {op.ct_name} = op.get_destination_cooperative_tensor<")
         lines.append(
-            f"{pad}    tensor<{op.left_address_space} {in_type}, dextents<int32_t, 2>, tensor_inline>,"
+            f"{pad}    tensor<{op.left_address_space} {left_type}, dextents<int32_t, 2>, tensor_inline>,"
         )
         lines.append(
-            f"{pad}    tensor<{op.right_address_space} {in_type}, dextents<int32_t, 2>, tensor_inline>, {acc_type}>();"
+            f"{pad}    tensor<{op.right_address_space} {right_type}, dextents<int32_t, 2>, tensor_inline>, {acc_type}>();"
         )
 
     # Zero-init

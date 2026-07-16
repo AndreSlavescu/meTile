@@ -1001,8 +1001,42 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     acc_type = "float"
     out_type = msl_type
 
+    if constexprs.get("NAX_FRAGMENTS", False):
+        if msl_type != "float" or cooperative or SM != 32 or SN != 32 or BK != 16:
+            raise ValueError("NAX fragments require f32, 32x32 per-simdgroup tiles, and BLOCK_K=16")
+        if epilogue:
+            raise ValueError("NAX fragment epilogues are not implemented")
+        if not all(constexprs.get(f"_ALIGNED_{axis}", False) for axis in ("M", "N", "K")):
+            raise ValueError("NAX fragments currently require aligned M, N, and K")
+        mfunc.add_op(mir.MThreadInSimdgroup())
+        mfunc.add_op(
+            mir.MTileSchedule(
+                pattern=swizzle,
+                block_m=BM,
+                block_n=BN,
+                block_size=swizzle_block_size,
+                grid_m=constexprs.get("_GRID_M"),
+                grid_n=constexprs.get("_GRID_N"),
+            )
+        )
+        mfunc.add_op(mir.MNaxGemmSetup(block_m=BM, block_n=BN, wm=WM, wn=WN))
+        mfunc.add_op(
+            mir.MForLoop(
+                iv_name="k",
+                start=0,
+                end=K_val,
+                step=16,
+                body=[mir.MNaxGemmRun(ptr_a=ptr_A, ptr_b=ptr_B)],
+            )
+        )
+        mfunc.add_op(mir.MNaxGemmStore(ptr_c=ptr_C))
+        return mfunc
+
     # Use separated loads when descriptor dimensions allow cooperative_tensor inputs
-    use_separated = not cooperative and SM <= 32 and SN <= 32
+    separated_default = not cooperative and SM <= 32 and SN <= 32
+    use_separated = constexprs.get("SEPARATED", separated_default) and not cooperative
+    if use_separated and (SM > 32 or SN > 32):
+        raise ValueError("separated tensor inputs require per-simdgroup M/N tiles <= 32")
     bk_inner = min(32, BK) if use_separated else BK
 
     # --- Emit decomposed tensor ops ---

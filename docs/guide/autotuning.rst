@@ -47,10 +47,11 @@ The grid must be a callable that computes the grid shape from the config:
 
 On the first call with new key values, the autotuner:
 
-1. Benchmarks every config (warmup + timed iterations)
-2. Selects the fastest one
-3. Caches the result with the device and toolchain identity
-4. Dispatches with the winning config
+1. Compiles every valid config
+2. Benchmarks candidates in rotated, alternating round-robin order
+3. Selects the fastest one, using generated-code size only for a sub-percent tie
+4. Caches the result with the device and toolchain identity
+5. Dispatches with the winning config
 
 Subsequent calls with the same key values reuse the winner without re-tuning.
 
@@ -92,7 +93,24 @@ Any keyword arguments become constexprs passed to the kernel. Parameters not in 
 kernel's signature are stored in ``func.constexprs`` and available to the compiler
 (e.g., ``WM``, ``WN`` control the tensor_ops simdgroup layout).
 Schedules can be searched alongside tile shapes with ``SWIZZLE="linear"``,
-``"diagonal"``, ``"morton"``, ``"hilbert"``, or ``"auto"``.
+``"grouped2"``, ``"grouped4"``, ``"grouped8"``, ``"diagonal"``,
+``"morton"``, ``"hilbert"``, or ``"auto"``.
+
+
+Schedule Algebra and MDL
+------------------------
+
+Schedule selection is a composable Metal IR pass, not a whole-kernel template.
+Each traversal is represented as a finite permutation of the launch grid. Square
+grids use the eight-element dihedral group ``D4``; rectangular grids use the four
+shape-preserving reflections. The pass canonicalizes candidates under these group
+actions and searches one representative per orbit.
+
+This is a finite symmetry group and fundamental-domain construction, not a
+topological fundamental group. Likewise, exact Kolmogorov complexity is
+uncomputable. meTile uses DEFLATE-compressed generated MSL length as a reproducible
+minimum-description-length upper bound. Measured latency is always primary: MDL can
+only choose a smaller representation when it is within 0.25% of the fastest result.
 
 
 Verbose Output
@@ -138,8 +156,17 @@ fast dispatcher that skips all Python overhead on subsequent calls:
 
 .. code-block:: python
 
+   from metile.runtime.metal_device import MetalDevice
+
    dispatch = autotuned_matmul[grid].prepare(A, B, C, M, N, K)
 
-   # hot path with minimal python overhead
+   # compatible calls batch until sync(), numpy(), or an ordinary launch flushes them
    for _ in range(1000):
        dispatch()
+
+   MetalDevice.get().sync()
+
+Prepared GEMMs use an ordered encoder. Independent element-wise kernels can use a
+concurrent encoder; the runtime tracks input/output buffer hazards and inserts Metal
+buffer barriers between dependent dispatches. Optional selectors are capability
+checked, and bound buffers remain alive through completion.

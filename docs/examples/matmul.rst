@@ -58,7 +58,8 @@ The compiler maps ``dot`` to the appropriate hardware:
 
 - **M1/M2/M3**: ``simdgroup_matrix<float, 8, 8>`` with cooperative loads through
   threadgroup memory
-- **M4+**: ``matmul2d`` tensor_ops with register-resident ``cooperative_tensor``
+- **Metal 4-capable GPU/toolchain**: ``matmul2d`` tensor_ops with register-resident
+  ``cooperative_tensor``
 
 
 Fused GEMM + ReLU
@@ -88,8 +89,8 @@ Tile Swizzle for Cache Locality
 --------------------------------
 
 For large matrices, the order in which tiles are processed affects cache hit rates.
-The compiler can specialize linear, diagonal, Morton (Z-order), and 4x4 Hilbert
-traversals. Use ``tile_swizzle`` to force a schedule:
+The compiler can specialize linear, grouped-2/4/8, diagonal, Morton (Z-order), and
+4x4 Hilbert traversals. Use ``tile_swizzle`` to force a schedule:
 
 .. code-block:: python
 

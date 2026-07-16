@@ -11,16 +11,17 @@ The Two Backends
 
 meTile automatically selects the best backend for your hardware when compiling GEMM kernels:
 
-**Simdgroup Matrix (M1/M2/M3)**
+**Simdgroup Matrix**
    Uses ``simdgroup_matrix<float, 8, 8>``, Apple's 8x8 matrix multiply-accumulate
    primitive. Each simdgroup (32 threads) collaboratively computes an 8x8 tile.
    The compiler tiles the output across multiple simdgroups and uses threadgroup
    (shared) memory to stage data.
 
-**Metal 4 Tensor Ops (M4+)**
+**Metal 4 Tensor Ops**
    Uses ``matmul2d`` with ``cooperative_tensor``, Metal 4's hardware matrix multiply
-   descriptors. Each simdgroup independently loads data from device memory into
-   register-resident cooperative tensors and runs the MMA. No threadgroup memory needed.
+   descriptors. On supported GPU/toolchain combinations, each simdgroup can load
+   data from device memory into register-resident cooperative tensors and run the MMA.
+   The tuned M5 path also supports explicit NAX fragment load/MMA/store operations.
 
 You write the same kernel code for both. The ``lower()`` function in the compiler inspects
 your hardware and chooses the right path.
@@ -115,6 +116,10 @@ meTile supports several scheduling patterns:
 **Linear**:
    Simple row-major assignment. No locality optimization.
 
+**Grouped-2/4/8**:
+   Visits a short group of neighboring M tiles before advancing N, increasing reuse
+   of the same B region for shapes where that order wins.
+
 **Morton**:
    Visits complete 2x2 panels in Z order.
 
@@ -122,7 +127,9 @@ meTile supports several scheduling patterns:
    Visits complete 4x4 panels along a Hilbert curve with unit-distance steps
    inside each panel.
 
-The compiler searches supported schedules by default. You can override it:
+The compiler represents each schedule as a finite permutation, removes candidates
+that are equivalent under shape-preserving symmetries, and searches the remaining
+representatives. You can override it:
 
 .. code-block:: python
 
@@ -130,3 +137,13 @@ The compiler searches supported schedules by default. You can override it:
        metile.program_id(0), metile.program_id(1),
        pattern="morton", block_size=2,
    )
+
+
+Block-Scaled Register Fragments
+-------------------------------
+
+MXFP4 and MXFP8 matmul lowering is composed from Metal IR operations for schedule
+selection, vectorized E2M1/E4M3 plus E8M0 decoding, fragment MMA, and stores. The
+autotuner compares conventional threadgroup staging with a direct M5 path that keeps
+decoded fragments and accumulators in registers. No dense weight tensor is
+materialized in global memory.

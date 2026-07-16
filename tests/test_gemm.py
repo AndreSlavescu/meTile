@@ -110,6 +110,31 @@ class TestSimdgroupGemm:
         )
         np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
 
+    def test_aligned_nax_fragments_compile_and_match(self):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(29)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
 
 class TestF16NaiveGemm:
     def test_square_32x32(self):

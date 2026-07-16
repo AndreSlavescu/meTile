@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import inspect
 import os
 import struct
@@ -22,7 +23,7 @@ from metile.compiler.passes import (
     vectorize_elementwise,
     vectorize_loads,
 )
-from metile.compiler.schedule_search import optimize_tile_schedules
+from metile.compiler.schedule_search import compressed_description_bits, optimize_tile_schedules
 from metile.frontend.tracing import TracingContext, TracingProxy, constexpr
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
@@ -69,12 +70,15 @@ class CompiledKernel:
         func_name: str,
         threadgroup_size: tuple[int, int, int],
         is_gemm: bool = False,
+        output_indices: tuple[int, ...] = (),
     ):
         self.pipeline = pipeline
         self.msl_source = msl_source
         self.func_name = func_name
         self.threadgroup_size = threadgroup_size
         self.is_gemm = is_gemm
+        self.output_indices = output_indices
+        self.description_bits = compressed_description_bits(msl_source)
 
 
 def kernel(fn):
@@ -133,28 +137,25 @@ class KernelFunction:
 
 
 class FastDispatcher:
-    """Zero-overhead repeated dispatch. Created by KernelLauncher.prepare().
+    """Low-overhead prepared dispatch. Created by KernelLauncher.prepare().
 
     Pre-resolves all Metal buffers, MTLSize structs, and ctypes function
-    pointers as instance attributes so __call__ goes straight to cached
-    ctypes Metal API calls with no Python arg processing, cache lookup,
-    isinstance checks, or class attribute lookups.
+    pointers. Consecutive prepared calls automatically share a command buffer
+    and compute encoder until sync(), reducing composed-kernel launch overhead.
     """
 
     __slots__ = (
         "_buffers",
-        "_cq",
+        "_concurrent",
+        "_description_bits",
         "_dev",
         "_dispatch_fn",
         "_dispatch_sel",
         "_grid",
+        "_input_resources",
+        "_output_resources",
         "_pipeline",
-        "_sel_cb",
-        "_sel_commit",
-        "_sel_enc",
-        "_sel_end",
-        "_send_id",
-        "_send_void",
+        "_resources",
         "_set_buf_fn",
         "_set_buf_sel",
         "_set_pipe_fn",
@@ -162,25 +163,26 @@ class FastDispatcher:
         "_tg",
     )
 
-    def __init__(self, compiled, metal_buffers, grid, dev):
+    def __init__(self, compiled, metal_buffers, grid, dev, resources=()):
         dev._ensure_cached_selectors()
         self._pipeline = compiled.pipeline
         self._buffers = tuple(metal_buffers)
+        self._resources = tuple(resources)
+        self._concurrent = not compiled.is_gemm
         self._dev = dev
-        self._cq = dev.command_queue
+        self._description_bits = compiled.description_bits
+        resources = tuple(
+            buffer.value if isinstance(buffer, ctypes.c_void_p) else int(buffer)
+            for buffer in self._buffers
+        )
+        self._input_resources = frozenset(resources)
+        self._output_resources = frozenset(resources[index] for index in compiled.output_indices)
 
         # Pre-cache all ctypes functions as instance attrs
-        self._send_id = MetalDevice._msg_send_id
-        self._send_void = MetalDevice._msg_send_void
-        self._sel_cb = MetalDevice._sel_commandBufferUnretained
-        self._sel_enc = MetalDevice._sel_computeCommandEncoder
         self._set_pipe_fn = MetalDevice._set_pipeline_fn
         self._set_pipe_sel = MetalDevice._set_pipeline_sel
         self._set_buf_fn = MetalDevice._set_buffer_fn
         self._set_buf_sel = MetalDevice._set_buffer_sel
-        self._sel_end = MetalDevice._sel_endEncoding
-        self._sel_commit = MetalDevice._sel_commit
-
         tg = compiled.threadgroup_size
         self._tg = MTLSize(tg[0], tg[1], tg[2])
         if compiled.is_gemm:
@@ -197,25 +199,37 @@ class FastDispatcher:
             self._dispatch_sel = MetalDevice._dispatch_threads_sel
 
     def __call__(self):
-        send_id = self._send_id
-        send_void = self._send_void
+        dev = self._dev
+        with dev._dispatch_lock:
+            encoder = dev._pending_encoder_unlocked(self._concurrent)
+            concurrent = bool(dev._pending_concurrent)
+            if concurrent and (
+                (dev._pending_outputs & self._input_resources)
+                or (dev._pending_inputs & self._output_resources)
+            ):
+                dev._memory_barrier_fn(encoder, dev._memory_barrier_sel, 1)
+                dev._pending_inputs.clear()
+                dev._pending_outputs.clear()
+            self._set_pipe_fn(encoder, self._set_pipe_sel, self._pipeline)
 
-        cmd_buffer = send_id(self._cq, self._sel_cb)
-        encoder = send_id(cmd_buffer, self._sel_enc)
+            fn = self._set_buf_fn
+            sel = self._set_buf_sel
+            bufs = self._buffers
+            for idx in range(len(bufs)):
+                fn(encoder, sel, bufs[idx], 0, idx)
 
-        self._set_pipe_fn(encoder, self._set_pipe_sel, self._pipeline)
+            self._dispatch_fn(encoder, self._dispatch_sel, self._grid, self._tg)
+            if self._concurrent:
+                dev._pending_inputs.update(self._input_resources)
+                dev._pending_outputs.update(self._output_resources)
+            dev._pending_lifetimes[id(self)] = self
+            dev._pending_dispatches += 1
+            if dev._pending_dispatches >= 64:
+                dev._commit_pending_unlocked()
 
-        fn = self._set_buf_fn
-        sel = self._set_buf_sel
-        bufs = self._buffers
-        for idx in range(len(bufs)):
-            fn(encoder, sel, bufs[idx], 0, idx)
-
-        self._dispatch_fn(encoder, self._dispatch_sel, self._grid, self._tg)
-
-        send_void(encoder, self._sel_end)
-        send_void(cmd_buffer, self._sel_commit)
-        self._dev._last_cmd_buffer = cmd_buffer
+    @property
+    def description_bits(self) -> int:
+        return self._description_bits
 
 
 class KernelLauncher:
@@ -248,6 +262,14 @@ class KernelLauncher:
         for name, val in kwargs.items():
             if name not in sig_names and name not in constexprs:
                 constexprs[name] = val._value if isinstance(val, constexpr) else val
+
+        bound_kwargs = {name: value for name, value in kwargs.items() if name in sig_names}
+        bound = sig.bind_partial(*args, **bound_kwargs)
+        for axis in ("M", "N", "K"):
+            block = constexprs.get(f"BLOCK_{axis}")
+            value = bound.arguments.get(axis)
+            if block is not None and isinstance(value, (int, np.integer)):
+                constexprs[f"_ALIGNED_{axis}"] = int(value) % int(block) == 0
 
         if isinstance(self.grid, tuple) and len(self.grid) >= 2:
             constexprs["_GRID_M"] = int(self.grid[0])
@@ -288,6 +310,7 @@ class KernelLauncher:
         # Stash for prepare()
         self._last_compiled = compiled
         self._last_metal_buffers = metal_buffers
+        self._last_resources = tuple(converted_args)
 
         # Sync results back to source numpy arrays (requires GPU completion)
         needs_sync = any(
@@ -306,8 +329,13 @@ class KernelLauncher:
         FastDispatcher that skips all Python arg processing.
         """
         self(*args, **kwargs)
+        MetalDevice.get().sync()
         return FastDispatcher(
-            self._last_compiled, self._last_metal_buffers, self.grid, MetalDevice.get()
+            self._last_compiled,
+            self._last_metal_buffers,
+            self.grid,
+            MetalDevice.get(),
+            self._last_resources,
         )
 
     def _compile(self, args, constexprs: dict, param_names: list[str]) -> CompiledKernel:
@@ -470,6 +498,9 @@ class KernelLauncher:
             func_name=metal_ir.name,
             threadgroup_size=metal_ir.threadgroup_size,
             is_gemm=is_gemm or is_tensor_ops or is_specialized,
+            output_indices=tuple(
+                index for index, param in enumerate(metal_ir.params) if param.is_output
+            ),
         )
 
     def _dispatch(self, compiled: CompiledKernel, args):

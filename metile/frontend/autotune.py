@@ -6,6 +6,7 @@ import statistics
 import threading
 import time
 
+from metile.compiler.schedule_search import choose_mdl_tie
 from metile.frontend.tracing import constexpr
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 from metile.runtime.metal_device import MetalDevice
@@ -98,23 +99,17 @@ class AutotunedLauncher:
             self._launch(cached, args, kwargs)
             return cached
 
-        # Benchmark each config
         dev = MetalDevice.get()
-        best, best_time = None, float("inf")
-        results = []
+        results = self._benchmark_candidates(args, kwargs, dev)
+        successful = [
+            (dt, description_bits, cfg)
+            for cfg, dt, description_bits, error in results
+            if error is None and dt is not None and description_bits is not None
+        ]
 
-        for cfg in at.configs:
-            try:
-                dt = self._bench(cfg, args, kwargs, dev)
-                results.append((cfg, dt, None))
-                if dt < best_time:
-                    best_time = dt
-                    best = cfg
-            except Exception as e:
-                results.append((cfg, None, e))
-
-        if best is None:
+        if not successful:
             raise RuntimeError(f"All {len(at.configs)} configs failed for '{at.kernel_fn.name}'")
+        best = choose_mdl_tie(successful)
 
         _autotune_cache[cache_key] = best
         self._store_persistent(persistent_key, best)
@@ -122,7 +117,7 @@ class AutotunedLauncher:
         if at.verbose:
             key_str = ", ".join(f"{k}={v}" for k, v in zip(at.key, key_values))
             print(f"autotune {at.kernel_fn.name} [{key_str}]: {best}")
-            for cfg, dt, err in results:
+            for cfg, dt, _, err in results:
                 tag = " <--" if cfg == best else ""
                 if dt is not None:
                     print(f"  {cfg}: {dt * 1000:.2f}ms{tag}")
@@ -213,24 +208,69 @@ class AutotunedLauncher:
         merged = {**kwargs, **config.kwargs}
         self.autotuned.kernel_fn[self._resolve_grid(config)](*args, **merged)
 
-    def _bench(self, config, args, kwargs, dev):
+    def _benchmark_candidates(self, args, kwargs, dev):
         at = self.autotuned
-        merged = {**kwargs, **config.kwargs}
-        grid = self._resolve_grid(config)
-        dispatch = at.kernel_fn[grid].prepare(*args, **merged)
+        states = []
+        for config in at.configs:
+            try:
+                merged = {**kwargs, **config.kwargs}
+                grid = self._resolve_grid(config)
+                dispatch = at.kernel_fn[grid].prepare(*args, **merged)
+                states.append(
+                    {
+                        "config": config,
+                        "description_bits": dispatch.description_bits,
+                        "dispatch": dispatch,
+                        "samples": [],
+                        "error": None,
+                    }
+                )
+            except Exception as error:
+                states.append(
+                    {
+                        "config": config,
+                        "description_bits": None,
+                        "dispatch": None,
+                        "samples": [],
+                        "error": error,
+                    }
+                )
 
-        for _ in range(at.warmup):
-            dispatch()
-        dev.sync()
+        def run_round(round_index, timed):
+            active = [state for state in states if state["error"] is None]
+            if not active:
+                return
+            shift = round_index % len(active)
+            ordered = active[shift:] + active[:shift]
+            if round_index & 1:
+                ordered.reverse()
+            for state in ordered:
+                try:
+                    start = time.perf_counter()
+                    state["dispatch"]()
+                    dev.sync()
+                    if timed:
+                        gpu_time = dev.gpu_elapsed()
+                        state["samples"].append(
+                            gpu_time if gpu_time > 0 else time.perf_counter() - start
+                        )
+                except Exception as error:
+                    state["error"] = error
 
-        samples = []
-        for _ in range(at.rep):
-            t0 = time.perf_counter()
-            dispatch()
-            dev.sync()
-            gpu_time = dev.gpu_elapsed()
-            samples.append(gpu_time if gpu_time > 0 else time.perf_counter() - t0)
-        return statistics.median(samples)
+        for round_index in range(at.warmup):
+            run_round(round_index, timed=False)
+        for round_index in range(at.rep):
+            run_round(round_index, timed=True)
+
+        return [
+            (
+                state["config"],
+                statistics.median(state["samples"]) if state["samples"] else None,
+                state["description_bits"],
+                state["error"],
+            )
+            for state in states
+        ]
 
 
 def autotune(

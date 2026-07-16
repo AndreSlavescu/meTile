@@ -61,25 +61,28 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 
 **eDSL & Frontend**
 - Python-based eDSL: `@metile.kernel`, `program_id`, `arange`, `load`/`store`, `dot`, `tile_load`/`tile_store`
-- Autotuner (`@metile.autotune`) with config search over block sizes, SG counts, execution modes
+- Autotuner (`@metile.autotune`) with config search over block sizes, SG counts, execution modes, and tile schedules
 
 **Compiler**
 - Multi-level IR pipeline: Tile IR (hardware-agnostic) &rarr; Metal IR (decomposed primitives) &rarr; MSL
 - CuTe-inspired layout algebra with hierarchical Shape:Stride, composition, complement, and logical divide. Supports arbitrary tile shapes.
 - Composable optimization passes that transform IR structure: shared memory padding / XOR swizzle, split-K, vectorized loads, serpentine MMA traversal, preloaded tiles, double-buffered K-loop, block swizzle for L2 locality
-- Schedule-algebra pass over finite tile permutations. It removes reflection-equivalent traversals and uses a minimum-description-length/locality proxy to emit branch-free linear, diagonal, Morton, or 4x4 Hilbert schedules.
-- Composable MXFP4/MXFP8 Metal IR operations for fused block-scale decode, threadgroup staging, and MPP matrix multiply.
+- Schedule-algebra pass over finite tile permutations. D4/rectangle group actions remove symmetry-equivalent traversals before emitting branch-free linear, grouped-2/4/8, diagonal, Morton, or 4x4 Hilbert schedules.
+- Minimum-description-length selection uses compressed generated source as a computable upper bound on Kolmogorov complexity. Runtime remains the primary objective; source size only breaks measurements within 0.25% of the fastest candidate.
+- Composable MXFP4/MXFP8 Metal IR operations for vectorized fused decode, optional threadgroup staging, register-resident NAX fragments, MPP matrix multiply, and stores.
 - Fused epilogues (ReLU, exp, scale) on register-resident accumulators via `thread_elements()` with zero global memory traffic.
 
 **Codegen**
 - Simdgroup matrix (8x8) MMA with decomposed load / MMA / store primitives
-- Metal 4 tensor_ops (`matmul2d`) for TF32 on M5, M5 pro, and M5 max (requires Xcode to be built as well) via preemptive and cooperative execution modes
+- Metal 4 tensor_ops (`matmul2d`) with runtime GPU-family and toolchain checks; the M5 path supports preemptive, cooperative, and direct register-fragment execution
+- Per-kernel `max_total_threads_per_threadgroup` specialization and shared op-by-op emission instead of monolithic whole-kernel templates
 - AOT compilation via `xcrun metal -O2` with JIT fallback (`newLibraryWithSource`) when Xcode is unavailable
 
 **Runtime**
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
-- GPU-timestamp autotuning with device/toolchain-keyed persistent config and metallib caches.
-- Automatic dense and block-scaled tile-family dispatch; explicit block sizes still bypass tuning.
+- Interleaved round-robin GPU-timestamp autotuning with device/toolchain-keyed persistent config and metallib caches.
+- Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates.
+- Prepared calls batch compatible launches into shared encoders, insert dependency barriers for concurrent dispatch, retain bound resources, and fall back when optional Metal selectors are unavailable.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
 
 ## Block-Scaled GEMM
@@ -95,7 +98,8 @@ out = metile.block_scaled_matmul(a, w)
 ```
 
 The aligned fast path currently requires `M`/`N` multiples of 64 and `K` a multiple
-of 32. `prepare_block_scaled_matmul` returns a reusable hot-path dispatcher.
+of 32. `prepare_block_scaled_matmul` autotunes staged and direct register-fragment
+representations and returns a reusable hot-path dispatcher.
 
 ## Install
 
@@ -150,7 +154,7 @@ make bench
 | Schedule search | `compiler/schedule_search.py` | Permutation-group canonicalization and MDL/locality schedule selection |
 | Block scaling | `compiler/block_scaled.py` | Composes MXFP decode, tensor views, MPP MMA, and store Metal IR |
 | Codegen | `codegen/msl_emitter.py` | Metal IR &rarr; MSL (uniform op walker, no per-kernel templates) |
-| Runtime | `runtime/metal_device.py` | Metal API via ctypes (compile, dispatch, sync) |
+| Runtime | `runtime/metal_device.py` | Metal API via ctypes (compile, capability-gated batching, dispatch, sync) |
 | Runtime | `runtime/buffer.py` | Zero-copy unified memory buffers |
 | Runtime | `runtime/block_scaled.py` | MXFP quantization and shape-specific tile-family dispatch |
 

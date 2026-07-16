@@ -5,6 +5,7 @@ import os
 import platform
 import subprocess
 import tempfile
+import threading
 from functools import cached_property
 from typing import ClassVar
 
@@ -71,6 +72,19 @@ def _send_uint64(obj, sel_name: str, *args, argtypes=None):
     return _send(obj, sel_name, *args, restype=ctypes.c_uint64, argtypes=argtypes)
 
 
+def _responds_to(obj, selector) -> bool:
+    """Return whether an Objective-C object implements a selector."""
+    return bool(
+        _send(
+            obj,
+            "respondsToSelector:",
+            selector,
+            restype=ctypes.c_bool,
+            argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p],
+        )
+    )
+
+
 def _nsstring(s: str) -> ctypes.c_void_p:
     """Create an NSString from a Python string."""
     NSString = _cls("NSString")
@@ -115,6 +129,15 @@ class MetalDevice:
         if not self.command_queue:
             raise RuntimeError("Failed to create Metal command queue.")
         self._last_cmd_buffer = None
+        self._pending_cmd_buffer = None
+        self._pending_encoder = None
+        self._pending_dispatches = 0
+        self._pending_concurrent = None
+        self._pending_inputs = set()
+        self._pending_outputs = set()
+        self._pending_lifetimes = {}
+        self._inflight_lifetimes = []
+        self._dispatch_lock = threading.RLock()
 
     @classmethod
     def get(cls) -> "MetalDevice":
@@ -367,8 +390,8 @@ class MetalDevice:
 
     @cached_property
     def supports_tensor_ops(self) -> bool:
-        """Check if device supports Metal 4 tensor_ops (M5+ and Xcode required)."""
-        if not self.has_metal_compiler:
+        """Check for both a Metal 4 GPU and a tensor-ops-capable toolchain."""
+        if not self.supports_gpu_family(5002) or not self.has_metal_compiler:
             return False
         path = None
         test_src = (
@@ -405,6 +428,21 @@ class MetalDevice:
             if path is not None:
                 with contextlib.suppress(OSError):
                     os.unlink(path)
+
+    def supports_gpu_family(self, family: int) -> bool:
+        """Query ``MTLDevice.supportsFamily:`` without requiring PyObjC."""
+        selector = _sel("supportsFamily:")
+        if not _responds_to(self.device, selector):
+            return False
+        return bool(
+            _send(
+                self.device,
+                "supportsFamily:",
+                ctypes.c_int64(family),
+                restype=ctypes.c_bool,
+                argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int64],
+            )
+        )
 
     @property
     def block_scaling_backend(self) -> str:
@@ -460,16 +498,20 @@ class MetalDevice:
     _set_pipeline_fn = None
     # Command buffer lifecycle (cached to avoid _send_ptr overhead)
     _msg_send_id = None  # zero-arg -> pointer
+    _msg_send_id_uint64 = None  # one uint64 arg -> pointer
     _msg_send_void = None  # zero-arg -> void
     _msg_send_double = None  # zero-arg -> double (for GPU timestamps)
     _sel_commandBuffer = None
     _sel_commandBufferUnretained = None
     _sel_computeCommandEncoder = None
+    _sel_computeCommandEncoderConcurrent = None
     _sel_endEncoding = None
     _sel_commit = None
     _sel_waitUntilCompleted = None
     _sel_GPUStartTime = None
     _sel_GPUEndTime = None
+    _memory_barrier_sel = None
+    _memory_barrier_fn = None
 
     def _ensure_cached_selectors(self):
         """Cache ctypes selectors and function types on first use."""
@@ -518,6 +560,12 @@ class MetalDevice:
             ctypes.c_void_p,
             ctypes.c_void_p,
         )(msg_ptr)
+        MetalDevice._msg_send_id_uint64 = ctypes.CFUNCTYPE(
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+        )(msg_ptr)
         MetalDevice._msg_send_void = ctypes.CFUNCTYPE(
             None,
             ctypes.c_void_p,
@@ -528,6 +576,9 @@ class MetalDevice:
             b"commandBufferWithUnretainedReferences"
         )
         MetalDevice._sel_computeCommandEncoder = _objc.sel_registerName(b"computeCommandEncoder")
+        MetalDevice._sel_computeCommandEncoderConcurrent = _objc.sel_registerName(
+            b"computeCommandEncoderWithDispatchType:"
+        )
         MetalDevice._sel_endEncoding = _objc.sel_registerName(b"endEncoding")
         MetalDevice._sel_commit = _objc.sel_registerName(b"commit")
         MetalDevice._sel_waitUntilCompleted = _objc.sel_registerName(b"waitUntilCompleted")
@@ -540,9 +591,17 @@ class MetalDevice:
         )(msg_ptr)
         MetalDevice._sel_GPUStartTime = _objc.sel_registerName(b"GPUStartTime")
         MetalDevice._sel_GPUEndTime = _objc.sel_registerName(b"GPUEndTime")
+        MetalDevice._memory_barrier_sel = _objc.sel_registerName(b"memoryBarrierWithScope:")
+        MetalDevice._memory_barrier_fn = ctypes.CFUNCTYPE(
+            None,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_uint64,
+        )(msg_ptr)
 
     def _setup_encoder(self, pipeline, buffers, offsets=None):
         """Create command buffer, encoder, set pipeline and buffers."""
+        self.flush()
         self._ensure_cached_selectors()
 
         send_id = MetalDevice._msg_send_id
@@ -569,18 +628,87 @@ class MetalDevice:
         send_void(cmd_buffer, MetalDevice._sel_commit)
         self._last_cmd_buffer = cmd_buffer
 
+    def _pending_encoder_unlocked(self, concurrent: bool):
+        """Return the shared hot-path encoder, creating it on first use."""
+        concurrent = concurrent and self.supports_concurrent_dispatch
+        if self._pending_encoder is not None and self._pending_concurrent != concurrent:
+            self._commit_pending_unlocked()
+        if self._pending_encoder is None:
+            self._ensure_cached_selectors()
+            send_id = MetalDevice._msg_send_id
+            command_buffer_selector = (
+                MetalDevice._sel_commandBufferUnretained
+                if self.supports_unretained_command_buffers
+                else MetalDevice._sel_commandBuffer
+            )
+            self._pending_cmd_buffer = send_id(self.command_queue, command_buffer_selector)
+            if concurrent:
+                self._pending_encoder = MetalDevice._msg_send_id_uint64(
+                    self._pending_cmd_buffer,
+                    MetalDevice._sel_computeCommandEncoderConcurrent,
+                    1,
+                )
+            else:
+                self._pending_encoder = send_id(
+                    self._pending_cmd_buffer, MetalDevice._sel_computeCommandEncoder
+                )
+            self._pending_concurrent = concurrent
+        return self._pending_encoder
+
+    @cached_property
+    def supports_unretained_command_buffers(self) -> bool:
+        """Whether the queue supports the lower-overhead unretained command-buffer path."""
+        self._ensure_cached_selectors()
+        return _responds_to(self.command_queue, MetalDevice._sel_commandBufferUnretained)
+
+    @cached_property
+    def supports_concurrent_dispatch(self) -> bool:
+        """Whether command buffers expose concurrent compute encoders."""
+        self._ensure_cached_selectors()
+        command_buffer = MetalDevice._msg_send_id(
+            self.command_queue, MetalDevice._sel_commandBuffer
+        )
+        return bool(command_buffer) and _responds_to(
+            command_buffer, MetalDevice._sel_computeCommandEncoderConcurrent
+        )
+
+    def _commit_pending_unlocked(self):
+        """Close and submit the shared hot-path encoder if it has work."""
+        if self._pending_encoder is None:
+            return
+        send_void = MetalDevice._msg_send_void
+        send_void(self._pending_encoder, MetalDevice._sel_endEncoding)
+        send_void(self._pending_cmd_buffer, MetalDevice._sel_commit)
+        self._last_cmd_buffer = self._pending_cmd_buffer
+        self._pending_cmd_buffer = None
+        self._pending_encoder = None
+        self._pending_dispatches = 0
+        self._pending_concurrent = None
+        self._pending_inputs.clear()
+        self._pending_outputs.clear()
+        self._inflight_lifetimes.extend(self._pending_lifetimes.values())
+        self._pending_lifetimes.clear()
+
+    def flush(self):
+        """Submit automatically batched prepared dispatches without waiting."""
+        with self._dispatch_lock:
+            self._commit_pending_unlocked()
+
     def sync(self):
         """Wait for all submitted GPU work to complete.
 
         Metal command queues execute in submission order, so waiting on
         the last submitted command buffer ensures all prior work is done.
         """
-        cb = self._last_cmd_buffer
-        if cb is not None:
-            self._ensure_cached_selectors()
-            MetalDevice._msg_send_void(cb, MetalDevice._sel_waitUntilCompleted)
-            self._completed_cmd_buffer = cb
-            self._last_cmd_buffer = None
+        with self._dispatch_lock:
+            self._commit_pending_unlocked()
+            cb = self._last_cmd_buffer
+            if cb is not None:
+                self._ensure_cached_selectors()
+                MetalDevice._msg_send_void(cb, MetalDevice._sel_waitUntilCompleted)
+                self._completed_cmd_buffer = cb
+                self._last_cmd_buffer = None
+                self._inflight_lifetimes.clear()
 
     def gpu_elapsed(self) -> float:
         """Return GPU execution time (seconds) of last completed command buffer.
@@ -650,6 +778,7 @@ class MetalDevice:
         All dispatches use the same pipeline and grid/threadgroup dimensions.
         Eliminates per-dispatch command buffer overhead.
         """
+        self.flush()
         cmd_buffer = _send_ptr(self.command_queue, "commandBuffer")
         encoder = _send_ptr(cmd_buffer, "computeCommandEncoder")
 

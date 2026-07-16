@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 from functools import cached_property
 from itertools import pairwise
+from typing import TypeVar
 
 from metile.compiler.schedules import SCHEDULES, resolve_schedule, schedule_coordinates
 from metile.ir import metal_ir as mir
@@ -51,19 +53,28 @@ class FinitePermutation:
 
 @dataclass(frozen=True)
 class GridSymmetryGroup:
-    """The layout-preserving reflection group acting on a rectangular grid."""
+    """D4 layout symmetries for squares and rectangle reflections otherwise."""
 
     grid_m: int
     grid_n: int
 
     @cached_property
     def elements(self) -> tuple[FinitePermutation, ...]:
-        transformations = (
+        transformations = [
             lambda m, n: (m, n),
             lambda m, n: (self.grid_m - 1 - m, n),
             lambda m, n: (m, self.grid_n - 1 - n),
             lambda m, n: (self.grid_m - 1 - m, self.grid_n - 1 - n),
-        )
+        ]
+        if self.grid_m == self.grid_n:
+            transformations.extend(
+                (
+                    lambda m, n: (n, m),
+                    lambda m, n: (n, self.grid_m - 1 - m),
+                    lambda m, n: (self.grid_m - 1 - n, m),
+                    lambda m, n: (self.grid_m - 1 - n, self.grid_n - 1 - m),
+                )
+            )
         elements = []
         for transform in transformations:
             images = []
@@ -109,9 +120,39 @@ class ScheduleCost:
 _DESCRIPTION_BITS = {
     "linear": 8,
     "diagonal": 28,
+    "grouped2": 36,
+    "grouped4": 36,
+    "grouped8": 36,
     "morton": 68,
     "hilbert": 92,
 }
+
+_Candidate = TypeVar("_Candidate")
+
+
+def compressed_description_bits(source: str) -> int:
+    """Return a computable upper bound on source Kolmogorov complexity.
+
+    Kolmogorov complexity itself is uncomputable. Compressed source length is
+    a stable minimum-description-length proxy for equivalent representations.
+    """
+    return len(zlib.compress(source.encode(), level=9)) * 8
+
+
+def choose_mdl_tie(
+    candidates: list[tuple[float, int, _Candidate]],
+    relative_tolerance: float = 0.0025,
+) -> _Candidate:
+    """Choose the shortest representation inside a sub-percent latency tie."""
+    if not candidates:
+        raise ValueError("at least one measured candidate is required")
+    fastest = min(runtime for runtime, _, _ in candidates)
+    tied = [
+        candidate
+        for candidate in candidates
+        if candidate[0] <= fastest * (1.0 + relative_tolerance)
+    ]
+    return min(tied, key=lambda candidate: (candidate[1], candidate[0]))[2]
 
 
 def analyze_schedule(pattern: str, grid_m: int, grid_n: int) -> ScheduleCost:

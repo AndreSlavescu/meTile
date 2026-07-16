@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-SCHEDULES = frozenset({"auto", "diagonal", "hilbert", "linear", "morton"})
+SCHEDULES = frozenset(
+    {
+        "auto",
+        "diagonal",
+        "grouped2",
+        "grouped4",
+        "grouped8",
+        "hilbert",
+        "linear",
+        "morton",
+    }
+)
 
 # A 4x4 Hilbert curve packed as two bits per coordinate. The same constants
 # are emitted in MSL so the reference implementation and GPU mapping agree.
@@ -26,6 +37,9 @@ def validate_schedule(pattern: str, block_size: int | None = None) -> str:
 def resolve_schedule(pattern: str, grid_m: int, grid_n: int) -> str:
     """Select a bijective schedule supported by the concrete grid shape."""
     normalized = validate_schedule(pattern)
+    if normalized.startswith("grouped"):
+        group = int(normalized.removeprefix("grouped"))
+        return normalized if grid_m % group == 0 else "diagonal"
     if normalized in {"auto", "hilbert"} and grid_m % 4 == 0 and grid_n % 4 == 0:
         return "hilbert"
     if normalized in {"auto", "hilbert", "morton"} and grid_m % 2 == 0 and grid_n % 2 == 0:
@@ -43,6 +57,12 @@ def schedule_coordinate(
         raise IndexError("tile id is outside the dispatch grid")
 
     schedule = resolve_schedule(pattern, grid_m, grid_n)
+    if schedule.startswith("grouped"):
+        group = int(schedule.removeprefix("grouped"))
+        virtual_width = grid_n * group
+        virtual_x = linear_id % virtual_width
+        virtual_y = linear_id // virtual_width
+        return virtual_y * group + virtual_x % group, virtual_x // group
     if schedule == "hilbert":
         panels_n = grid_n // 4
         panel_id, within = divmod(linear_id, 16)

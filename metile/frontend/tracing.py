@@ -544,7 +544,7 @@ def tile_swizzle(
     Args:
         pid_m: program_id for the M (row) axis.
         pid_n: program_id for the N (column) axis.
-        pattern: "auto", "hilbert", "morton", "diagonal", or "linear".
+        pattern: "auto", "grouped2/4/8", "hilbert", "morton", "diagonal", or "linear".
         block_size: 4 for Hilbert or 2 for Morton ordering.
 
     Returns:

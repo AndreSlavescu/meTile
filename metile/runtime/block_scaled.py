@@ -9,7 +9,7 @@ import numpy as np
 
 from metile.codegen.msl_emitter import emit
 from metile.compiler.block_scaled import lower_block_scaled_matmul
-from metile.compiler.schedule_search import optimize_tile_schedules
+from metile.compiler.schedule_search import choose_mdl_tie, optimize_tile_schedules
 from metile.frontend.kernel import CompiledKernel, FastDispatcher
 from metile.runtime.buffer import MtileBuffer
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
@@ -17,10 +17,50 @@ from metile.runtime.metal_device import MetalDevice
 
 _GROUP_SIZE = 32
 _compiled_block_scaled: dict[tuple, CompiledKernel] = {}
-_block_scaled_config_cache: dict[tuple, tuple[int, int]] = {}
+_block_scaled_config_cache: dict[tuple, _BlockScaledConfig] = {}
 _block_scaled_cache_lock = threading.RLock()
-_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v1.json"
-_BLOCK_SCALED_TILES = ((64, 64), (64, 128), (128, 64), (128, 128))
+_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v3.json"
+
+
+@dataclass(frozen=True)
+class _BlockScaledConfig:
+    block_m: int
+    block_n: int
+    block_k: int = 32
+    register_fragments: bool = False
+    schedule: str = "auto"
+
+
+_BLOCK_SCALED_CONFIGS = (
+    _BlockScaledConfig(64, 64),
+    _BlockScaledConfig(128, 64),
+    _BlockScaledConfig(64, 64, register_fragments=True, schedule="linear"),
+    _BlockScaledConfig(64, 64, register_fragments=True, schedule="diagonal"),
+    _BlockScaledConfig(64, 64, register_fragments=True, schedule="hilbert"),
+    _BlockScaledConfig(64, 128, register_fragments=True, schedule="linear"),
+    _BlockScaledConfig(64, 128, register_fragments=True, schedule="grouped4"),
+    _BlockScaledConfig(64, 128, register_fragments=True, schedule="hilbert"),
+)
+
+
+def _config_payload(config: _BlockScaledConfig) -> dict:
+    return {
+        "block_k": config.block_k,
+        "block_m": config.block_m,
+        "block_n": config.block_n,
+        "register_fragments": config.register_fragments,
+        "schedule": config.schedule,
+    }
+
+
+def _config_from_payload(payload) -> _BlockScaledConfig | None:
+    if not isinstance(payload, dict):
+        return None
+    try:
+        config = _BlockScaledConfig(**payload)
+    except (TypeError, ValueError):
+        return None
+    return config if config in _BLOCK_SCALED_CONFIGS else None
 
 
 def _decode_e8m0(scales: np.ndarray) -> np.ndarray:
@@ -174,19 +214,23 @@ def prepare_block_scaled_matmul(
         raise RuntimeError("block-scaled matmul requires Metal 4 tensor operations")
     tuning_key = (m, n, k, weight.bits, dev.name, dev.metal_compiler_version)
     candidates = [
-        candidate
-        for candidate in _BLOCK_SCALED_TILES
-        if m % candidate[0] == 0 and n % candidate[1] == 0
+        config
+        for config in _BLOCK_SCALED_CONFIGS
+        if m % config.block_m == 0
+        and n % config.block_n == 0
+        and k % (16 if config.register_fragments else config.block_k) == 0
+        and (
+            config.register_fragments
+            or config.block_n * config.block_k * 4 <= dev.max_threadgroup_memory
+        )
     ]
     with _block_scaled_cache_lock:
         tile = _block_scaled_config_cache.get(tuning_key)
         persistent_key = stable_digest(tuning_key)
         if tile is None and os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
-            stored = read_json(_block_scaled_cache_path, {}).get(persistent_key)
-            if isinstance(stored, list) and tuple(stored) in _BLOCK_SCALED_TILES:
-                tile = tuple(stored)
+            tile = _config_from_payload(read_json(_block_scaled_cache_path, {}).get(persistent_key))
         if tile not in candidates:
-            tile = _tune_block_scaled_tile(
+            tile = _tune_block_scaled_config(
                 activations,
                 weight,
                 output,
@@ -195,10 +239,19 @@ def prepare_block_scaled_matmul(
             )
             if os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
                 payload = read_json(_block_scaled_cache_path, {})
-                payload[persistent_key] = list(tile)
+                payload[persistent_key] = _config_payload(tile)
                 atomic_write_json(_block_scaled_cache_path, payload)
         _block_scaled_config_cache[tuning_key] = tile
-    return _prepare_block_scaled_dispatch(activations, weight, output, *tile)
+    return _prepare_block_scaled_dispatch(
+        activations,
+        weight,
+        output,
+        tile.block_m,
+        tile.block_n,
+        tile.block_k,
+        tile.register_fragments,
+        tile.schedule,
+    )
 
 
 def _prepare_block_scaled_dispatch(
@@ -207,6 +260,9 @@ def _prepare_block_scaled_dispatch(
     output: MtileBuffer,
     block_m: int,
     block_n: int,
+    block_k: int = 32,
+    register_fragments: bool = False,
+    schedule: str = "auto",
 ) -> FastDispatcher:
     m, k = activations.shape
     n = weight.shape[1]
@@ -218,13 +274,20 @@ def _prepare_block_scaled_dispatch(
         weight.bits,
         block_m,
         block_n,
+        block_k,
+        register_fragments,
+        schedule,
         dev.name,
         dev.metal_compiler_version,
     )
     with _block_scaled_cache_lock:
         compiled = _compiled_block_scaled.get(cache_key)
         if compiled is None:
-            function_name = f"mtile_bsmm_{weight.format}_{m}_{n}_{k}_{block_m}_{block_n}"
+            mode = "reg" if register_fragments else "stage"
+            function_name = (
+                f"mtile_bsmm_{weight.format}_{m}_{n}_{k}_{block_m}_{block_n}_{block_k}_"
+                f"{mode}_{schedule}"
+            )
             metal_ir = optimize_tile_schedules(
                 lower_block_scaled_matmul(
                     function_name,
@@ -234,6 +297,9 @@ def _prepare_block_scaled_dispatch(
                     weight.bits,
                     block_m=block_m,
                     block_n=block_n,
+                    block_k=block_k,
+                    register_fragments=register_fragments,
+                    schedule=schedule,
                 )
             )
             source = emit(metal_ir)
@@ -244,6 +310,7 @@ def _prepare_block_scaled_dispatch(
                 func_name=function_name,
                 threadgroup_size=metal_ir.threadgroup_size,
                 is_gemm=True,
+                output_indices=(3,),
             )
             _compiled_block_scaled[cache_key] = compiled
 
@@ -254,38 +321,60 @@ def _prepare_block_scaled_dispatch(
         output.metal_buffer,
     ]
     grid = (m // block_m, n // block_n)
-    return FastDispatcher(compiled, buffers, grid, dev)
+    return FastDispatcher(
+        compiled,
+        buffers,
+        grid,
+        dev,
+        resources=(activations, weight.values, weight.scales, output),
+    )
 
 
-def _tune_block_scaled_tile(
+def _tune_block_scaled_config(
     activations: MtileBuffer,
     weight: BlockScaledWeight,
     output: MtileBuffer,
-    candidates: list[tuple[int, int]],
+    candidates: list[_BlockScaledConfig],
     tuning_key: tuple,
-) -> tuple[int, int]:
+) -> _BlockScaledConfig:
     if not candidates:
         raise ValueError("no aligned block-scaled tile is available for this shape")
     dev = MetalDevice.get()
-    results = []
-    for block_m, block_n in candidates:
-        dispatch = _prepare_block_scaled_dispatch(activations, weight, output, block_m, block_n)
+    dispatches = []
+    samples = {candidate: [] for candidate in candidates}
+    for config in candidates:
+        dispatch = _prepare_block_scaled_dispatch(
+            activations,
+            weight,
+            output,
+            config.block_m,
+            config.block_n,
+            config.block_k,
+            config.register_fragments,
+            config.schedule,
+        )
+        dispatches.append((config, dispatch))
         for _ in range(3):
             dispatch()
             dev.sync()
-        samples = []
-        for _ in range(7):
+    for round_index in range(7):
+        ordered = dispatches[round_index:] + dispatches[:round_index]
+        if round_index & 1:
+            ordered.reverse()
+        for candidate, dispatch in ordered:
             dispatch()
             dev.sync()
             elapsed = dev.gpu_elapsed()
             if elapsed > 0:
-                samples.append(elapsed)
-        if samples:
-            results.append((statistics.median(samples), block_m, block_n))
+                samples[candidate].append(elapsed)
+    results = [
+        (statistics.median(samples[candidate]), dispatch.description_bits, candidate)
+        for candidate, dispatch in dispatches
+        if samples[candidate]
+    ]
     if not results:
         raise RuntimeError(f"GPU timing failed while tuning block-scaled shape {tuning_key[:4]}")
-    _, block_m, block_n = min(results)
-    return block_m, block_n
+    return choose_mdl_tie(results)
 
 
 def block_scaled_matmul(

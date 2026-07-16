@@ -12,13 +12,16 @@ def lower_block_scaled_matmul(
     bits: int,
     block_m: int = 64,
     block_n: int = 64,
+    block_k: int = 32,
+    register_fragments: bool = False,
+    schedule: str = "auto",
 ) -> mir.MFunction:
     """Build composable Metal IR for an aligned MXFP weight-only GEMM."""
     if bits not in {4, 8}:
         raise ValueError("block-scaled matmul supports 4-bit or 8-bit data")
 
-    if block_m % 32 or block_n % 32:
-        raise ValueError("block-scaled M/N tiles must be multiples of 32")
+    if block_m % 32 or block_n % 32 or block_k not in {32, 64}:
+        raise ValueError("block-scaled M/N tiles must be multiples of 32 and K must be 32 or 64")
     wm, wn = block_m // 32, block_n // 32
     num_simdgroups = wm * wn
     num_threads = num_simdgroups * 32
@@ -40,6 +43,49 @@ def lower_block_scaled_matmul(
     output = mir.MValue("output", PtrType("f32"))
 
     function.add_op(mir.ThreadgroupPositionInGrid())
+    if register_fragments:
+        function.add_op(mir.MSimdgroupId())
+        function.add_op(mir.MThreadInSimdgroup())
+        function.add_op(
+            mir.MTileSchedule(
+                pattern=schedule,
+                block_m=block_m,
+                block_n=block_n,
+                block_size=4,
+                grid_m=m // block_m,
+                grid_n=n // block_n,
+            )
+        )
+        function.add_op(
+            mir.MNaxGemmSetup(
+                block_m=block_m,
+                block_n=block_n,
+                wm=wm,
+                wn=wn,
+                m=m,
+                n=n,
+                k=k,
+            )
+        )
+        function.add_op(
+            mir.MForLoop(
+                iv_name="k",
+                start=0,
+                end=k,
+                step=16,
+                body=[
+                    mir.MNaxBlockScaledRun(
+                        ptr_a=activations,
+                        ptr_values=packed,
+                        ptr_scales=scales,
+                        bits=bits,
+                    )
+                ],
+            )
+        )
+        function.add_op(mir.MNaxGemmStore(ptr_c=output))
+        return function
+
     function.add_op(mir.ThreadPositionInThreadgroup())
     function.add_op(mir.MSimdgroupId())
     function.add_op(
@@ -49,13 +95,14 @@ def lower_block_scaled_matmul(
             m=m,
             n=n,
             k=k,
-            block_k=32,
+            block_k=block_k,
             block_n=block_n,
+            stage_type="float",
         )
     )
     function.add_op(
         mir.MTileSchedule(
-            pattern="auto",
+            pattern=schedule,
             block_m=block_m,
             block_n=block_n,
             block_size=4,
@@ -86,46 +133,53 @@ def lower_block_scaled_matmul(
             ct_name="cT",
             acc_type="float",
             in_type="float",
+            left_type="float",
+            right_type="float",
             use_separated=False,
             left_address_space="device",
             right_address_space="threadgroup",
         )
     )
+    k_body = [
+        mir.MBlockScaledTileLoad(
+            ptr_values=packed,
+            ptr_scales=scales,
+            bits=bits,
+            matrix_n=n,
+            block_k=block_k,
+            block_n=block_n,
+            num_threads=num_threads,
+            stage_type="float",
+        ),
+        mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"),
+    ]
+    for k_offset in range(0, block_k, 32):
+        k_body.append(
+            mir.MMatmul2dRun(
+                ct_a="ct_a",
+                ct_b="ct_b",
+                ct_out="cT",
+                use_tensor_view=True,
+                a_tensor="tA",
+                b_tensor="tB",
+                a_slice_d0=32,
+                a_slice_d1=32,
+                b_slice_d0=32,
+                b_slice_d1=32,
+                a_offset_0=f"k + {k_offset}u" if k_offset else "k",
+                a_offset_1="tile_row",
+                b_offset_0="sg_col * 32u",
+                b_offset_1=f"{k_offset}u",
+            )
+        )
+    k_body.append(mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"))
     function.add_op(
         mir.MForLoop(
             iv_name="k",
             start=0,
             end=k,
-            step=32,
-            body=[
-                mir.MBlockScaledTileLoad(
-                    ptr_values=packed,
-                    ptr_scales=scales,
-                    bits=bits,
-                    matrix_n=n,
-                    block_k=32,
-                    block_n=block_n,
-                    num_threads=num_threads,
-                ),
-                mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"),
-                mir.MMatmul2dRun(
-                    ct_a="ct_a",
-                    ct_b="ct_b",
-                    ct_out="cT",
-                    use_tensor_view=True,
-                    a_tensor="tA",
-                    b_tensor="tB",
-                    a_slice_d0=32,
-                    a_slice_d1=32,
-                    b_slice_d0=32,
-                    b_slice_d1=32,
-                    a_offset_0="k",
-                    a_offset_1="tile_row",
-                    b_offset_0="sg_col * 32u",
-                    b_offset_1="0u",
-                ),
-                mir.MBarrier(kind="threadgroup", flags="mem_threadgroup"),
-            ],
+            step=block_k,
+            body=k_body,
         )
     )
     function.add_op(mir.MCoopTensorStore(ct_name="cT", output_slice="mC"))

@@ -214,6 +214,17 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         )
     elif isinstance(op, mir.MTileSchedule):
         lines.append(f"{pad}tile_schedule(pattern={op.pattern}, block={op.block_m}x{op.block_n})")
+    elif isinstance(op, mir.MNaxGemmSetup):
+        lines.append(f"{pad}nax_gemm_setup(block={op.block_m}x{op.block_n})")
+    elif isinstance(op, mir.MNaxGemmRun):
+        lines.append(f"{pad}nax_gemm_run({_val(op.ptr_a)}, {_val(op.ptr_b)})")
+    elif isinstance(op, mir.MNaxBlockScaledRun):
+        lines.append(
+            f"{pad}nax_block_scaled_run({_val(op.ptr_a)}, {_val(op.ptr_values)}, "
+            f"{_val(op.ptr_scales)}, bits={op.bits})"
+        )
+    elif isinstance(op, mir.MNaxGemmStore):
+        lines.append(f"{pad}nax_gemm_store({_val(op.ptr_c)})")
     elif isinstance(op, mir.MMatmul2dSetup):
         mode = "cooperative" if op.cooperative else "preemptive"
         relaxed = "relaxed" if op.relaxed else "strict"
