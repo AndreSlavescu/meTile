@@ -305,6 +305,170 @@ def preload_mma_tiles(func: mir.MFunction) -> mir.MFunction:
     return func
 
 
+def decompose_nax_fragments(func: mir.MFunction) -> mir.MFunction:
+    """Lower fused NAX operations into composable register-fragment primitives.
+
+    The high-level operations remain useful as a compact target for GEMM and
+    block-scaled lowering. This pass exposes the individual layout, load,
+    packing, native MMA, and store operations so later passes can reorder or
+    replace them without owning an entire kernel template.
+    """
+    if func.kernel_type != "tensor_ops_gemm":
+        return func
+    func.ops = _decompose_nax_ops(func.ops)
+    return func
+
+
+def _decompose_nax_ops(ops: list[mir.MOp]) -> list[mir.MOp]:
+    decomposed = []
+    index = 0
+    while index < len(ops):
+        op = ops[index]
+        if isinstance(op, mir.MNaxGemmSetup):
+            decomposed.extend(
+                (
+                    mir.MNaxTileLayout(
+                        block_m=op.block_m,
+                        block_n=op.block_n,
+                        wn=op.wn,
+                        m=op.m,
+                        n=op.n,
+                        k=op.k,
+                    ),
+                    mir.MNaxAccumulatorInit(),
+                    mir.MNaxMatmul2dDecl(right_type=op.right_type),
+                )
+            )
+        elif isinstance(op, mir.MNaxGemmRun):
+            runs = []
+            while index < len(ops) and isinstance(ops[index], mir.MNaxGemmRun):
+                runs.append(ops[index])
+                index += 1
+            decomposed.extend(_dense_nax_steps(runs))
+            continue
+        elif isinstance(op, mir.MNaxBlockScaledRun):
+            decomposed.extend(
+                _block_scaled_nax_step(
+                    op.ptr_a,
+                    op.ptr_values,
+                    op.ptr_scales,
+                    op.bits,
+                    op.fragment_type,
+                )
+            )
+        elif isinstance(op, mir.MNaxGemmStore):
+            for source, row_offset, col_offset in (
+                ("d00", 0, 0),
+                ("d01", 0, 16),
+                ("d10", 16, 0),
+                ("d11", 16, 16),
+            ):
+                decomposed.append(
+                    mir.MNaxStoreFragment(
+                        ptr_c=op.ptr_c,
+                        source=source,
+                        row_offset=row_offset,
+                        col_offset=col_offset,
+                    )
+                )
+        else:
+            if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue, mir.MSimdgroupRoleBlock)):
+                op.body = _decompose_nax_ops(op.body)
+            decomposed.append(op)
+        index += 1
+    return decomposed
+
+
+def _dense_nax_steps(runs: list[mir.MNaxGemmRun]) -> list[mir.MOp]:
+    operations = []
+    fragments = []
+    for run_index, run in enumerate(runs):
+        suffix = "" if len(runs) == 1 else f"_{run_index}"
+        b0 = f"b0{suffix}"
+        b1 = f"b1{suffix}"
+        a0 = f"a0{suffix}"
+        a1 = f"a1{suffix}"
+        operations.extend(
+            (
+                mir.MNaxLoadFragment(
+                    ptr=run.ptr_b,
+                    name=b0,
+                    operand="right",
+                    k_offset=run.k_offset,
+                ),
+                mir.MNaxLoadFragment(
+                    ptr=run.ptr_b,
+                    name=b1,
+                    operand="right",
+                    col_offset=16,
+                    k_offset=run.k_offset,
+                ),
+                mir.MNaxLoadFragment(
+                    ptr=run.ptr_a,
+                    name=a0,
+                    operand="left",
+                    k_offset=run.k_offset,
+                ),
+                mir.MNaxLoadFragment(
+                    ptr=run.ptr_a,
+                    name=a1,
+                    operand="left",
+                    row_offset=16,
+                    k_offset=run.k_offset,
+                ),
+            )
+        )
+        fragments.append((b0, b1, a0, a1))
+    for b0, b1, a0, a1 in fragments:
+        operations.extend(
+            (
+                mir.MNaxPackRight(low=b0, high=b1),
+                mir.MNaxFmaFragment(left=a0),
+                mir.MNaxFmaFragment(
+                    left=a1,
+                    destination_low="d10",
+                    destination_high="d11",
+                ),
+            )
+        )
+    return operations
+
+
+def _block_scaled_nax_step(
+    ptr_a: mir.MValue,
+    ptr_values: mir.MValue,
+    ptr_scales: mir.MValue,
+    bits: int,
+    fragment_type: str,
+) -> list[mir.MOp]:
+    return [
+        mir.MNaxLoadBlockScaledFragment(
+            ptr_values=ptr_values,
+            ptr_scales=ptr_scales,
+            name="b0",
+            bits=bits,
+            fragment_type=fragment_type,
+        ),
+        mir.MNaxLoadBlockScaledFragment(
+            ptr_values=ptr_values,
+            ptr_scales=ptr_scales,
+            name="b1",
+            bits=bits,
+            col_offset=16,
+            fragment_type=fragment_type,
+        ),
+        mir.MNaxPackRight(),
+        mir.MNaxLoadFragment(ptr=ptr_a, name="a0", operand="left"),
+        mir.MNaxFmaFragment(),
+        mir.MNaxLoadFragment(ptr=ptr_a, name="a1", operand="left", row_offset=16),
+        mir.MNaxFmaFragment(
+            left="a1",
+            destination_low="d10",
+            destination_high="d11",
+        ),
+    ]
+
+
 def _reorder_preload(kk_loop: mir.MForLoop):
     """Reorder ops in kk body: all A loads → all B loads → all MMA."""
     a_loads = []

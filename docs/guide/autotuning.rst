@@ -95,6 +95,10 @@ kernel's signature are stored in ``func.constexprs`` and available to the compil
 Schedules can be searched alongside tile shapes with ``SWIZZLE="linear"``,
 ``"grouped2"``, ``"grouped4"``, ``"grouped8"``, ``"diagonal"``,
 ``"morton"``, ``"hilbert"``, or ``"auto"``.
+On the aligned M5 NAX path, ``NAX_OUTER_K`` controls the reduction epoch and
+``NAX_K_UNROLL=2`` preloads two 16-wide K fragments before issuing their native MMAs.
+These are candidate parameters rather than global defaults because the winning register
+footprint and epoch width change with matrix shape.
 
 
 Schedule Algebra and MDL

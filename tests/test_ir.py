@@ -188,3 +188,33 @@ def test_simdgroup_role_compiles():
     dev = MetalDevice.get()
     pipeline = dev.compile_msl(msl, metal_func.name)
     assert pipeline is not None
+
+
+def test_nax_preload_pass_decomposes_two_k_steps_before_mma():
+    from metile.compiler.passes import decompose_nax_fragments
+    from metile.ir import metal_ir as mir
+
+    ptr_a = mir.MValue("A", PtrType("f32"))
+    ptr_b = mir.MValue("B", PtrType("f32"))
+    function = mir.MFunction("nax_preload", kernel_type="tensor_ops_gemm")
+    function.ops = [
+        mir.MNaxGemmSetup(),
+        mir.MForLoop(
+            iv_name="k",
+            end=64,
+            step=32,
+            body=[
+                mir.MNaxGemmRun(ptr_a=ptr_a, ptr_b=ptr_b),
+                mir.MNaxGemmRun(ptr_a=ptr_a, ptr_b=ptr_b, k_offset=16),
+            ],
+        ),
+    ]
+
+    decompose_nax_fragments(function)
+    loop = next(op for op in function.ops if isinstance(op, mir.MForLoop))
+    first_mma = next(
+        index for index, op in enumerate(loop.body) if isinstance(op, mir.MNaxFmaFragment)
+    )
+    assert sum(isinstance(op, mir.MNaxLoadFragment) for op in loop.body[:first_mma]) == 8
+    assert sum(isinstance(op, mir.MNaxFmaFragment) for op in loop.body) == 4
+    assert not any(isinstance(op, mir.MNaxGemmRun) for op in loop.body)

@@ -139,6 +139,24 @@ representatives. You can override it:
    )
 
 
+Composable NAX Fragment Lowering
+--------------------------------
+
+The M5 register path does not emit a whole GEMM template. Initial lowering produces
+compact NAX setup, reduction, and store operations. The ``decompose_nax_fragments``
+Metal IR pass expands them into independently transformable operations for tile/lane
+layout, accumulator initialization, vector fragment loads, cooperative-tensor packing,
+native ``matmul2d`` MMA, and fragment stores.
+
+The autotuner can therefore vary reduction epochs and preload two adjacent K fragments
+before issuing their MMAs without changing the frontend kernel. Epoch pointers reduce
+address arithmetic, static aligned dimensions remove scalar buffer bindings, and the
+runtime measures one- and two-fragment representations per problem shape. The preload
+form is retained only for dense GEMM; measurements show that applying it to fused MXFP
+decode increases register pressure, so block-scaled dispatch keeps a single-fragment
+reduction step.
+
+
 Block-Scaled Register Fragments
 -------------------------------
 
@@ -146,4 +164,6 @@ MXFP4 and MXFP8 matmul lowering is composed from Metal IR operations for schedul
 selection, vectorized E2M1/E4M3 plus E8M0 decoding, fragment MMA, and stores. The
 autotuner compares conventional threadgroup staging with a direct M5 path that keeps
 decoded fragments and accumulators in registers. No dense weight tensor is
-materialized in global memory.
+materialized in global memory. Float and bfloat right-fragment representations
+are both measured because bfloat lowers register footprint on sustained M5 workloads
+while float can remain faster for launch-limited shapes.

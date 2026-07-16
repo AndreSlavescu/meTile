@@ -3,6 +3,7 @@ import pytest
 
 import metile
 from metile.compiler.block_scaled import lower_block_scaled_matmul
+from metile.compiler.passes import decompose_nax_fragments
 from metile.ir import metal_ir as mir
 from metile.runtime.block_scaled import _prepare_block_scaled_dispatch
 from metile.runtime.metal_device import MetalDevice
@@ -44,6 +45,37 @@ def test_block_scaled_register_fragments_eliminate_staging_and_barriers():
     assert not any(isinstance(op, mir.MBarrier) for op in loop.body)
 
 
+def test_nax_fragment_pass_exposes_composable_native_operations():
+    function = lower_block_scaled_matmul(
+        "test_bsmm_decomposed", 64, 64, 64, 4, register_fragments=True
+    )
+    decompose_nax_fragments(function)
+
+    loop = next(op for op in function.ops if isinstance(op, mir.MForLoop))
+    assert not any(isinstance(op, mir.MNaxBlockScaledRun) for op in loop.body)
+    assert sum(isinstance(op, mir.MNaxLoadBlockScaledFragment) for op in loop.body) == 2
+    assert sum(isinstance(op, mir.MNaxLoadFragment) for op in loop.body) == 2
+    assert sum(isinstance(op, mir.MNaxFmaFragment) for op in loop.body) == 2
+    assert sum(isinstance(op, mir.MNaxStoreFragment) for op in function.ops) == 4
+
+
+def test_block_scaled_register_reduction_epochs_are_explicit_ir():
+    function = lower_block_scaled_matmul(
+        "test_bsmm_epochs",
+        64,
+        64,
+        64,
+        4,
+        register_fragments=True,
+        outer_k=64,
+    )
+    outer_loop = next(op for op in function.ops if isinstance(op, mir.MForLoop))
+    inner_loop = next(op for op in outer_loop.body if isinstance(op, mir.MForLoop))
+    assert outer_loop.step == 64
+    assert inner_loop.step == 16
+    assert any(isinstance(op, mir.MBarrier) for op in outer_loop.body)
+
+
 @pytest.mark.skipif(not MetalDevice.get().supports_tensor_ops, reason="requires Metal 4 MPP")
 @pytest.mark.parametrize("format", ["mxfp4", "mxfp8"])
 def test_block_scaled_matmul_matches_dequantized_reference(format):
@@ -77,7 +109,8 @@ def test_block_scaled_k64_dispatch_matches_dequantized_reference():
 
 @pytest.mark.skipif(not MetalDevice.get().supports_tensor_ops, reason="requires Metal 4 MPP")
 @pytest.mark.parametrize("format", ["mxfp4", "mxfp8"])
-def test_block_scaled_register_dispatch_matches_dequantized_reference(format):
+@pytest.mark.parametrize("fragment_type", ["float", "bfloat"])
+def test_block_scaled_register_dispatch_matches_dequantized_reference(format, fragment_type):
     rng = np.random.default_rng(31)
     activations = rng.normal(size=(64, 64)).astype(np.float32)
     weight = rng.normal(size=(64, 64)).astype(np.float32)
@@ -92,6 +125,7 @@ def test_block_scaled_register_dispatch_matches_dequantized_reference(format):
         64,
         register_fragments=True,
         schedule="linear",
+        fragment_type=fragment_type,
     )
     dispatch()
     output = output_buffer.numpy()

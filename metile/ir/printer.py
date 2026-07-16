@@ -160,6 +160,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}device_load({_val(op.ptr)}, {_val(op.index)})")
     elif isinstance(op, mir.DeviceStore):
         lines.append(f"{pad}device_store({_val(op.ptr)}, {_val(op.index)}, {_val(op.value)})")
+    elif isinstance(op, mir.MPointerOffset):
+        lines.append(f"{pad}{prefix}pointer_offset({_val(op.ptr)}, {op.offset})")
     elif isinstance(op, mir.MThreadgroupAlloc):
         lines.append(f"{pad}threadgroup_alloc({op.alloc_name}, {op.elem_type}, size={op.size})")
     elif isinstance(op, mir.MThreadgroupLoad):
@@ -225,6 +227,34 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         )
     elif isinstance(op, mir.MNaxGemmStore):
         lines.append(f"{pad}nax_gemm_store({_val(op.ptr_c)})")
+    elif isinstance(op, mir.MNaxTileLayout):
+        lines.append(f"{pad}nax_tile_layout(block={op.block_m}x{op.block_n}, wn={op.wn})")
+    elif isinstance(op, mir.MNaxAccumulatorInit):
+        lines.append(f"{pad}nax_accumulator_init({', '.join(op.names)})")
+    elif isinstance(op, mir.MNaxMatmul2dDecl):
+        lines.append(
+            f"{pad}nax_matmul2d_decl({op.m}x{op.n}x{op.k}, inputs={op.left_type}x{op.right_type})"
+        )
+    elif isinstance(op, mir.MNaxLoadFragment):
+        lines.append(
+            f"{pad}nax_load_fragment({op.name}, {op.operand}, row={op.row_offset}, "
+            f"col={op.col_offset}, k={op.k_offset})"
+        )
+    elif isinstance(op, mir.MNaxLoadBlockScaledFragment):
+        lines.append(
+            f"{pad}nax_load_block_scaled_fragment({op.name}, bits={op.bits}, "
+            f"col={op.col_offset}, type={op.fragment_type})"
+        )
+    elif isinstance(op, mir.MNaxPackRight):
+        lines.append(f"{pad}nax_pack_right({op.low}, {op.high})")
+    elif isinstance(op, mir.MNaxFmaFragment):
+        lines.append(
+            f"{pad}nax_fma_fragment({op.left}, {op.destination_low}, {op.destination_high})"
+        )
+    elif isinstance(op, mir.MNaxStoreFragment):
+        lines.append(
+            f"{pad}nax_store_fragment({op.source}, row={op.row_offset}, col={op.col_offset})"
+        )
     elif isinstance(op, mir.MMatmul2dSetup):
         mode = "cooperative" if op.cooperative else "preemptive"
         relaxed = "relaxed" if op.relaxed else "strict"

@@ -1008,6 +1008,22 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
             raise ValueError("NAX fragment epilogues are not implemented")
         if not all(constexprs.get(f"_ALIGNED_{axis}", False) for axis in ("M", "N", "K")):
             raise ValueError("NAX fragments currently require aligned M, N, and K")
+        outer_k = int(constexprs.get("NAX_OUTER_K", 0))
+        nax_k_unroll = int(constexprs.get("NAX_K_UNROLL", 1))
+        if nax_k_unroll not in {1, 2}:
+            raise ValueError("NAX_K_UNROLL must be 1 or 2")
+        reduction_step = 16 * nax_k_unroll
+        static_shape = tuple(constexprs.get(f"_STATIC_{axis}") for axis in ("M", "N", "K"))
+        if all(dimension is not None for dimension in static_shape):
+            static_m, static_n, static_k = (int(dimension) for dimension in static_shape)
+            mfunc.params = [param for param in mfunc.params if param.name not in {"M", "N", "K"}]
+            K_val = static_k
+        else:
+            static_m = static_n = static_k = 0
+        if outer_k and (
+            outer_k % reduction_step or not constexprs.get("_ALIGNED_NAX_OUTER_K", False)
+        ):
+            raise ValueError("NAX_OUTER_K must align to the reduction step and evenly divide K")
         mfunc.add_op(mir.MThreadInSimdgroup())
         mfunc.add_op(
             mir.MTileSchedule(
@@ -1019,16 +1035,63 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                 grid_n=constexprs.get("_GRID_N"),
             )
         )
-        mfunc.add_op(mir.MNaxGemmSetup(block_m=BM, block_n=BN, wm=WM, wn=WN))
         mfunc.add_op(
-            mir.MForLoop(
-                iv_name="k",
-                start=0,
-                end=K_val,
-                step=16,
-                body=[mir.MNaxGemmRun(ptr_a=ptr_A, ptr_b=ptr_B)],
+            mir.MNaxGemmSetup(
+                block_m=BM,
+                block_n=BN,
+                wm=WM,
+                wn=WN,
+                m=static_m,
+                n=static_n,
+                k=static_k,
             )
         )
+        if outer_k:
+            epoch_a_op = mir.MPointerOffset(ptr=ptr_A, offset="k0")
+            epoch_a = mir.MValue("nax_epoch_a", epoch_a_op.result_type(), epoch_a_op)
+            epoch_a_op.result = epoch_a
+            epoch_b_op = mir.MPointerOffset(ptr=ptr_B, offset="k0 * N")
+            epoch_b = mir.MValue("nax_epoch_b", epoch_b_op.result_type(), epoch_b_op)
+            epoch_b_op.result = epoch_b
+            inner_loop = mir.MForLoop(
+                iv_name="k1",
+                start=0,
+                end=outer_k,
+                step=reduction_step,
+                body=[
+                    mir.MNaxGemmRun(ptr_a=epoch_a, ptr_b=epoch_b, k_offset=offset)
+                    for offset in range(0, reduction_step, 16)
+                ],
+                index_alias="k",
+                index_expression="k1",
+            )
+            mfunc.add_op(
+                mir.MForLoop(
+                    iv_name="k0",
+                    start=0,
+                    end=K_val,
+                    step=outer_k,
+                    body=[
+                        mir.MBarrier(kind="threadgroup", flags="mem_none"),
+                        epoch_a_op,
+                        epoch_b_op,
+                        inner_loop,
+                    ],
+                )
+            )
+        else:
+            mfunc.add_op(
+                mir.MForLoop(
+                    iv_name="k",
+                    start=0,
+                    end=K_val,
+                    step=reduction_step,
+                    body=[
+                        mir.MNaxGemmRun(ptr_a=ptr_A, ptr_b=ptr_B, k_offset=offset)
+                        for offset in range(0, reduction_step, 16)
+                    ],
+                )
+            )
         mfunc.add_op(mir.MNaxGemmStore(ptr_c=ptr_C))
         return mfunc
 

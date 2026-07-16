@@ -70,6 +70,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Schedule-algebra pass over finite tile permutations. D4/rectangle group actions remove symmetry-equivalent traversals before emitting branch-free linear, grouped-2/4/8, diagonal, Morton, or 4x4 Hilbert schedules.
 - Minimum-description-length selection uses compressed generated source as a computable upper bound on Kolmogorov complexity. Runtime remains the primary objective; source size only breaks measurements within 0.25% of the fastest candidate.
 - Composable MXFP4/MXFP8 Metal IR operations for vectorized fused decode, optional threadgroup staging, register-resident NAX fragments, MPP matrix multiply, and stores.
+- NAX setup/run/store lowering decomposes into tile-layout, vector-load, cooperative-tensor pack, MMA, and fragment-store IR. Shape-tuned reduction epochs can preload adjacent K fragments without owning a whole kernel template.
 - Fused epilogues (ReLU, exp, scale) on register-resident accumulators via `thread_elements()` with zero global memory traffic.
 
 **Codegen**
@@ -82,6 +83,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
 - Interleaved round-robin GPU-timestamp autotuning with device/toolchain-keyed persistent config and metallib caches.
 - Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates.
+- Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
 - Prepared calls batch compatible launches into shared encoders, insert dependency barriers for concurrent dispatch, retain bound resources, and fall back when optional Metal selectors are unavailable.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
 

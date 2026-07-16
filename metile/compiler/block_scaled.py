@@ -15,6 +15,8 @@ def lower_block_scaled_matmul(
     block_k: int = 32,
     register_fragments: bool = False,
     schedule: str = "auto",
+    outer_k: int = 0,
+    fragment_type: str = "float",
 ) -> mir.MFunction:
     """Build composable Metal IR for an aligned MXFP weight-only GEMM."""
     if bits not in {4, 8}:
@@ -22,6 +24,10 @@ def lower_block_scaled_matmul(
 
     if block_m % 32 or block_n % 32 or block_k not in {32, 64}:
         raise ValueError("block-scaled M/N tiles must be multiples of 32 and K must be 32 or 64")
+    if fragment_type not in {"float", "bfloat"}:
+        raise ValueError("fragment_type must be float or bfloat")
+    if outer_k and (not register_fragments or outer_k % 16 or k % outer_k):
+        raise ValueError("outer_k requires register fragments and must evenly divide K")
     wm, wn = block_m // 32, block_n // 32
     num_simdgroups = wm * wn
     num_threads = num_simdgroups * 32
@@ -65,24 +71,37 @@ def lower_block_scaled_matmul(
                 m=m,
                 n=n,
                 k=k,
+                right_type=fragment_type,
             )
         )
-        function.add_op(
-            mir.MForLoop(
-                iv_name="k",
+        step = mir.MNaxBlockScaledRun(
+            ptr_a=activations,
+            ptr_values=packed,
+            ptr_scales=scales,
+            bits=bits,
+            fragment_type=fragment_type,
+        )
+        if outer_k:
+            inner_loop = mir.MForLoop(
+                iv_name="k1",
                 start=0,
-                end=k,
+                end=outer_k,
                 step=16,
-                body=[
-                    mir.MNaxBlockScaledRun(
-                        ptr_a=activations,
-                        ptr_values=packed,
-                        ptr_scales=scales,
-                        bits=bits,
-                    )
-                ],
+                body=[step],
+                index_alias="k",
+                index_expression="k0 + k1",
             )
-        )
+            function.add_op(
+                mir.MForLoop(
+                    iv_name="k0",
+                    start=0,
+                    end=k,
+                    step=outer_k,
+                    body=[mir.MBarrier(kind="threadgroup", flags="mem_none"), inner_loop],
+                )
+            )
+        else:
+            function.add_op(mir.MForLoop(iv_name="k", start=0, end=k, step=16, body=[step]))
         function.add_op(mir.MNaxGemmStore(ptr_c=output))
         return function
 

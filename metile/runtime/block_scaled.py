@@ -9,6 +9,7 @@ import numpy as np
 
 from metile.codegen.msl_emitter import emit
 from metile.compiler.block_scaled import lower_block_scaled_matmul
+from metile.compiler.passes import decompose_nax_fragments
 from metile.compiler.schedule_search import choose_mdl_tie, optimize_tile_schedules
 from metile.frontend.kernel import CompiledKernel, FastDispatcher
 from metile.runtime.buffer import MtileBuffer
@@ -19,7 +20,7 @@ _GROUP_SIZE = 32
 _compiled_block_scaled: dict[tuple, CompiledKernel] = {}
 _block_scaled_config_cache: dict[tuple, _BlockScaledConfig] = {}
 _block_scaled_cache_lock = threading.RLock()
-_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v3.json"
+_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v4.json"
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ class _BlockScaledConfig:
     block_k: int = 32
     register_fragments: bool = False
     schedule: str = "auto"
+    outer_k: int = 0
+    fragment_type: str = "float"
 
 
 _BLOCK_SCALED_CONFIGS = (
@@ -37,8 +40,31 @@ _BLOCK_SCALED_CONFIGS = (
     _BlockScaledConfig(64, 64, register_fragments=True, schedule="linear"),
     _BlockScaledConfig(64, 64, register_fragments=True, schedule="diagonal"),
     _BlockScaledConfig(64, 64, register_fragments=True, schedule="hilbert"),
+    _BlockScaledConfig(128, 64, register_fragments=True, schedule="grouped4"),
     _BlockScaledConfig(64, 128, register_fragments=True, schedule="linear"),
     _BlockScaledConfig(64, 128, register_fragments=True, schedule="grouped4"),
+    _BlockScaledConfig(
+        64,
+        128,
+        register_fragments=True,
+        schedule="grouped4",
+        fragment_type="bfloat",
+    ),
+    _BlockScaledConfig(
+        64,
+        128,
+        register_fragments=True,
+        schedule="grouped4",
+        outer_k=512,
+    ),
+    _BlockScaledConfig(
+        64,
+        128,
+        register_fragments=True,
+        schedule="grouped4",
+        outer_k=512,
+        fragment_type="bfloat",
+    ),
     _BlockScaledConfig(64, 128, register_fragments=True, schedule="hilbert"),
 )
 
@@ -50,6 +76,8 @@ def _config_payload(config: _BlockScaledConfig) -> dict:
         "block_n": config.block_n,
         "register_fragments": config.register_fragments,
         "schedule": config.schedule,
+        "outer_k": config.outer_k,
+        "fragment_type": config.fragment_type,
     }
 
 
@@ -212,13 +240,22 @@ def prepare_block_scaled_matmul(
     dev = MetalDevice.get()
     if not dev.supports_tensor_ops:
         raise RuntimeError("block-scaled matmul requires Metal 4 tensor operations")
-    tuning_key = (m, n, k, weight.bits, dev.name, dev.metal_compiler_version)
+    tuning_key = (
+        m,
+        n,
+        k,
+        weight.bits,
+        dev.name,
+        dev.metal_compiler_version,
+        tuple(tuple(sorted(_config_payload(config).items())) for config in _BLOCK_SCALED_CONFIGS),
+    )
     candidates = [
         config
         for config in _BLOCK_SCALED_CONFIGS
         if m % config.block_m == 0
         and n % config.block_n == 0
         and k % (16 if config.register_fragments else config.block_k) == 0
+        and (not config.outer_k or k % config.outer_k == 0)
         and (
             config.register_fragments
             or config.block_n * config.block_k * 4 <= dev.max_threadgroup_memory
@@ -251,6 +288,8 @@ def prepare_block_scaled_matmul(
         tile.block_k,
         tile.register_fragments,
         tile.schedule,
+        tile.outer_k,
+        tile.fragment_type,
     )
 
 
@@ -263,6 +302,8 @@ def _prepare_block_scaled_dispatch(
     block_k: int = 32,
     register_fragments: bool = False,
     schedule: str = "auto",
+    outer_k: int = 0,
+    fragment_type: str = "float",
 ) -> FastDispatcher:
     m, k = activations.shape
     n = weight.shape[1]
@@ -277,6 +318,8 @@ def _prepare_block_scaled_dispatch(
         block_k,
         register_fragments,
         schedule,
+        outer_k,
+        fragment_type,
         dev.name,
         dev.metal_compiler_version,
     )
@@ -286,20 +329,24 @@ def _prepare_block_scaled_dispatch(
             mode = "reg" if register_fragments else "stage"
             function_name = (
                 f"mtile_bsmm_{weight.format}_{m}_{n}_{k}_{block_m}_{block_n}_{block_k}_"
-                f"{mode}_{schedule}"
+                f"{mode}_{schedule}_{outer_k}_{fragment_type}"
             )
-            metal_ir = optimize_tile_schedules(
-                lower_block_scaled_matmul(
-                    function_name,
-                    m,
-                    n,
-                    k,
-                    weight.bits,
-                    block_m=block_m,
-                    block_n=block_n,
-                    block_k=block_k,
-                    register_fragments=register_fragments,
-                    schedule=schedule,
+            metal_ir = decompose_nax_fragments(
+                optimize_tile_schedules(
+                    lower_block_scaled_matmul(
+                        function_name,
+                        m,
+                        n,
+                        k,
+                        weight.bits,
+                        block_m=block_m,
+                        block_n=block_n,
+                        block_k=block_k,
+                        register_fragments=register_fragments,
+                        schedule=schedule,
+                        outer_k=outer_k,
+                        fragment_type=fragment_type,
+                    )
                 )
             )
             source = emit(metal_ir)
@@ -352,6 +399,8 @@ def _tune_block_scaled_config(
             config.block_k,
             config.register_fragments,
             config.schedule,
+            config.outer_k,
+            config.fragment_type,
         )
         dispatches.append((config, dispatch))
         for _ in range(3):

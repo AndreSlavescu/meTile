@@ -12,6 +12,7 @@ from metile.codegen.msl_emitter import emit
 from metile.compiler.lowering import lower
 from metile.compiler.passes import (
     block_swizzle,
+    decompose_nax_fragments,
     double_buffer_k_loop,
     fold_constants,
     pad_shared_memory,
@@ -71,6 +72,7 @@ class CompiledKernel:
         threadgroup_size: tuple[int, int, int],
         is_gemm: bool = False,
         output_indices: tuple[int, ...] = (),
+        argument_indices: tuple[int, ...] | None = None,
     ):
         self.pipeline = pipeline
         self.msl_source = msl_source
@@ -78,6 +80,7 @@ class CompiledKernel:
         self.threadgroup_size = threadgroup_size
         self.is_gemm = is_gemm
         self.output_indices = output_indices
+        self.argument_indices = argument_indices
         self.description_bits = compressed_description_bits(msl_source)
 
 
@@ -270,6 +273,15 @@ class KernelLauncher:
             value = bound.arguments.get(axis)
             if block is not None and isinstance(value, (int, np.integer)):
                 constexprs[f"_ALIGNED_{axis}"] = int(value) % int(block) == 0
+        nax_outer_k = constexprs.get("NAX_OUTER_K")
+        k_value = bound.arguments.get("K")
+        if nax_outer_k is not None and isinstance(k_value, (int, np.integer)):
+            constexprs["_ALIGNED_NAX_OUTER_K"] = int(k_value) % int(nax_outer_k) == 0
+        if constexprs.get("NAX_FRAGMENTS", False):
+            for axis in ("M", "N", "K"):
+                value = bound.arguments.get(axis)
+                if isinstance(value, (int, np.integer)):
+                    constexprs[f"_STATIC_{axis}"] = int(value)
 
         if isinstance(self.grid, tuple) and len(self.grid) >= 2:
             constexprs["_GRID_M"] = int(self.grid[0])
@@ -433,6 +445,7 @@ class KernelLauncher:
             # no threadgroup memory passes needed. K-loop unrolling and
             # barrier removal are handled at lowering time.
             metal_ir = optimize_tile_schedules(metal_ir)
+            metal_ir = decompose_nax_fragments(metal_ir)
         elif is_specialized:
             # Specialized GEMM: double-buffered + padded in lowering
             # Only apply vectorize and serpentine
@@ -492,6 +505,12 @@ class KernelLauncher:
         else:
             pipeline = dev.compile_msl(msl_source, metal_ir.name)
 
+        source_param_names = [
+            name
+            for name, parameter in sig.parameters.items()
+            if parameter.annotation is not constexpr
+        ]
+        argument_indices = tuple(source_param_names.index(param.name) for param in metal_ir.params)
         return CompiledKernel(
             pipeline=pipeline,
             msl_source=msl_source,
@@ -501,6 +520,7 @@ class KernelLauncher:
             output_indices=tuple(
                 index for index, param in enumerate(metal_ir.params) if param.is_output
             ),
+            argument_indices=argument_indices,
         )
 
     def _dispatch(self, compiled: CompiledKernel, args):
@@ -508,7 +528,11 @@ class KernelLauncher:
         dev = MetalDevice.get()
 
         buffers = []
-        for arg in args:
+        argument_indices = compiled.argument_indices
+        selected_args = (
+            args if argument_indices is None else (args[index] for index in argument_indices)
+        )
+        for arg in selected_args:
             if isinstance(arg, MtileBuffer):
                 buffers.append(arg.metal_buffer)
             elif isinstance(arg, int):
