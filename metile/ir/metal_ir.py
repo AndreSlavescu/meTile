@@ -687,6 +687,7 @@ class MNaxBlockScaledRun(MOp):
     ptr_scales: MValue = None
     bits: int = 4
     fragment_type: str = "float"
+    k_offset: int = 0
 
     def result_type(self):
         return None
@@ -762,11 +763,25 @@ class MNaxLoadBlockScaledFragment(MOp):
     """Decode one eight-element block-scaled right register fragment."""
 
     ptr_values: MValue = None
-    ptr_scales: MValue = None
     name: str = ""
+    scale: str = ""
     bits: int = 4
     col_offset: int = 0
+    k_offset: int = 0
     fragment_type: str = "float"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadBlockScale(MOp):
+    """Load and decode one four-column E8M0 scale fragment."""
+
+    ptr_scales: MValue = None
+    name: str = ""
+    col_offset: int = 0
+    k_offset: int = 0
 
     def result_type(self):
         return None

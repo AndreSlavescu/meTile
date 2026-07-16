@@ -32,12 +32,21 @@ class _BlockScaledConfig:
     schedule: str = "auto"
     outer_k: int = 0
     fragment_type: str = "float"
+    k_unroll: int = 1
 
 
 _BLOCK_SCALED_CONFIGS = (
     _BlockScaledConfig(64, 64),
     _BlockScaledConfig(128, 64),
     _BlockScaledConfig(64, 64, register_fragments=True, schedule="linear"),
+    _BlockScaledConfig(
+        64,
+        64,
+        register_fragments=True,
+        schedule="linear",
+        fragment_type="bfloat",
+        k_unroll=2,
+    ),
     _BlockScaledConfig(64, 64, register_fragments=True, schedule="diagonal"),
     _BlockScaledConfig(64, 64, register_fragments=True, schedule="hilbert"),
     _BlockScaledConfig(128, 64, register_fragments=True, schedule="grouped4"),
@@ -55,6 +64,14 @@ _BLOCK_SCALED_CONFIGS = (
         128,
         register_fragments=True,
         schedule="grouped4",
+        fragment_type="bfloat",
+        k_unroll=2,
+    ),
+    _BlockScaledConfig(
+        64,
+        128,
+        register_fragments=True,
+        schedule="grouped4",
         outer_k=512,
     ),
     _BlockScaledConfig(
@@ -64,6 +81,15 @@ _BLOCK_SCALED_CONFIGS = (
         schedule="grouped4",
         outer_k=512,
         fragment_type="bfloat",
+    ),
+    _BlockScaledConfig(
+        64,
+        128,
+        register_fragments=True,
+        schedule="grouped4",
+        outer_k=512,
+        fragment_type="bfloat",
+        k_unroll=2,
     ),
     _BlockScaledConfig(64, 128, register_fragments=True, schedule="hilbert"),
 )
@@ -78,6 +104,7 @@ def _config_payload(config: _BlockScaledConfig) -> dict:
         "schedule": config.schedule,
         "outer_k": config.outer_k,
         "fragment_type": config.fragment_type,
+        "k_unroll": config.k_unroll,
     }
 
 
@@ -255,6 +282,7 @@ def prepare_block_scaled_matmul(
         if m % config.block_m == 0
         and n % config.block_n == 0
         and k % (16 if config.register_fragments else config.block_k) == 0
+        and k % (16 * config.k_unroll) == 0
         and (not config.outer_k or k % config.outer_k == 0)
         and (
             config.register_fragments
@@ -290,6 +318,7 @@ def prepare_block_scaled_matmul(
         tile.schedule,
         tile.outer_k,
         tile.fragment_type,
+        tile.k_unroll,
     )
 
 
@@ -304,6 +333,7 @@ def _prepare_block_scaled_dispatch(
     schedule: str = "auto",
     outer_k: int = 0,
     fragment_type: str = "float",
+    k_unroll: int = 1,
 ) -> FastDispatcher:
     m, k = activations.shape
     n = weight.shape[1]
@@ -320,6 +350,7 @@ def _prepare_block_scaled_dispatch(
         schedule,
         outer_k,
         fragment_type,
+        k_unroll,
         dev.name,
         dev.metal_compiler_version,
     )
@@ -329,7 +360,7 @@ def _prepare_block_scaled_dispatch(
             mode = "reg" if register_fragments else "stage"
             function_name = (
                 f"mtile_bsmm_{weight.format}_{m}_{n}_{k}_{block_m}_{block_n}_{block_k}_"
-                f"{mode}_{schedule}_{outer_k}_{fragment_type}"
+                f"{mode}_{schedule}_{outer_k}_{fragment_type}_u{k_unroll}"
             )
             metal_ir = decompose_nax_fragments(
                 optimize_tile_schedules(
@@ -346,6 +377,7 @@ def _prepare_block_scaled_dispatch(
                         schedule=schedule,
                         outer_k=outer_k,
                         fragment_type=fragment_type,
+                        k_unroll=k_unroll,
                     )
                 )
             )
@@ -401,12 +433,13 @@ def _tune_block_scaled_config(
             config.schedule,
             config.outer_k,
             config.fragment_type,
+            config.k_unroll,
         )
         dispatches.append((config, dispatch))
-        for _ in range(3):
+        for _ in range(5):
             dispatch()
             dev.sync()
-    for round_index in range(7):
+    for round_index in range(15):
         ordered = dispatches[round_index:] + dispatches[:round_index]
         if round_index & 1:
             ordered.reverse()

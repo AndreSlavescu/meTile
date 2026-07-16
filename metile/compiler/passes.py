@@ -347,15 +347,12 @@ def _decompose_nax_ops(ops: list[mir.MOp]) -> list[mir.MOp]:
             decomposed.extend(_dense_nax_steps(runs))
             continue
         elif isinstance(op, mir.MNaxBlockScaledRun):
-            decomposed.extend(
-                _block_scaled_nax_step(
-                    op.ptr_a,
-                    op.ptr_values,
-                    op.ptr_scales,
-                    op.bits,
-                    op.fragment_type,
-                )
-            )
+            runs = []
+            while index < len(ops) and isinstance(ops[index], mir.MNaxBlockScaledRun):
+                runs.append(ops[index])
+                index += 1
+            decomposed.extend(_block_scaled_nax_steps(runs))
+            continue
         elif isinstance(op, mir.MNaxGemmStore):
             for source, row_offset, col_offset in (
                 ("d00", 0, 0),
@@ -434,35 +431,88 @@ def _dense_nax_steps(runs: list[mir.MNaxGemmRun]) -> list[mir.MOp]:
     return operations
 
 
+def _block_scaled_nax_steps(runs: list[mir.MNaxBlockScaledRun]) -> list[mir.MOp]:
+    operations = []
+    grouped_runs = []
+    for run in runs:
+        scale_group = run.k_offset // 32
+        if not grouped_runs or grouped_runs[-1][0] != scale_group:
+            grouped_runs.append((scale_group, []))
+        grouped_runs[-1][1].append(run)
+
+    run_index = 0
+    for group_index, (_, scale_runs) in enumerate(grouped_runs):
+        scale_suffix = "" if len(runs) == 1 else f"_g{group_index}"
+        scale_low = f"b0_scale{scale_suffix}"
+        scale_high = f"b1_scale{scale_suffix}"
+        first_run = scale_runs[0]
+        operations.extend(
+            (
+                mir.MNaxLoadBlockScale(
+                    ptr_scales=first_run.ptr_scales,
+                    name=scale_low,
+                    k_offset=first_run.k_offset,
+                ),
+                mir.MNaxLoadBlockScale(
+                    ptr_scales=first_run.ptr_scales,
+                    name=scale_high,
+                    col_offset=16,
+                    k_offset=first_run.k_offset,
+                ),
+            )
+        )
+        for run in scale_runs:
+            suffix = "" if len(runs) == 1 else f"_{run_index}"
+            operations.extend(_block_scaled_nax_step(run, scale_low, scale_high, suffix))
+            run_index += 1
+    return operations
+
+
 def _block_scaled_nax_step(
-    ptr_a: mir.MValue,
-    ptr_values: mir.MValue,
-    ptr_scales: mir.MValue,
-    bits: int,
-    fragment_type: str,
+    run: mir.MNaxBlockScaledRun,
+    scale_low: str,
+    scale_high: str,
+    suffix: str,
 ) -> list[mir.MOp]:
+    b0 = f"b0{suffix}"
+    b1 = f"b1{suffix}"
+    a0 = f"a0{suffix}"
+    a1 = f"a1{suffix}"
     return [
         mir.MNaxLoadBlockScaledFragment(
-            ptr_values=ptr_values,
-            ptr_scales=ptr_scales,
-            name="b0",
-            bits=bits,
-            fragment_type=fragment_type,
+            ptr_values=run.ptr_values,
+            name=b0,
+            scale=scale_low,
+            bits=run.bits,
+            k_offset=run.k_offset,
+            fragment_type=run.fragment_type,
         ),
         mir.MNaxLoadBlockScaledFragment(
-            ptr_values=ptr_values,
-            ptr_scales=ptr_scales,
-            name="b1",
-            bits=bits,
+            ptr_values=run.ptr_values,
+            name=b1,
+            scale=scale_high,
+            bits=run.bits,
             col_offset=16,
-            fragment_type=fragment_type,
+            k_offset=run.k_offset,
+            fragment_type=run.fragment_type,
         ),
-        mir.MNaxPackRight(),
-        mir.MNaxLoadFragment(ptr=ptr_a, name="a0", operand="left"),
-        mir.MNaxFmaFragment(),
-        mir.MNaxLoadFragment(ptr=ptr_a, name="a1", operand="left", row_offset=16),
+        mir.MNaxPackRight(low=b0, high=b1),
+        mir.MNaxLoadFragment(
+            ptr=run.ptr_a,
+            name=a0,
+            operand="left",
+            k_offset=run.k_offset,
+        ),
+        mir.MNaxFmaFragment(left=a0),
+        mir.MNaxLoadFragment(
+            ptr=run.ptr_a,
+            name=a1,
+            operand="left",
+            row_offset=16,
+            k_offset=run.k_offset,
+        ),
         mir.MNaxFmaFragment(
-            left="a1",
+            left=a1,
             destination_low="d10",
             destination_high="d11",
         ),

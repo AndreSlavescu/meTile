@@ -17,6 +17,7 @@ def lower_block_scaled_matmul(
     schedule: str = "auto",
     outer_k: int = 0,
     fragment_type: str = "float",
+    k_unroll: int = 1,
 ) -> mir.MFunction:
     """Build composable Metal IR for an aligned MXFP weight-only GEMM."""
     if bits not in {4, 8}:
@@ -26,8 +27,14 @@ def lower_block_scaled_matmul(
         raise ValueError("block-scaled M/N tiles must be multiples of 32 and K must be 32 or 64")
     if fragment_type not in {"float", "bfloat"}:
         raise ValueError("fragment_type must be float or bfloat")
+    if k_unroll not in {1, 2}:
+        raise ValueError("k_unroll must be 1 or 2")
+    if k_unroll != 1 and not register_fragments:
+        raise ValueError("k_unroll requires register fragments")
     if outer_k and (not register_fragments or outer_k % 16 or k % outer_k):
         raise ValueError("outer_k requires register fragments and must evenly divide K")
+    if k % (16 * k_unroll) or (outer_k and outer_k % (16 * k_unroll)):
+        raise ValueError("K epochs must be divisible by the unrolled reduction step")
     wm, wn = block_m // 32, block_n // 32
     num_simdgroups = wm * wn
     num_threads = num_simdgroups * 32
@@ -74,20 +81,25 @@ def lower_block_scaled_matmul(
                 right_type=fragment_type,
             )
         )
-        step = mir.MNaxBlockScaledRun(
-            ptr_a=activations,
-            ptr_values=packed,
-            ptr_scales=scales,
-            bits=bits,
-            fragment_type=fragment_type,
-        )
+        steps = [
+            mir.MNaxBlockScaledRun(
+                ptr_a=activations,
+                ptr_values=packed,
+                ptr_scales=scales,
+                bits=bits,
+                fragment_type=fragment_type,
+                k_offset=step_index * 16,
+            )
+            for step_index in range(k_unroll)
+        ]
+        reduction_step = 16 * k_unroll
         if outer_k:
             inner_loop = mir.MForLoop(
                 iv_name="k1",
                 start=0,
                 end=outer_k,
-                step=16,
-                body=[step],
+                step=reduction_step,
+                body=steps,
                 index_alias="k",
                 index_expression="k0 + k1",
             )
@@ -101,7 +113,9 @@ def lower_block_scaled_matmul(
                 )
             )
         else:
-            function.add_op(mir.MForLoop(iv_name="k", start=0, end=k, step=16, body=[step]))
+            function.add_op(
+                mir.MForLoop(iv_name="k", start=0, end=k, step=reduction_step, body=steps)
+            )
         function.add_op(mir.MNaxGemmStore(ptr_c=output))
         return function
 

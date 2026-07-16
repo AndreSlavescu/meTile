@@ -99,6 +99,10 @@ On the aligned M5 NAX path, ``NAX_OUTER_K`` controls the reduction epoch and
 ``NAX_K_UNROLL=2`` preloads two 16-wide K fragments before issuing their native MMAs.
 These are candidate parameters rather than global defaults because the winning register
 footprint and epoch width change with matrix shape.
+The block-scaled runtime also measures a paired reduction representation that reuses
+one E8M0 scale load across the two 16-wide steps in each 32-value quantization group.
+It executes the decoded weight fragments sequentially to avoid the register-pressure
+cost of dense-style fragment preloading.
 
 
 Schedule Algebra and MDL

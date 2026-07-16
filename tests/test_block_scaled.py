@@ -53,10 +53,31 @@ def test_nax_fragment_pass_exposes_composable_native_operations():
 
     loop = next(op for op in function.ops if isinstance(op, mir.MForLoop))
     assert not any(isinstance(op, mir.MNaxBlockScaledRun) for op in loop.body)
+    assert sum(isinstance(op, mir.MNaxLoadBlockScale) for op in loop.body) == 2
     assert sum(isinstance(op, mir.MNaxLoadBlockScaledFragment) for op in loop.body) == 2
     assert sum(isinstance(op, mir.MNaxLoadFragment) for op in loop.body) == 2
     assert sum(isinstance(op, mir.MNaxFmaFragment) for op in loop.body) == 2
     assert sum(isinstance(op, mir.MNaxStoreFragment) for op in function.ops) == 4
+
+
+def test_block_scaled_k_unroll_reuses_scale_fragments():
+    function = lower_block_scaled_matmul(
+        "test_bsmm_unroll",
+        64,
+        64,
+        64,
+        4,
+        register_fragments=True,
+        k_unroll=2,
+    )
+    decompose_nax_fragments(function)
+
+    loop = next(op for op in function.ops if isinstance(op, mir.MForLoop))
+    assert loop.step == 32
+    assert sum(isinstance(op, mir.MNaxLoadBlockScale) for op in loop.body) == 2
+    fragments = [op for op in loop.body if isinstance(op, mir.MNaxLoadBlockScaledFragment)]
+    assert len(fragments) == 4
+    assert {op.k_offset for op in fragments} == {0, 16}
 
 
 def test_block_scaled_register_reduction_epochs_are_explicit_ir():
@@ -110,7 +131,10 @@ def test_block_scaled_k64_dispatch_matches_dequantized_reference():
 @pytest.mark.skipif(not MetalDevice.get().supports_tensor_ops, reason="requires Metal 4 MPP")
 @pytest.mark.parametrize("format", ["mxfp4", "mxfp8"])
 @pytest.mark.parametrize("fragment_type", ["float", "bfloat"])
-def test_block_scaled_register_dispatch_matches_dequantized_reference(format, fragment_type):
+@pytest.mark.parametrize("k_unroll", [1, 2])
+def test_block_scaled_register_dispatch_matches_dequantized_reference(
+    format, fragment_type, k_unroll
+):
     rng = np.random.default_rng(31)
     activations = rng.normal(size=(64, 64)).astype(np.float32)
     weight = rng.normal(size=(64, 64)).astype(np.float32)
@@ -126,6 +150,7 @@ def test_block_scaled_register_dispatch_matches_dequantized_reference(format, fr
         register_fragments=True,
         schedule="linear",
         fragment_type=fragment_type,
+        k_unroll=k_unroll,
     )
     dispatch()
     output = output_buffer.numpy()

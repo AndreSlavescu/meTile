@@ -453,6 +453,9 @@ def _emit_gemm_op(
     elif isinstance(op, mir.MNaxLoadFragment):
         _emit_nax_load_fragment(op, lines, indent, func)
 
+    elif isinstance(op, mir.MNaxLoadBlockScale):
+        _emit_nax_load_block_scale(op, lines, indent, func)
+
     elif isinstance(op, mir.MNaxLoadBlockScaledFragment):
         _emit_nax_load_block_scaled_fragment(op, lines, indent, func)
 
@@ -1021,36 +1024,31 @@ def _emit_nax_load_fragment(op, lines, indent, func):
 def _emit_nax_load_block_scaled_fragment(op, lines, indent, func):
     pad = "    " * indent
     values = _val_name_gemm(op.ptr_values, func)
-    scales = _val_name_gemm(op.ptr_scales, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
     col = "tile_col + frag_n"
     if op.col_offset:
         col = f"tile_col + {op.col_offset}u + frag_n"
-    lines.append(
-        f"{pad}const uchar4 {op.name}_scales = "
-        f"*((device const uchar4*)(&{scales}[((uint(k) + frag_m) >> 5u) * N + ({col})]));"
-    )
-    lines.append(f"{pad}const float4 {op.name}_scale = mtile_decode_e8m0({op.name}_scales);")
     _emit_nax_quantized_vector(
         lines,
         pad,
         f"{op.name}0",
-        "uint(k) + frag_m",
+        f"{k} + frag_m",
         col,
         values,
-        scales,
+        None,
         op.bits,
-        f"{op.name}_scale",
+        op.scale,
     )
     _emit_nax_quantized_vector(
         lines,
         pad,
         f"{op.name}1",
-        "uint(k) + frag_m + 8u",
+        f"{k} + frag_m + 8u",
         col,
         values,
-        scales,
+        None,
         op.bits,
-        f"{op.name}_scale",
+        op.scale,
     )
     lines.append(
         f"{pad}const metal::vec<{op.fragment_type}, 8> {op.name} = "
@@ -1063,6 +1061,20 @@ def _emit_nax_load_block_scaled_fragment(op, lines, indent, func):
             component = f"{vector}.{field}"
             components.append(component if not cast else f"{cast}({component})")
     lines.append(f"{pad}    {', '.join(components[:4])}, {', '.join(components[4:])});")
+
+
+def _emit_nax_load_block_scale(op, lines, indent, func):
+    pad = "    " * indent
+    scales = _val_name_gemm(op.ptr_scales, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    col = "tile_col + frag_n"
+    if op.col_offset:
+        col = f"tile_col + {op.col_offset}u + frag_n"
+    lines.append(
+        f"{pad}const uchar4 {op.name}_bits = "
+        f"*((device const uchar4*)(&{scales}[(({k} + frag_m) >> 5u) * N + ({col})]));"
+    )
+    lines.append(f"{pad}const float4 {op.name} = mtile_decode_e8m0({op.name}_bits);")
 
 
 def _emit_nax_pack_right(op, lines, indent):

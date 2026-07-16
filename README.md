@@ -101,7 +101,8 @@ out = metile.block_scaled_matmul(a, w)
 
 The aligned fast path currently requires `M`/`N` multiples of 64 and `K` a multiple
 of 32. `prepare_block_scaled_matmul` autotunes staged and direct register-fragment
-representations and returns a reusable hot-path dispatcher.
+representations, including paired K steps that reuse E8M0 scale fragments, and returns
+a reusable hot-path dispatcher.
 
 ## Install
 

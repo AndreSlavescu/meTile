@@ -153,8 +153,10 @@ before issuing their MMAs without changing the frontend kernel. Epoch pointers r
 address arithmetic, static aligned dimensions remove scalar buffer bindings, and the
 runtime measures one- and two-fragment representations per problem shape. The preload
 form is retained only for dense GEMM; measurements show that applying it to fused MXFP
-decode increases register pressure, so block-scaled dispatch keeps a single-fragment
-reduction step.
+decode increases register pressure. Block-scaled lowering instead keeps decoded weights
+single-step-live while optionally pairing two K steps and reusing their common E8M0
+scale fragments. This reduces scale traffic and loop overhead without retaining both
+decoded weight fragments across an MMA.
 
 
 Block-Scaled Register Fragments
@@ -166,4 +168,6 @@ autotuner compares conventional threadgroup staging with a direct M5 path that k
 decoded fragments and accumulators in registers. No dense weight tensor is
 materialized in global memory. Float and bfloat right-fragment representations
 are both measured because bfloat lowers register footprint on sustained M5 workloads
-while float can remain faster for launch-limited shapes.
+while float can remain faster for launch-limited shapes. One- and two-step reduction
+forms are measured independently because paired scale reuse wins at small and medium K
+but can reduce occupancy on larger problems.

@@ -223,7 +223,7 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
     elif isinstance(op, mir.MNaxBlockScaledRun):
         lines.append(
             f"{pad}nax_block_scaled_run({_val(op.ptr_a)}, {_val(op.ptr_values)}, "
-            f"{_val(op.ptr_scales)}, bits={op.bits})"
+            f"{_val(op.ptr_scales)}, bits={op.bits}, k={op.k_offset})"
         )
     elif isinstance(op, mir.MNaxGemmStore):
         lines.append(f"{pad}nax_gemm_store({_val(op.ptr_c)})")
@@ -243,8 +243,11 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
     elif isinstance(op, mir.MNaxLoadBlockScaledFragment):
         lines.append(
             f"{pad}nax_load_block_scaled_fragment({op.name}, bits={op.bits}, "
-            f"col={op.col_offset}, type={op.fragment_type})"
+            f"scale={op.scale}, col={op.col_offset}, k={op.k_offset}, "
+            f"type={op.fragment_type})"
         )
+    elif isinstance(op, mir.MNaxLoadBlockScale):
+        lines.append(f"{pad}nax_load_block_scale({op.name}, col={op.col_offset}, k={op.k_offset})")
     elif isinstance(op, mir.MNaxPackRight):
         lines.append(f"{pad}nax_pack_right({op.low}, {op.high})")
     elif isinstance(op, mir.MNaxFmaFragment):
