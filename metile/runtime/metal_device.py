@@ -31,6 +31,13 @@ class MTLSize(ctypes.Structure):
     ]
 
 
+class NSRange(ctypes.Structure):
+    _fields_: ClassVar = [
+        ("location", ctypes.c_uint64),
+        ("length", ctypes.c_uint64),
+    ]
+
+
 # Objective-C runtime functions
 _objc.objc_getClass.restype = _cls
 _objc.objc_getClass.argtypes = [ctypes.c_char_p]
@@ -131,6 +138,8 @@ class MetalDevice:
         self._last_cmd_buffer = None
         self._pending_cmd_buffer = None
         self._pending_encoder = None
+        self._pending_pipeline = None
+        self._pending_binding_key = None
         self._pending_dispatches = 0
         self._pending_concurrent = None
         self._pending_inputs = set()
@@ -490,6 +499,8 @@ class MetalDevice:
     # Cached ctypes function wrappers for hot dispatch path
     _set_buffer_sel = None
     _set_buffer_fn = None
+    _set_buffers_sel = None
+    _set_buffers_fn = None
     _dispatch_tg_sel = None
     _dispatch_tg_fn = None
     _dispatch_threads_sel = None
@@ -527,6 +538,15 @@ class MetalDevice:
             ctypes.c_void_p,
             ctypes.c_uint64,
             ctypes.c_uint64,
+        )(msg_ptr)
+        MetalDevice._set_buffers_sel = _objc.sel_registerName(b"setBuffers:offsets:withRange:")
+        MetalDevice._set_buffers_fn = ctypes.CFUNCTYPE(
+            None,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(ctypes.c_uint64),
+            NSRange,
         )(msg_ptr)
 
         MetalDevice._set_pipeline_sel = _objc.sel_registerName(b"setComputePipelineState:")
@@ -682,6 +702,8 @@ class MetalDevice:
         self._last_cmd_buffer = self._pending_cmd_buffer
         self._pending_cmd_buffer = None
         self._pending_encoder = None
+        self._pending_pipeline = None
+        self._pending_binding_key = None
         self._pending_dispatches = 0
         self._pending_concurrent = None
         self._pending_inputs.clear()

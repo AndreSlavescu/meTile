@@ -167,7 +167,8 @@ Prepared Dispatch
 -----------------
 
 For latency-sensitive inference, use ``.prepare()`` to autotune once and get a
-fast dispatcher that skips all Python overhead on subsequent calls:
+fast dispatcher that skips tracing, lowering, compilation, and argument-conversion
+overhead on subsequent calls:
 
 .. code-block:: python
 
@@ -175,13 +176,18 @@ fast dispatcher that skips all Python overhead on subsequent calls:
 
    dispatch = autotuned_matmul[grid].prepare(A, B, C, M, N, K)
 
-   # compatible calls batch until sync(), numpy(), or an ordinary launch flushes them
-   for _ in range(1000):
-       dispatch()
+   # Encode repeated work under one runtime lock. Compatible calls batch until
+   # sync(), numpy(), or an ordinary launch flushes them.
+   dispatch.repeat(1000)
 
    MetalDevice.get().sync()
 
 Prepared GEMMs use an ordered encoder. Independent element-wise kernels can use a
 concurrent encoder; the runtime tracks input/output buffer hazards and inserts Metal
-buffer barriers between dependent dispatches. Optional selectors are capability
-checked, and bound buffers remain alive through completion.
+buffer barriers between dependent dispatches. Multi-buffer kernels use one cached
+``setBuffers:offsets:withRange:`` call instead of repeated Objective-C bindings.
+Repeated compatible dispatches also reuse unchanged pipeline and buffer state within
+the shared encoder. ``repeat(count)`` additionally removes repeated Python lock
+transitions when the same prepared operation is intentionally encoded many times.
+Optional selectors are capability checked, and bound buffers remain alive through
+completion.

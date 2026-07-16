@@ -84,7 +84,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Interleaved round-robin GPU-timestamp autotuning with device/toolchain-keyed persistent config and metallib caches.
 - Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates.
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
-- Prepared calls batch compatible launches into shared encoders, insert dependency barriers for concurrent dispatch, retain bound resources, and fall back when optional Metal selectors are unavailable.
+- Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; concurrent hazards and resource lifetimes remain tracked automatically.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
 
 ## Block-Scaled GEMM

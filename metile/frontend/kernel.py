@@ -30,7 +30,7 @@ from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
 from metile.ir.types import I32, PtrType, ScalarType
 from metile.runtime.buffer import MtileBuffer
-from metile.runtime.metal_device import MetalDevice, MTLSize
+from metile.runtime.metal_device import MetalDevice, MTLSize, NSRange
 
 # Global kernel cache: (func_name, constexprs_tuple, dtypes_tuple) -> CompiledKernel
 _kernel_cache: dict = {}
@@ -148,6 +148,10 @@ class FastDispatcher:
     """
 
     __slots__ = (
+        "_binding_key",
+        "_buffer_array",
+        "_buffer_offsets",
+        "_buffer_range",
         "_buffers",
         "_concurrent",
         "_description_bits",
@@ -161,6 +165,8 @@ class FastDispatcher:
         "_resources",
         "_set_buf_fn",
         "_set_buf_sel",
+        "_set_bufs_fn",
+        "_set_bufs_sel",
         "_set_pipe_fn",
         "_set_pipe_sel",
         "_tg",
@@ -174,18 +180,36 @@ class FastDispatcher:
         self._concurrent = not compiled.is_gemm
         self._dev = dev
         self._description_bits = compiled.description_bits
-        resources = tuple(
+        buffer_values = tuple(
             buffer.value if isinstance(buffer, ctypes.c_void_p) else int(buffer)
             for buffer in self._buffers
         )
-        self._input_resources = frozenset(resources)
-        self._output_resources = frozenset(resources[index] for index in compiled.output_indices)
+        self._input_resources = frozenset(buffer_values)
+        self._output_resources = frozenset(
+            buffer_values[index] for index in compiled.output_indices
+        )
+        pipeline_value = (
+            self._pipeline.value
+            if isinstance(self._pipeline, ctypes.c_void_p)
+            else int(self._pipeline)
+        )
+        self._binding_key = (pipeline_value, buffer_values)
 
         # Pre-cache all ctypes functions as instance attrs
         self._set_pipe_fn = MetalDevice._set_pipeline_fn
         self._set_pipe_sel = MetalDevice._set_pipeline_sel
         self._set_buf_fn = MetalDevice._set_buffer_fn
         self._set_buf_sel = MetalDevice._set_buffer_sel
+        self._set_bufs_fn = MetalDevice._set_buffers_fn
+        self._set_bufs_sel = MetalDevice._set_buffers_sel
+        if len(buffer_values) > 1:
+            self._buffer_array = (ctypes.c_void_p * len(buffer_values))(*buffer_values)
+            self._buffer_offsets = (ctypes.c_uint64 * len(buffer_values))()
+            self._buffer_range = NSRange(0, len(buffer_values))
+        else:
+            self._buffer_array = None
+            self._buffer_offsets = None
+            self._buffer_range = None
         tg = compiled.threadgroup_size
         self._tg = MTLSize(tg[0], tg[1], tg[2])
         if compiled.is_gemm:
@@ -204,31 +228,52 @@ class FastDispatcher:
     def __call__(self):
         dev = self._dev
         with dev._dispatch_lock:
-            encoder = dev._pending_encoder_unlocked(self._concurrent)
-            concurrent = bool(dev._pending_concurrent)
-            if concurrent and (
-                (dev._pending_outputs & self._input_resources)
-                or (dev._pending_inputs & self._output_resources)
-            ):
-                dev._memory_barrier_fn(encoder, dev._memory_barrier_sel, 1)
-                dev._pending_inputs.clear()
-                dev._pending_outputs.clear()
+            self._encode_unlocked(dev)
+
+    def repeat(self, count: int):
+        """Encode the same prepared dispatch repeatedly under one runtime lock."""
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError("count must be a non-negative integer")
+        dev = self._dev
+        with dev._dispatch_lock:
+            for _ in range(count):
+                self._encode_unlocked(dev)
+
+    def _encode_unlocked(self, dev):
+        encoder = dev._pending_encoder_unlocked(self._concurrent)
+        concurrent = bool(dev._pending_concurrent)
+        if concurrent and (
+            (dev._pending_outputs & self._input_resources)
+            or (dev._pending_inputs & self._output_resources)
+        ):
+            dev._memory_barrier_fn(encoder, dev._memory_barrier_sel, 1)
+            dev._pending_inputs.clear()
+            dev._pending_outputs.clear()
+        if dev._pending_pipeline != self._binding_key[0]:
             self._set_pipe_fn(encoder, self._set_pipe_sel, self._pipeline)
+            dev._pending_pipeline = self._binding_key[0]
 
-            fn = self._set_buf_fn
-            sel = self._set_buf_sel
-            bufs = self._buffers
-            for idx in range(len(bufs)):
-                fn(encoder, sel, bufs[idx], 0, idx)
+        if dev._pending_binding_key != self._binding_key:
+            if self._buffer_array is not None:
+                self._set_bufs_fn(
+                    encoder,
+                    self._set_bufs_sel,
+                    self._buffer_array,
+                    self._buffer_offsets,
+                    self._buffer_range,
+                )
+            elif self._buffers:
+                self._set_buf_fn(encoder, self._set_buf_sel, self._buffers[0], 0, 0)
+            dev._pending_binding_key = self._binding_key
 
-            self._dispatch_fn(encoder, self._dispatch_sel, self._grid, self._tg)
-            if self._concurrent:
-                dev._pending_inputs.update(self._input_resources)
-                dev._pending_outputs.update(self._output_resources)
-            dev._pending_lifetimes[id(self)] = self
-            dev._pending_dispatches += 1
-            if dev._pending_dispatches >= 64:
-                dev._commit_pending_unlocked()
+        self._dispatch_fn(encoder, self._dispatch_sel, self._grid, self._tg)
+        if self._concurrent:
+            dev._pending_inputs.update(self._input_resources)
+            dev._pending_outputs.update(self._output_resources)
+        dev._pending_lifetimes[id(self)] = self
+        dev._pending_dispatches += 1
+        if dev._pending_dispatches >= 64:
+            dev._commit_pending_unlocked()
 
     @property
     def description_bits(self) -> int:
