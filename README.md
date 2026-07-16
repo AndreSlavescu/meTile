@@ -81,10 +81,10 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 
 **Runtime**
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
-- Interleaved round-robin GPU-timestamp autotuning with device/toolchain-keyed persistent config and metallib caches.
+- Interleaved round-robin GPU-timestamp autotuning with device/toolchain-keyed persistent config, measured-latency, and metallib caches.
 - Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates, including 2- and 4-SIMDgroup MXFP tiles.
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
-- Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; short static GEMMs use a bounded poll-before-sleep completion policy while longer workloads block immediately.
+- Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; measured short kernels receive an adaptive bounded poll-before-sleep budget while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
 
 ## Block-Scaled GEMM

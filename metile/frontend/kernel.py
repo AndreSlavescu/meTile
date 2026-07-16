@@ -153,6 +153,7 @@ class FastDispatcher:
         "_buffer_offsets",
         "_buffer_range",
         "_buffers",
+        "_completion_spin_ns",
         "_concurrent",
         "_description_bits",
         "_dev",
@@ -162,7 +163,6 @@ class FastDispatcher:
         "_input_resources",
         "_output_resources",
         "_pipeline",
-        "_prefer_low_latency",
         "_resources",
         "_set_buf_fn",
         "_set_buf_sel",
@@ -180,7 +180,7 @@ class FastDispatcher:
         grid,
         dev,
         resources=(),
-        prefer_low_latency=False,
+        completion_spin_ns=0,
     ):
         dev._ensure_cached_selectors()
         self._pipeline = compiled.pipeline
@@ -189,7 +189,7 @@ class FastDispatcher:
         self._concurrent = not compiled.is_gemm
         self._dev = dev
         self._description_bits = compiled.description_bits
-        self._prefer_low_latency = bool(prefer_low_latency)
+        self._completion_spin_ns = max(0, int(completion_spin_ns))
         buffer_values = tuple(
             buffer.value if isinstance(buffer, ctypes.c_void_p) else int(buffer)
             for buffer in self._buffers
@@ -281,7 +281,12 @@ class FastDispatcher:
             dev._pending_inputs.update(self._input_resources)
             dev._pending_outputs.update(self._output_resources)
         dev._pending_lifetimes[id(self)] = self
-        dev._pending_prefer_low_latency &= self._prefer_low_latency
+        if dev._pending_dispatches == 0:
+            dev._pending_completion_spin_ns = self._completion_spin_ns
+        elif dev._pending_completion_spin_ns and self._completion_spin_ns:
+            dev._pending_completion_spin_ns += self._completion_spin_ns
+        else:
+            dev._pending_completion_spin_ns = 0
         dev._pending_dispatches += 1
         if dev._pending_dispatches >= 64:
             dev._commit_pending_unlocked()
@@ -407,13 +412,14 @@ class KernelLauncher:
         )
         if prefer_low_latency:
             prefer_low_latency = np.prod(dimensions, dtype=np.int64) <= 512**3
+        completion_spin_ns = 900_000 if prefer_low_latency else 0
         return FastDispatcher(
             self._last_compiled,
             self._last_metal_buffers,
             self.grid,
             MetalDevice.get(),
             self._last_resources,
-            prefer_low_latency=prefer_low_latency,
+            completion_spin_ns=completion_spin_ns,
         )
 
     def _compile(self, args, constexprs: dict, param_names: list[str]) -> CompiledKernel:

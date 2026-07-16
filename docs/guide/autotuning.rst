@@ -49,9 +49,11 @@ On the first call with new key values, the autotuner:
 
 1. Compiles every valid config
 2. Benchmarks candidates in rotated, alternating round-robin order
-3. Selects the fastest one, using generated-code size only for a sub-percent tie
-4. Caches the result with the device and toolchain identity
-5. Dispatches with the winning config
+3. Re-benchmarks up to eight candidates within 8% of the provisional winner in a
+   30-round rotating finalist tournament
+4. Selects the fastest one, using generated-code size only for a sub-percent tie
+5. Caches the result and measured latency with the device and toolchain identity
+6. Dispatches with the winning config
 
 Subsequent calls with the same key values reuse the winner without re-tuning.
 
@@ -194,10 +196,15 @@ transitions when the same prepared operation is intentionally encoded many times
 Optional selectors are capability checked, and bound buffers remain alive through
 completion.
 
-Prepared static GEMMs at or below ``512x512x512`` are marked latency-sensitive. On
-``sync()``, the runtime polls command-buffer completion for at most 900 microseconds
-before falling back to ``waitUntilCompleted``. This avoids scheduler wake latency for
-short M5 kernels without unbounded spinning or changing the blocking behavior of long
-GEMMs. Set ``METILE_LOW_LATENCY_SPIN_US=0`` to disable active waiting, or provide a
-different non-negative microsecond budget for application-specific latency/power
-tradeoffs.
+The autotuner persists the selected kernel's measured GPU latency with its device-
+and toolchain-specific configuration. Prepared kernels measured at one millisecond or
+less receive a completion-poll budget derived from that latency: three times the GPU
+time plus 300 microseconds, bounded between 900 and 1500 microseconds. Longer kernels
+keep the blocking ``waitUntilCompleted`` path. A command buffer containing an
+unclassified dispatch also blocks, and batches beyond eight dispatches never spin.
+
+This measured policy covers short reductions and rectangular GEMMs without relying on
+a square-shape heuristic. Directly configured small static GEMMs retain a conservative
+900-microsecond fallback. Set ``METILE_LOW_LATENCY_SPIN_US=0`` to disable active
+waiting, or provide a non-negative microsecond cap for application-specific
+latency/power tradeoffs; the default cap is 1500 microseconds.

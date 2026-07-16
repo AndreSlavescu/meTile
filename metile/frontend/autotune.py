@@ -9,7 +9,7 @@ import time
 from metile.compiler.schedule_search import choose_mdl_tie
 from metile.frontend.tracing import constexpr
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
-from metile.runtime.metal_device import MetalDevice
+from metile.runtime.metal_device import MetalDevice, completion_spin_budget_ns
 
 
 class Config:
@@ -35,10 +35,15 @@ class Config:
         return self.kwargs == other.kwargs
 
 
-# Global cache: (func_name, key_values) -> best Config
+# Global cache: (func_name, config_digest, key_values) -> best Config
 _autotune_cache: dict = {}
+_autotune_latency_cache: dict = {}
 _persistent_cache_lock = threading.Lock()
-_persistent_cache_path = cache_root() / "autotune-v1.json"
+_persistent_cache_path = cache_root() / "autotune-v3.json"
+
+_REFINEMENT_MARGIN = 0.08
+_REFINEMENT_MAX_CANDIDATES = 8
+_REFINEMENT_REPS = 30
 
 
 class AutotunedKernel:
@@ -60,6 +65,7 @@ class AutotunedKernel:
         self.rep = rep
         self.verbose = verbose
         self._sig = inspect.signature(kernel_fn.fn) if hasattr(kernel_fn, "fn") else None
+        self._config_digest = stable_digest([config.kwargs for config in configs])
 
     @property
     def name(self):
@@ -85,7 +91,7 @@ class AutotunedLauncher:
             return at.kernel_fn[grid](*args, **kwargs)
 
         key_values = self._extract_key_values(args, kwargs)
-        cache_key = (at.kernel_fn.name, tuple(key_values))
+        cache_key = self._cache_key(key_values)
 
         if cache_key in _autotune_cache:
             best = _autotune_cache[cache_key]
@@ -95,9 +101,11 @@ class AutotunedLauncher:
         persistent_key = self._persistent_key(key_values)
         cached = self._load_persistent(persistent_key)
         if cached is not None:
-            _autotune_cache[cache_key] = cached
-            self._launch(cached, args, kwargs)
-            return cached
+            best, gpu_seconds = cached
+            _autotune_cache[cache_key] = best
+            _autotune_latency_cache[cache_key] = gpu_seconds
+            self._launch(best, args, kwargs)
+            return best
 
         dev = MetalDevice.get()
         results = self._benchmark_candidates(args, kwargs, dev)
@@ -110,9 +118,11 @@ class AutotunedLauncher:
         if not successful:
             raise RuntimeError(f"All {len(at.configs)} configs failed for '{at.kernel_fn.name}'")
         best = choose_mdl_tie(successful)
+        gpu_seconds = next(dt for cfg, dt, _, _ in results if cfg == best and dt is not None)
 
         _autotune_cache[cache_key] = best
-        self._store_persistent(persistent_key, best)
+        _autotune_latency_cache[cache_key] = gpu_seconds
+        self._store_persistent(persistent_key, best, gpu_seconds)
 
         if at.verbose:
             key_str = ", ".join(f"{k}={v}" for k, v in zip(at.key, key_values))
@@ -136,7 +146,13 @@ class AutotunedLauncher:
         cfg = self(*args, **kwargs)
         merged = {**kwargs, **cfg.kwargs}
         grid = self._resolve_grid(cfg)
-        return self.autotuned.kernel_fn[grid].prepare(*args, **merged)
+        dispatch = self.autotuned.kernel_fn[grid].prepare(*args, **merged)
+        key_values = self._extract_key_values(args, kwargs)
+        cache_key = self._cache_key(key_values)
+        gpu_seconds = _autotune_latency_cache.get(cache_key)
+        if gpu_seconds is not None:
+            dispatch._completion_spin_ns = completion_spin_budget_ns(gpu_seconds)
+        return dispatch
 
     def _extract_key_values(self, args, kwargs):
         sig = self.autotuned._sig or inspect.signature(self.autotuned.kernel_fn.fn)
@@ -150,6 +166,13 @@ class AutotunedLauncher:
                 val = args[idx] if 0 <= idx < len(args) else None
             values.append(val.shape if hasattr(val, "shape") else val)
         return tuple(values)
+
+    def _cache_key(self, key_values):
+        return (
+            self.autotuned.kernel_fn.name,
+            self.autotuned._config_digest,
+            tuple(key_values),
+        )
 
     def _resolve_grid(self, config):
         return self.grid(config.kwargs) if callable(self.grid) else self.grid
@@ -188,20 +211,27 @@ class AutotunedLauncher:
             return None
         with _persistent_cache_lock:
             payload = read_json(_persistent_cache_path, {})
-        kwargs = payload.get(key)
-        if not isinstance(kwargs, dict):
+        selection = payload.get(key)
+        if not isinstance(selection, dict):
+            return None
+        kwargs = selection.get("config")
+        gpu_seconds = selection.get("gpu_seconds")
+        if not isinstance(kwargs, dict) or not isinstance(gpu_seconds, (int, float)):
             return None
         for config in self.autotuned.configs:
             if config.kwargs == kwargs:
-                return config
+                return config, float(gpu_seconds)
         return None
 
-    def _store_persistent(self, key, config):
+    def _store_persistent(self, key, config, gpu_seconds):
         if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
             return
         with _persistent_cache_lock:
             payload = read_json(_persistent_cache_path, {})
-            payload[key] = config.kwargs
+            payload[key] = {
+                "config": config.kwargs,
+                "gpu_seconds": gpu_seconds,
+            }
             atomic_write_json(_persistent_cache_path, payload)
 
     def _launch(self, config, args, kwargs):
@@ -236,8 +266,8 @@ class AutotunedLauncher:
                     }
                 )
 
-        def run_round(round_index, timed):
-            active = [state for state in states if state["error"] is None]
+        def run_round(round_index, timed, candidates=None):
+            active = candidates or [state for state in states if state["error"] is None]
             if not active:
                 return
             shift = round_index % len(active)
@@ -261,6 +291,19 @@ class AutotunedLauncher:
             run_round(round_index, timed=False)
         for round_index in range(at.rep):
             run_round(round_index, timed=True)
+
+        ranked = sorted(
+            (state for state in states if state["samples"] and state["error"] is None),
+            key=lambda state: statistics.median(state["samples"]),
+        )
+        if ranked:
+            cutoff = statistics.median(ranked[0]["samples"]) * (1.0 + _REFINEMENT_MARGIN)
+            finalists = [
+                state for state in ranked if statistics.median(state["samples"]) <= cutoff
+            ][:_REFINEMENT_MAX_CANDIDATES]
+            if len(finalists) > 1:
+                for round_index in range(_REFINEMENT_REPS):
+                    run_round(at.rep + round_index, timed=True, candidates=finalists)
 
         return [
             (

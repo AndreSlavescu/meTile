@@ -14,13 +14,18 @@ from metile.compiler.schedule_search import choose_mdl_tie, optimize_tile_schedu
 from metile.frontend.kernel import CompiledKernel, FastDispatcher
 from metile.runtime.buffer import MtileBuffer
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
-from metile.runtime.metal_device import MetalDevice
+from metile.runtime.metal_device import MetalDevice, completion_spin_budget_ns
 
 _GROUP_SIZE = 32
 _compiled_block_scaled: dict[tuple, CompiledKernel] = {}
 _block_scaled_config_cache: dict[tuple, _BlockScaledConfig] = {}
+_block_scaled_latency_cache: dict[tuple, float] = {}
 _block_scaled_cache_lock = threading.RLock()
-_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v5.json"
+_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v7.json"
+
+_REFINEMENT_MARGIN = 0.08
+_REFINEMENT_MAX_CANDIDATES = 8
+_REFINEMENT_REPS = 30
 
 
 @dataclass(frozen=True)
@@ -124,6 +129,16 @@ def _config_from_payload(payload) -> _BlockScaledConfig | None:
     except (TypeError, ValueError):
         return None
     return config if config in _BLOCK_SCALED_CONFIGS else None
+
+
+def _selection_from_payload(payload) -> tuple[_BlockScaledConfig, float] | None:
+    if not isinstance(payload, dict):
+        return None
+    config = _config_from_payload(payload.get("config"))
+    gpu_seconds = payload.get("gpu_seconds")
+    if config is None or not isinstance(gpu_seconds, (int, float)):
+        return None
+    return config, float(gpu_seconds)
 
 
 def _decode_e8m0(scales: np.ndarray) -> np.ndarray:
@@ -299,11 +314,16 @@ def prepare_block_scaled_matmul(
     ]
     with _block_scaled_cache_lock:
         tile = _block_scaled_config_cache.get(tuning_key)
+        gpu_seconds = _block_scaled_latency_cache.get(tuning_key)
         persistent_key = stable_digest(tuning_key)
         if tile is None and os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
-            tile = _config_from_payload(read_json(_block_scaled_cache_path, {}).get(persistent_key))
-        if tile not in candidates:
-            tile = _tune_block_scaled_config(
+            selection = _selection_from_payload(
+                read_json(_block_scaled_cache_path, {}).get(persistent_key)
+            )
+            if selection is not None:
+                tile, gpu_seconds = selection
+        if tile not in candidates or gpu_seconds is None:
+            tile, gpu_seconds = _tune_block_scaled_config(
                 activations,
                 weight,
                 output,
@@ -312,9 +332,13 @@ def prepare_block_scaled_matmul(
             )
             if os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
                 payload = read_json(_block_scaled_cache_path, {})
-                payload[persistent_key] = _config_payload(tile)
+                payload[persistent_key] = {
+                    "config": _config_payload(tile),
+                    "gpu_seconds": gpu_seconds,
+                }
                 atomic_write_json(_block_scaled_cache_path, payload)
         _block_scaled_config_cache[tuning_key] = tile
+        _block_scaled_latency_cache[tuning_key] = gpu_seconds
     return _prepare_block_scaled_dispatch(
         activations,
         weight,
@@ -327,6 +351,7 @@ def prepare_block_scaled_matmul(
         tile.outer_k,
         tile.fragment_type,
         tile.k_unroll,
+        completion_spin_ns=completion_spin_budget_ns(gpu_seconds),
     )
 
 
@@ -342,6 +367,7 @@ def _prepare_block_scaled_dispatch(
     outer_k: int = 0,
     fragment_type: str = "float",
     k_unroll: int = 1,
+    completion_spin_ns: int = 0,
 ) -> FastDispatcher:
     m, k = activations.shape
     n = weight.shape[1]
@@ -414,7 +440,7 @@ def _prepare_block_scaled_dispatch(
         grid,
         dev,
         resources=(activations, weight.values, weight.scales, output),
-        prefer_low_latency=m * n * k <= 512**3,
+        completion_spin_ns=completion_spin_ns,
     )
 
 
@@ -424,7 +450,7 @@ def _tune_block_scaled_config(
     output: MtileBuffer,
     candidates: list[_BlockScaledConfig],
     tuning_key: tuple,
-) -> _BlockScaledConfig:
+) -> tuple[_BlockScaledConfig, float]:
     if not candidates:
         raise ValueError("no aligned block-scaled tile is available for this shape")
     dev = MetalDevice.get()
@@ -448,8 +474,10 @@ def _tune_block_scaled_config(
         for _ in range(5):
             dispatch()
             dev.sync()
-    for round_index in range(15):
-        ordered = dispatches[round_index:] + dispatches[:round_index]
+
+    def run_round(active_dispatches, round_index):
+        shift = round_index % len(active_dispatches)
+        ordered = active_dispatches[shift:] + active_dispatches[:shift]
         if round_index & 1:
             ordered.reverse()
         for candidate, dispatch in ordered:
@@ -458,6 +486,21 @@ def _tune_block_scaled_config(
             elapsed = dev.gpu_elapsed()
             if elapsed > 0:
                 samples[candidate].append(elapsed)
+
+    for round_index in range(15):
+        run_round(dispatches, round_index)
+    ranked = sorted(
+        (item for item in dispatches if samples[item[0]]),
+        key=lambda item: statistics.median(samples[item[0]]),
+    )
+    if ranked:
+        cutoff = statistics.median(samples[ranked[0][0]]) * (1.0 + _REFINEMENT_MARGIN)
+        finalists = [item for item in ranked if statistics.median(samples[item[0]]) <= cutoff][
+            :_REFINEMENT_MAX_CANDIDATES
+        ]
+        if len(finalists) > 1:
+            for round_index in range(_REFINEMENT_REPS):
+                run_round(finalists, 15 + round_index)
     results = [
         (statistics.median(samples[candidate]), dispatch.description_bits, candidate)
         for candidate, dispatch in dispatches
@@ -465,7 +508,9 @@ def _tune_block_scaled_config(
     ]
     if not results:
         raise RuntimeError(f"GPU timing failed while tuning block-scaled shape {tuning_key[:4]}")
-    return choose_mdl_tie(results)
+    selected = choose_mdl_tie(results)
+    gpu_seconds = next(dt for dt, _, candidate in results if candidate == selected)
+    return selected, gpu_seconds
 
 
 def block_scaled_matmul(

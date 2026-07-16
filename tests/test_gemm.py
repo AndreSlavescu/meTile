@@ -258,6 +258,19 @@ class TestAutotunedGemm:
         )(matmul)
         assert replacement.kernel_fn is matmul.kernel_fn
 
+    def test_in_memory_cache_identity_includes_config_family(self):
+        first = metile.autotune(
+            configs=[metile.Config(BLOCK_M=32, BLOCK_N=32, BLOCK_K=32)],
+            key=["M", "N", "K"],
+            verbose=False,
+        )(matmul)
+        second = metile.autotune(
+            configs=[metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=32)],
+            key=["M", "N", "K"],
+            verbose=False,
+        )(matmul)
+        assert first[(1, 1)]._cache_key((64, 64, 64)) != second[(1, 1)]._cache_key((64, 64, 64))
+
     def test_autotune_selects_config(self):
         """Autotuner picks a config and produces correct results."""
 
@@ -344,7 +357,10 @@ class TestAutotunedGemm:
 
         # First call: autotunes
         matmul_cached[grid](A, B, C, M, N, K)
-        assert ("matmul_cached", (64, 64, 64)) in _autotune_cache
+        assert any(
+            cache_key[0] == "matmul_cached" and cache_key[-1] == (64, 64, 64)
+            for cache_key in _autotune_cache
+        )
 
         # Second call: uses cache
         C2 = np.zeros((M, N), dtype=np.float32)

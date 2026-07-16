@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import metile
-from metile.runtime.metal_device import MetalDevice
+from metile.runtime.metal_device import MetalDevice, completion_spin_budget_ns
 
 
 @metile.kernel
@@ -108,11 +108,86 @@ def test_low_latency_dispatch_marks_pending_command_buffer():
     destination = metile.Buffer.empty((size,))
     dispatch = _fill_sequence[(1,)].prepare(destination, BLOCK=size)
     device = MetalDevice.get()
-    dispatch._prefer_low_latency = True
+    dispatch._completion_spin_ns = 900_000
 
     dispatch()
-    assert device._pending_prefer_low_latency
+    assert device._pending_completion_spin_ns == 900_000
     device.sync()
+
+
+def test_unclassified_dispatch_disables_batch_completion_spin():
+    first_output = metile.Buffer.empty((256,))
+    second_output = metile.Buffer.empty((256,))
+    first = _fill_sequence[(1,)].prepare(first_output, BLOCK=256)
+    second = _fill_sequence[(1,)].prepare(second_output, BLOCK=256)
+    device = MetalDevice.get()
+    first._completion_spin_ns = 900_000
+
+    first()
+    second()
+    assert device._pending_completion_spin_ns == 0
+    device.sync()
+
+
+def test_large_prepared_batch_disables_completion_spin():
+    destination = metile.Buffer.empty((256,))
+    dispatch = _fill_sequence[(1,)].prepare(destination, BLOCK=256)
+    device = MetalDevice.get()
+    dispatch._completion_spin_ns = 900_000
+
+    dispatch.repeat(9)
+    device.flush()
+    assert device._last_completion_spin_ns == 0
+    device.sync()
+
+
+@pytest.mark.parametrize(
+    ("gpu_seconds", "expected_ns"),
+    [
+        (0.0, 0),
+        (0.0001, 900_000),
+        (0.0003, 1_200_000),
+        (0.0005, 1_500_000),
+        (0.0008, 1_500_000),
+        (0.0011, 0),
+    ],
+)
+def test_completion_spin_budget_tracks_measured_gpu_latency(gpu_seconds, expected_ns):
+    assert completion_spin_budget_ns(gpu_seconds) == expected_ns
+
+
+def test_autotune_persists_measured_completion_budget(tmp_path, monkeypatch):
+    from metile.frontend import autotune as autotune_module
+
+    cache = dict(autotune_module._autotune_cache)
+    latency_cache = dict(autotune_module._autotune_latency_cache)
+    monkeypatch.setattr(
+        autotune_module,
+        "_persistent_cache_path",
+        tmp_path / "autotune.json",
+    )
+    autotune_module._autotune_cache.clear()
+    autotune_module._autotune_latency_cache.clear()
+    try:
+        tuned = metile.autotune(
+            configs=[metile.Config(BLOCK=256)],
+            key=["size"],
+            verbose=False,
+        )(_add_one)
+        source = metile.Buffer(data=np.arange(256, dtype=np.float32))
+        destination = metile.Buffer.empty((256,))
+        first = tuned[(1,)].prepare(source, destination, 256)
+        assert first._completion_spin_ns >= 900_000
+
+        autotune_module._autotune_cache.clear()
+        autotune_module._autotune_latency_cache.clear()
+        second = tuned[(1,)].prepare(source, destination, 256)
+        assert second._completion_spin_ns == first._completion_spin_ns
+    finally:
+        autotune_module._autotune_cache.clear()
+        autotune_module._autotune_cache.update(cache)
+        autotune_module._autotune_latency_cache.clear()
+        autotune_module._autotune_latency_cache.update(latency_cache)
 
 
 @pytest.mark.parametrize(
@@ -125,7 +200,7 @@ def test_sync_selects_bounded_poll_or_blocking_wait(
     device = MetalDevice.__new__(MetalDevice)
     device._dispatch_lock = threading.RLock()
     device._last_cmd_buffer = 1
-    device._last_prefer_low_latency = True
+    device._last_completion_spin_ns = spin_ns
     device._inflight_lifetimes = [object()]
     device._commit_pending_unlocked = lambda: None
     device._ensure_cached_selectors = lambda: None

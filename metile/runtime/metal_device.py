@@ -23,6 +23,24 @@ _cls = ctypes.c_void_p
 _bool = ctypes.c_bool
 _NSUInteger = ctypes.c_uint64
 
+_MIN_COMPLETION_SPIN_NS = 900_000
+_MAX_COMPLETION_SPIN_NS = 1_500_000
+_MAX_SPINNABLE_GPU_NS = 1_000_000
+
+
+def completion_spin_budget_ns(gpu_seconds: float) -> int:
+    """Choose a bounded completion-poll budget from measured GPU latency."""
+    try:
+        gpu_ns = int(gpu_seconds * 1_000_000_000)
+    except (OverflowError, TypeError, ValueError):
+        return 0
+    if gpu_ns <= 0 or gpu_ns > _MAX_SPINNABLE_GPU_NS:
+        return 0
+    return min(
+        _MAX_COMPLETION_SPIN_NS,
+        max(_MIN_COMPLETION_SPIN_NS, 3 * gpu_ns + 300_000),
+    )
+
 
 class MTLSize(ctypes.Structure):
     _fields_: ClassVar = [
@@ -146,8 +164,8 @@ class MetalDevice:
         self._pending_inputs = set()
         self._pending_outputs = set()
         self._pending_lifetimes = {}
-        self._pending_prefer_low_latency = True
-        self._last_prefer_low_latency = False
+        self._pending_completion_spin_ns = 0
+        self._last_completion_spin_ns = 0
         self._inflight_lifetimes = []
         self._dispatch_lock = threading.RLock()
 
@@ -658,7 +676,7 @@ class MetalDevice:
         send_void(encoder, MetalDevice._sel_endEncoding)
         send_void(cmd_buffer, MetalDevice._sel_commit)
         self._last_cmd_buffer = cmd_buffer
-        self._last_prefer_low_latency = False
+        self._last_completion_spin_ns = 0
 
     def _pending_encoder_unlocked(self, concurrent: bool):
         """Return the shared hot-path encoder, creating it on first use."""
@@ -712,8 +730,8 @@ class MetalDevice:
         send_void(self._pending_encoder, MetalDevice._sel_endEncoding)
         send_void(self._pending_cmd_buffer, MetalDevice._sel_commit)
         self._last_cmd_buffer = self._pending_cmd_buffer
-        self._last_prefer_low_latency = (
-            self._pending_prefer_low_latency and self._pending_dispatches <= 8
+        self._last_completion_spin_ns = (
+            self._pending_completion_spin_ns if self._pending_dispatches <= 8 else 0
         )
         self._pending_cmd_buffer = None
         self._pending_encoder = None
@@ -723,7 +741,7 @@ class MetalDevice:
         self._pending_concurrent = None
         self._pending_inputs.clear()
         self._pending_outputs.clear()
-        self._pending_prefer_low_latency = True
+        self._pending_completion_spin_ns = 0
         self._inflight_lifetimes.extend(self._pending_lifetimes.values())
         self._pending_lifetimes.clear()
 
@@ -744,8 +762,9 @@ class MetalDevice:
             if cb is not None:
                 self._ensure_cached_selectors()
                 completed = False
-                if self._last_prefer_low_latency and self.low_latency_spin_ns:
-                    deadline = time.perf_counter_ns() + self.low_latency_spin_ns
+                spin_ns = min(self._last_completion_spin_ns, self.low_latency_spin_ns)
+                if spin_ns:
+                    deadline = time.perf_counter_ns() + spin_ns
                     while MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status) < 4:
                         if time.perf_counter_ns() >= deadline:
                             break
@@ -754,17 +773,17 @@ class MetalDevice:
                     MetalDevice._msg_send_void(cb, MetalDevice._sel_waitUntilCompleted)
                 self._completed_cmd_buffer = cb
                 self._last_cmd_buffer = None
-                self._last_prefer_low_latency = False
+                self._last_completion_spin_ns = 0
                 self._inflight_lifetimes.clear()
 
     @cached_property
     def low_latency_spin_ns(self) -> int:
         """Bounded active-wait window for latency-sensitive prepared dispatches."""
-        value = os.environ.get("METILE_LOW_LATENCY_SPIN_US", "900")
+        value = os.environ.get("METILE_LOW_LATENCY_SPIN_US", "1500")
         try:
             microseconds = int(value)
         except ValueError:
-            microseconds = 900
+            microseconds = 1500
         return max(0, microseconds) * 1_000
 
     def gpu_elapsed(self) -> float:
