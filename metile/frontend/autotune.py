@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import inspect
+import os
+import statistics
+import threading
 import time
 
+from metile.frontend.tracing import constexpr
+from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 from metile.runtime.metal_device import MetalDevice
 
 
@@ -31,6 +36,8 @@ class Config:
 
 # Global cache: (func_name, key_values) -> best Config
 _autotune_cache: dict = {}
+_persistent_cache_lock = threading.Lock()
+_persistent_cache_path = cache_root() / "autotune-v1.json"
 
 
 class AutotunedKernel:
@@ -72,6 +79,10 @@ class AutotunedLauncher:
 
     def __call__(self, *args, **kwargs):
         at = self.autotuned
+        if self._has_explicit_kernel_config(kwargs):
+            grid = self.grid(kwargs) if callable(self.grid) else self.grid
+            return at.kernel_fn[grid](*args, **kwargs)
+
         key_values = self._extract_key_values(args, kwargs)
         cache_key = (at.kernel_fn.name, tuple(key_values))
 
@@ -79,6 +90,13 @@ class AutotunedLauncher:
             best = _autotune_cache[cache_key]
             self._launch(best, args, kwargs)
             return best
+
+        persistent_key = self._persistent_key(key_values)
+        cached = self._load_persistent(persistent_key)
+        if cached is not None:
+            _autotune_cache[cache_key] = cached
+            self._launch(cached, args, kwargs)
+            return cached
 
         # Benchmark each config
         dev = MetalDevice.get()
@@ -99,6 +117,7 @@ class AutotunedLauncher:
             raise RuntimeError(f"All {len(at.configs)} configs failed for '{at.kernel_fn.name}'")
 
         _autotune_cache[cache_key] = best
+        self._store_persistent(persistent_key, best)
 
         if at.verbose:
             key_str = ", ".join(f"{k}={v}" for k, v in zip(at.key, key_values))
@@ -116,6 +135,9 @@ class AutotunedLauncher:
 
     def prepare(self, *args, **kwargs):
         """Autotune then return a FastDispatcher for the best config."""
+        if self._has_explicit_kernel_config(kwargs):
+            grid = self.grid(kwargs) if callable(self.grid) else self.grid
+            return self.autotuned.kernel_fn[grid].prepare(*args, **kwargs)
         cfg = self(*args, **kwargs)
         merged = {**kwargs, **cfg.kwargs}
         grid = self._resolve_grid(cfg)
@@ -137,6 +159,56 @@ class AutotunedLauncher:
     def _resolve_grid(self, config):
         return self.grid(config.kwargs) if callable(self.grid) else self.grid
 
+    def _has_explicit_kernel_config(self, kwargs):
+        signature = self.autotuned._sig
+        if signature is None:
+            return False
+        constexpr_names = {
+            name
+            for name, parameter in signature.parameters.items()
+            if parameter.annotation is constexpr
+        }
+        return bool(constexpr_names) and constexpr_names.issubset(kwargs)
+
+    def _persistent_key(self, key_values):
+        at = self.autotuned
+        try:
+            source = inspect.getsource(at.kernel_fn.fn)
+        except (OSError, TypeError):
+            source = at.kernel_fn.name
+        dev = MetalDevice.get()
+        return stable_digest(
+            {
+                "configs": [cfg.kwargs for cfg in at.configs],
+                "device": dev.name,
+                "kernel": at.kernel_fn.name,
+                "keys": key_values,
+                "source": source,
+                "toolchain": dev.metal_compiler_version,
+            }
+        )
+
+    def _load_persistent(self, key):
+        if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+            return None
+        with _persistent_cache_lock:
+            payload = read_json(_persistent_cache_path, {})
+        kwargs = payload.get(key)
+        if not isinstance(kwargs, dict):
+            return None
+        for config in self.autotuned.configs:
+            if config.kwargs == kwargs:
+                return config
+        return None
+
+    def _store_persistent(self, key, config):
+        if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+            return
+        with _persistent_cache_lock:
+            payload = read_json(_persistent_cache_path, {})
+            payload[key] = config.kwargs
+            atomic_write_json(_persistent_cache_path, payload)
+
     def _launch(self, config, args, kwargs):
         merged = {**kwargs, **config.kwargs}
         self.autotuned.kernel_fn[self._resolve_grid(config)](*args, **merged)
@@ -145,17 +217,20 @@ class AutotunedLauncher:
         at = self.autotuned
         merged = {**kwargs, **config.kwargs}
         grid = self._resolve_grid(config)
-        launcher = at.kernel_fn[grid]
+        dispatch = at.kernel_fn[grid].prepare(*args, **merged)
 
         for _ in range(at.warmup):
-            launcher(*args, **merged)
+            dispatch()
         dev.sync()
 
-        t0 = time.perf_counter()
+        samples = []
         for _ in range(at.rep):
-            launcher(*args, **merged)
+            t0 = time.perf_counter()
+            dispatch()
             dev.sync()
-        return (time.perf_counter() - t0) / at.rep
+            gpu_time = dev.gpu_elapsed()
+            samples.append(gpu_time if gpu_time > 0 else time.perf_counter() - t0)
+        return statistics.median(samples)
 
 
 def autotune(
@@ -172,6 +247,8 @@ def autotune(
     """
 
     def decorator(kernel_fn):
+        if isinstance(kernel_fn, AutotunedKernel):
+            kernel_fn = kernel_fn.kernel_fn
         return AutotunedKernel(kernel_fn, configs, key, warmup, rep, verbose)
 
     return decorator

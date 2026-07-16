@@ -2,7 +2,9 @@ Autotuning
 ==========
 
 Different problem sizes benefit from different tile configurations. meTile's autotuner
-benchmarks a set of configurations and caches the fastest one per problem shape.
+benchmarks GPU timestamps and caches the fastest one per problem shape. Winners persist
+across processes and are invalidated when the device, compiler toolchain, kernel source,
+or candidate family changes.
 
 
 Basic Usage
@@ -47,10 +49,14 @@ On the first call with new key values, the autotuner:
 
 1. Benchmarks every config (warmup + timed iterations)
 2. Selects the fastest one
-3. Caches the result keyed by ``(kernel_name, key_values)``
+3. Caches the result with the device and toolchain identity
 4. Dispatches with the winning config
 
-Subsequent calls with the same key values use the cached winner with zero overhead.
+Subsequent calls with the same key values reuse the winner without re-tuning.
+
+The cache defaults to ``~/Library/Caches/metile`` on macOS. Set
+``METILE_CACHE_DIR`` to relocate it, or ``METILE_DISABLE_DISK_CACHE=1`` to disable
+persistent autotune choices while debugging.
 
 .. code-block:: text
 
@@ -79,11 +85,14 @@ Config Object
        WM=4,
        WN=4,
        K_UNROLL=1,
+       SWIZZLE="hilbert",
    )
 
 Any keyword arguments become constexprs passed to the kernel. Parameters not in the
 kernel's signature are stored in ``func.constexprs`` and available to the compiler
 (e.g., ``WM``, ``WN`` control the tensor_ops simdgroup layout).
+Schedules can be searched alongside tile shapes with ``SWIZZLE="linear"``,
+``"diagonal"``, ``"morton"``, ``"hilbert"``, or ``"auto"``.
 
 
 Verbose Output

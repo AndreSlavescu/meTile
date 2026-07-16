@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ScalarType:
-    dtype: str  # "f32", "f16", "bf16", "i32", "u32", "bool"
+    dtype: str  # "f32", "f16", "bf16", "i32", "u32", "u8", "bool"
 
     def to_msl(self) -> str:
         return {
@@ -12,6 +12,7 @@ class ScalarType:
             "bf16": "bfloat",
             "i32": "int",
             "u32": "uint",
+            "u8": "uchar",
             "bool": "bool",
         }[self.dtype]
 

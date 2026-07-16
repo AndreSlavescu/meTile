@@ -115,7 +115,14 @@ meTile supports several scheduling patterns:
 **Linear**:
    Simple row-major assignment. No locality optimization.
 
-The compiler applies Morton scheduling by default. You can override it:
+**Morton**:
+   Visits complete 2x2 panels in Z order.
+
+**Hilbert**:
+   Visits complete 4x4 panels along a Hilbert curve with unit-distance steps
+   inside each panel.
+
+The compiler searches supported schedules by default. You can override it:
 
 .. code-block:: python
 

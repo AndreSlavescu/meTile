@@ -138,6 +138,8 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
         "using namespace mpp::tensor_ops;",
         "",
     ]
+    if any(isinstance(op, mir.MBlockScaledTensorViewDecl) for op in func.ops):
+        lines.extend(_block_scaled_helpers())
 
     # Function signature
     params = []
@@ -154,6 +156,8 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
             params.append(f"    constant {msl_t}& {p.name} [[buffer({buffer_idx})]]")
 
     params.append("    uint3 tgp_id [[threadgroup_position_in_grid]]")
+    if _uses_op_type(func.ops, mir.ThreadPositionInThreadgroup):
+        params.append("    uint lid [[thread_index_in_threadgroup]]")
     if need_sgid:
         params.append("    uint sgid [[simdgroup_index_in_threadgroup]]")
 
@@ -343,6 +347,9 @@ def _emit_gemm_op(
     if isinstance(op, mir.MSimdgroupId):
         pass  # provided as function parameter 'sgid'
 
+    elif isinstance(op, mir.ThreadPositionInThreadgroup):
+        pass  # provided as function parameter 'lid'
+
     elif isinstance(op, mir.MThreadInSimdgroup):
         pass  # provided as function parameter 'slid'
 
@@ -409,6 +416,12 @@ def _emit_gemm_op(
 
     elif isinstance(op, mir.MTileSchedule):
         _emit_tile_schedule(op, lines, indent)
+
+    elif isinstance(op, mir.MBlockScaledTensorViewDecl):
+        _emit_block_scaled_tensor_views(op, lines, indent, func)
+
+    elif isinstance(op, mir.MBlockScaledTileLoad):
+        _emit_block_scaled_tile_load(op, lines, indent, func)
 
     elif isinstance(op, mir.MMatmul2dSetup):
         _emit_matmul2d_setup(op, lines, indent, func)
@@ -767,36 +780,154 @@ def _emit_tensor_view_decl(op, lines, indent, func):
     lines.append("")
 
 
+def _block_scaled_helpers():
+    return [
+        "inline float mtile_decode_e2m1(uchar bits) {",
+        "    const ushort raw = ushort(bits & 7u) << 9u;",
+        "    const float magnitude = float(as_type<half>(raw)) * 16384.0f;",
+        "    return (bits & 8u) ? -magnitude : magnitude;",
+        "}",
+        "",
+        "inline float mtile_decode_e4m3(uchar bits) {",
+        "    const ushort raw = ushort(bits & 127u) << 7u;",
+        "    const float magnitude = float(as_type<half>(raw)) * 256.0f;",
+        "    return (bits & 128u) ? -magnitude : magnitude;",
+        "}",
+        "",
+        "inline float mtile_decode_e8m0(uchar bits) {",
+        "    const uint raw = bits == 0u ? 0x00400000u : uint(bits) << 23u;",
+        "    return as_type<float>(raw);",
+        "}",
+        "",
+    ]
+
+
+def _emit_block_scaled_tensor_views(op, lines, indent, func):
+    pad = "    " * indent
+    a_name = _val_name_gemm(op.ptr_a, func)
+    c_name = _val_name_gemm(op.ptr_c, func)
+    lines.append(f"{pad}constexpr uint M = {op.m}u;")
+    lines.append(f"{pad}constexpr uint N = {op.n}u;")
+    lines.append(f"{pad}constexpr uint K = {op.k}u;")
+    lines.append(f"{pad}auto tA = tensor<device float, dextents<int32_t, 2>, tensor_inline>(")
+    lines.append(f"{pad}    {a_name}, dextents<int32_t, 2>(K, M));")
+    lines.append(f"{pad}auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(")
+    lines.append(f"{pad}    {c_name}, dextents<int32_t, 2>(N, M));")
+    lines.append(f"{pad}threadgroup float b_tile[{op.block_k * op.block_n}];")
+    lines.append(f"{pad}auto tB = tensor<threadgroup float, dextents<int32_t, 2>, tensor_inline>(")
+    lines.append(f"{pad}    b_tile, dextents<int32_t, 2>({op.block_n}, {op.block_k}));")
+    lines.append("")
+
+
+def _emit_block_scaled_tile_load(op, lines, indent, func):
+    pad = "    " * indent
+    values = _val_name_gemm(op.ptr_values, func)
+    scales = _val_name_gemm(op.ptr_scales, func)
+    total = op.block_k * op.block_n
+    lines.append(f"{pad}const uint scale_n = lid % {op.block_n}u;")
+    lines.append(
+        f"{pad}const float block_scale = mtile_decode_e8m0({scales}[(uint(k) / 32u) * {op.matrix_n}u + pid_n * {op.block_n}u + scale_n]);"
+    )
+    lines.append(f"{pad}for (uint index = lid; index < {total}u; index += {op.num_threads}u) {{")
+    lines.append(f"{pad}    const uint local_k = index / {op.block_n}u;")
+    lines.append(f"{pad}    const uint local_n = index % {op.block_n}u;")
+    lines.append(f"{pad}    const uint global_k = uint(k) + local_k;")
+    lines.append(f"{pad}    const uint global_n = pid_n * {op.block_n}u + local_n;")
+    lines.append(f"{pad}    const uint element = global_k * {op.matrix_n}u + global_n;")
+    if op.bits == 4:
+        lines.append(f"{pad}    const uchar byte = {values}[element >> 1u];")
+        lines.append(
+            f"{pad}    const uchar quantized = (element & 1u) ? (byte >> 4u) : (byte & 15u);"
+        )
+        decode = "mtile_decode_e2m1(quantized)"
+    else:
+        decode = f"mtile_decode_e4m3({values}[element])"
+    lines.append(f"{pad}    b_tile[index] = block_scale * {decode};")
+    lines.append(f"{pad}}}")
+
+
 def _emit_tile_schedule(op, lines, indent):
-    """Emit tile scheduling (Morton, diagonal, or linear)."""
+    """Emit a bijective cache-local tile schedule for every grid shape."""
     pad = "    " * indent
     BM, BN = op.block_m, op.block_n
+    if op.is_static:
+        lines.append(f"{pad}constexpr uint grid_m = {op.grid_m}u;")
+        lines.append(f"{pad}constexpr uint grid_n = {op.grid_n}u;")
+        _emit_static_tile_schedule(op, lines, indent)
+        lines.append("")
+        return
     lines.append(f"{pad}const uint grid_m = (uint(M) + {BM}u - 1u) / {BM}u;")
     lines.append(f"{pad}const uint grid_n = (uint(N) + {BN}u - 1u) / {BN}u;")
-    if op.pattern == "morton":
-        lines.append(f"{pad}uint pid_m, pid_n;")
-        lines.append(f"{pad}if (grid_m >= 2u && grid_n >= 2u) {{")
-        lines.append(f"{pad}    const uint linear_id = tgp_id.x * grid_n + tgp_id.y;")
-        lines.append(f"{pad}    const uint blocks_n = (grid_n + 1u) / 2u;")
-        lines.append(f"{pad}    const uint block_id = linear_id / 4u;")
-        lines.append(f"{pad}    const uint within = linear_id % 4u;")
-        lines.append(f"{pad}    const uint block_row = block_id / blocks_n;")
-        lines.append(f"{pad}    const uint block_col = block_id % blocks_n;")
-        lines.append(f"{pad}    pid_m = block_row * 2u + (within / 2u);")
-        lines.append(f"{pad}    pid_n = block_col * 2u + (within % 2u);")
-        lines.append(f"{pad}    if (pid_m >= grid_m) pid_m = grid_m - 1u;")
-        lines.append(f"{pad}    if (pid_n >= grid_n) pid_n = grid_n - 1u;")
-        lines.append(f"{pad}}} else {{")
-        lines.append(f"{pad}    pid_m = tgp_id.x;")
-        lines.append(f"{pad}    pid_n = tgp_id.y;")
-        lines.append(f"{pad}}}")
-    elif op.pattern == "diagonal":
-        lines.append(f"{pad}const uint pid_m = tgp_id.x;")
-        lines.append(f"{pad}const uint pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
-    else:
+    if op.pattern == "linear":
         lines.append(f"{pad}const uint pid_m = tgp_id.x;")
         lines.append(f"{pad}const uint pid_n = tgp_id.y;")
+        lines.append("")
+        return
+
+    lines.append(f"{pad}const uint linear_id = tgp_id.x * grid_n + tgp_id.y;")
+    lines.append(f"{pad}uint pid_m, pid_n;")
+
+    if op.pattern in {"auto", "hilbert"}:
+        lines.append(f"{pad}if ((grid_m & 3u) == 0u && (grid_n & 3u) == 0u) {{")
+        lines.append(f"{pad}    constexpr ulong hilbert_m = 0xEBFA5014ul;")
+        lines.append(f"{pad}    constexpr ulong hilbert_n = 0x05BEBE50ul;")
+        lines.append(f"{pad}    const uint panel_id = linear_id >> 4u;")
+        lines.append(f"{pad}    const uint within = linear_id & 15u;")
+        lines.append(f"{pad}    const uint panels_n = grid_n >> 2u;")
+        lines.append(f"{pad}    pid_m = (panel_id / panels_n) * 4u")
+        lines.append(f"{pad}        + uint((hilbert_m >> (within * 2u)) & 3ul);")
+        lines.append(f"{pad}    pid_n = (panel_id % panels_n) * 4u")
+        lines.append(f"{pad}        + uint((hilbert_n >> (within * 2u)) & 3ul);")
+        lines.append(f"{pad}}} else if ((grid_m & 1u) == 0u && (grid_n & 1u) == 0u) {{")
+        branch_indent = "    "
+    elif op.pattern == "morton":
+        lines.append(f"{pad}if ((grid_m & 1u) == 0u && (grid_n & 1u) == 0u) {{")
+        branch_indent = "    "
+    else:
+        branch_indent = ""
+
+    if op.pattern in {"auto", "hilbert", "morton"}:
+        inner = pad + branch_indent
+        lines.append(f"{inner}const uint panel_id = linear_id >> 2u;")
+        lines.append(f"{inner}const uint within = linear_id & 3u;")
+        lines.append(f"{inner}const uint panels_n = grid_n >> 1u;")
+        lines.append(f"{inner}pid_m = (panel_id / panels_n) * 2u + within / 2u;")
+        lines.append(f"{inner}pid_n = (panel_id % panels_n) * 2u + within % 2u;")
+        lines.append(f"{pad}}} else {{")
+        lines.append(f"{pad}    pid_m = tgp_id.x;")
+        lines.append(f"{pad}    pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
+        lines.append(f"{pad}}}")
+    else:
+        lines.append(f"{pad}pid_m = tgp_id.x;")
+        lines.append(f"{pad}pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
     lines.append("")
+
+
+def _emit_static_tile_schedule(op, lines, indent):
+    """Emit the cheapest branch-free representation chosen by schedule search."""
+    pad = "    " * indent
+    if op.pattern == "linear":
+        lines.append(f"{pad}const uint pid_m = tgp_id.x;")
+        lines.append(f"{pad}const uint pid_n = tgp_id.y;")
+    elif op.pattern == "diagonal":
+        lines.append(f"{pad}const uint pid_m = tgp_id.x;")
+        lines.append(f"{pad}const uint pid_n = (tgp_id.y + tgp_id.x) % {op.grid_n}u;")
+    elif op.pattern == "morton":
+        lines.append(f"{pad}const uint linear_id = tgp_id.x * {op.grid_n}u + tgp_id.y;")
+        lines.append(f"{pad}const uint panel_id = linear_id >> 2u;")
+        lines.append(f"{pad}const uint within = linear_id & 3u;")
+        lines.append(f"{pad}const uint pid_m = (panel_id / {op.grid_n // 2}u) * 2u + within / 2u;")
+        lines.append(f"{pad}const uint pid_n = (panel_id % {op.grid_n // 2}u) * 2u + within % 2u;")
+    else:
+        lines.append(f"{pad}const uint linear_id = tgp_id.x * {op.grid_n}u + tgp_id.y;")
+        lines.append(f"{pad}constexpr ulong hilbert_m = 0xEBFA5014ul;")
+        lines.append(f"{pad}constexpr ulong hilbert_n = 0x05BEBE50ul;")
+        lines.append(f"{pad}const uint panel_id = linear_id >> 4u;")
+        lines.append(f"{pad}const uint within = linear_id & 15u;")
+        lines.append(f"{pad}const uint pid_m = (panel_id / {op.grid_n // 4}u) * 4u")
+        lines.append(f"{pad}    + uint((hilbert_m >> (within * 2u)) & 3ul);")
+        lines.append(f"{pad}const uint pid_n = (panel_id % {op.grid_n // 4}u) * 4u")
+        lines.append(f"{pad}    + uint((hilbert_n >> (within * 2u)) & 3ul);")
 
 
 def _emit_matmul2d_setup(op, lines, indent, func):
@@ -861,9 +992,11 @@ def _emit_coop_tensor_init(op, lines, indent):
         lines.append(f"{pad}    decltype(ct_a), decltype(ct_b), {acc_type}>();")
     else:
         lines.append(f"{pad}auto {op.ct_name} = op.get_destination_cooperative_tensor<")
-        lines.append(f"{pad}    tensor<device {in_type}, dextents<int32_t, 2>, tensor_inline>,")
         lines.append(
-            f"{pad}    tensor<device {in_type}, dextents<int32_t, 2>, tensor_inline>, {acc_type}>();"
+            f"{pad}    tensor<{op.left_address_space} {in_type}, dextents<int32_t, 2>, tensor_inline>,"
+        )
+        lines.append(
+            f"{pad}    tensor<{op.right_address_space} {in_type}, dextents<int32_t, 2>, tensor_inline>, {acc_type}>();"
         )
 
     # Zero-init

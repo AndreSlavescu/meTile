@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from metile.compiler.schedules import validate_schedule
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
 from metile.ir.layout import Layout, _ceil_div, row_major
@@ -980,7 +981,9 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     if func.swizzle_pattern is not None:
         swizzle = func.swizzle_pattern
     else:
-        swizzle = constexprs.get("SWIZZLE", "morton")
+        swizzle = constexprs.get("SWIZZLE", "auto")
+    swizzle = validate_schedule(swizzle)
+    swizzle_block_size = func.swizzle_block_size if func.swizzle_pattern is not None else 4
     k_unroll = constexprs.get("K_UNROLL", 1)
     num_stages = constexprs.get("num_stages", 1)
 
@@ -999,7 +1002,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     out_type = msl_type
 
     # Use separated loads when descriptor dimensions allow cooperative_tensor inputs
-    use_separated = SM <= 32 and SN <= 32
+    use_separated = not cooperative and SM <= 32 and SN <= 32
     bk_inner = min(32, BK) if use_separated else BK
 
     # --- Emit decomposed tensor ops ---
@@ -1021,6 +1024,9 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
             pattern=swizzle,
             block_m=BM,
             block_n=BN,
+            block_size=swizzle_block_size,
+            grid_m=constexprs.get("_GRID_M"),
+            grid_n=constexprs.get("_GRID_N"),
         )
     )
 
@@ -1119,8 +1125,8 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                     b_slice_d0=SN if not cooperative else BN,
                     b_slice_d1=BK,
                     a_offset_0=f"k + {BK * u}" if u > 0 else "k",
-                    a_offset_1="tile_row" if not cooperative else "row_expr",
-                    b_offset_0="tile_col" if not cooperative else "col_expr",
+                    a_offset_1="tile_row" if not cooperative else f"pid_m * {BM}u",
+                    b_offset_0="tile_col" if not cooperative else f"pid_n * {BN}u",
                     b_offset_1=f"k + {BK * u}" if u > 0 else "k",
                 )
             )

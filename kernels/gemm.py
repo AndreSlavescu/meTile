@@ -1,6 +1,20 @@
 import metile
 
+MATMUL_CONFIGS = [
+    # Small K tiles keep register pressure low in the measured M5 candidate family.
+    # Schedule variants are measured on the concrete workload and persisted.
+    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=16, WM=2, WN=2, SWIZZLE="linear"),
+    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=16, WM=2, WN=2, SWIZZLE="diagonal"),
+    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=16, WM=2, WN=2, SWIZZLE="morton"),
+    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=16, WM=2, WN=2, SWIZZLE="hilbert"),
+    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=32, WM=2, WN=2, SWIZZLE="auto"),
+    metile.Config(BLOCK_M=64, BLOCK_N=128, BLOCK_K=16, WM=2, WN=4, SWIZZLE="auto"),
+    metile.Config(BLOCK_M=128, BLOCK_N=64, BLOCK_K=32, WM=4, WN=2, SWIZZLE="auto"),
+    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=32, WM=4, WN=4, SWIZZLE="auto"),
+]
 
+
+@metile.autotune(configs=MATMUL_CONFIGS, key=["M", "N", "K"], verbose=False)
 @metile.kernel
 def matmul(
     A,
@@ -14,8 +28,7 @@ def matmul(
     BLOCK_K: metile.constexpr,
 ):
     """
-    Compiler-inferred tile schedule.
-    Automatically chooses the Morton-order 2x2 swizzle pattern (Z-order).
+    Runtime-tuned GEMM. Explicit BLOCK_M/BLOCK_N/BLOCK_K values bypass tuning.
     """
     pid_m = metile.program_id(0)
     pid_n = metile.program_id(1)

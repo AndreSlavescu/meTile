@@ -1,4 +1,5 @@
 BENCH_FILES := $(filter-out benchmarks/benchutils.py benchmarks/__init__.py, $(wildcard benchmarks/*.py))
+PYTHON ?= python3
 
 .PHONY: lint format check test bench code-qual ci docs
 
@@ -18,10 +19,10 @@ code-qual:
 		--ignore-names "result_type,to_msl,to_msl_mut"
 
 test:
-	python -m pytest tests/ -x -q
+	$(PYTHON) -m pytest tests/ -x -q
 
 bench:
-	@for f in $(BENCH_FILES); do echo "=== $$f ===" && python $$f && echo; done
+	@for f in $(BENCH_FILES); do echo "=== $$f ===" && $(PYTHON) $$f && echo; done
 
 ci: check code-qual test
 

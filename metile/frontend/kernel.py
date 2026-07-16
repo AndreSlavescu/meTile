@@ -22,6 +22,7 @@ from metile.compiler.passes import (
     vectorize_elementwise,
     vectorize_loads,
 )
+from metile.compiler.schedule_search import optimize_tile_schedules
 from metile.frontend.tracing import TracingContext, TracingProxy, constexpr
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
@@ -34,7 +35,7 @@ _kernel_cache: dict = {}
 # Scalar buffer cache: (value, format_char) -> metal_buffer
 _scalar_buffer_cache: dict = {}
 
-_ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4}
+_ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4, "uchar": 1}
 
 
 def _validate_threadgroup_memory(metal_ir: mir.MFunction):
@@ -248,6 +249,10 @@ class KernelLauncher:
             if name not in sig_names and name not in constexprs:
                 constexprs[name] = val._value if isinstance(val, constexpr) else val
 
+        if isinstance(self.grid, tuple) and len(self.grid) >= 2:
+            constexprs["_GRID_M"] = int(self.grid[0])
+            constexprs["_GRID_N"] = int(self.grid[1])
+
         # Auto-convert numpy arrays to MtileBuffer (implicit composition)
         converted_args = []
         for a in regular_args:
@@ -399,7 +404,7 @@ class KernelLauncher:
             # Tensor_ops kernels use register-resident cooperative_tensors —
             # no threadgroup memory passes needed. K-loop unrolling and
             # barrier removal are handled at lowering time.
-            pass
+            metal_ir = optimize_tile_schedules(metal_ir)
         elif is_specialized:
             # Specialized GEMM: double-buffered + padded in lowering
             # Only apply vectorize and serpentine
@@ -543,5 +548,6 @@ def _numpy_to_dtype(np_dtype) -> str:
         np.float16: "f16",
         np.int32: "i32",
         np.uint32: "u32",
+        np.uint8: "u8",
     }
     return mapping.get(np_dtype.type, "f32")

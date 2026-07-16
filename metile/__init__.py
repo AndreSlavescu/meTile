@@ -50,9 +50,15 @@ from metile.runtime.address_space import (
     TensorView,
     TiledView,
 )
+from metile.runtime.block_scaled import (
+    BlockScaledWeight,
+    block_scaled_matmul,
+    prepare_block_scaled_matmul,
+)
 from metile.runtime.buffer import MtileBuffer as Buffer
 
 __all__ = [
+    "BlockScaledWeight",
     "Buffer",
     "Config",
     "GlobalAddressSpace",
@@ -65,6 +71,7 @@ __all__ = [
     "arange",
     "autotune",
     "barrier",
+    "block_scaled_matmul",
     "cdiv",
     "col_major",
     "constexpr",
@@ -81,6 +88,7 @@ __all__ = [
     "minimum",
     "next_power_of_2",
     "persistent_range",
+    "prepare_block_scaled_matmul",
     "print_layout",
     "program_id",
     "row_major",

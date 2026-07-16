@@ -587,12 +587,48 @@ class MTensorViewDecl(MOp):
 class MTileSchedule(MOp):
     """Compute tile coordinates with optional cache-friendly scheduling.
 
-    Patterns: "morton" (2x2 Z-curve), "diagonal", "" (linear).
+    Patterns: "auto", "hilbert", "morton", "diagonal", or "linear".
     """
 
-    pattern: str = "morton"
+    pattern: str = "auto"
     block_m: int = 128
     block_n: int = 64
+    block_size: int = 4
+    grid_m: int | None = None
+    grid_n: int | None = None
+    is_static: bool = False
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MBlockScaledTensorViewDecl(MOp):
+    """Declare dense A/C views and the reusable dequantized B tile view."""
+
+    ptr_a: MValue = None
+    ptr_c: MValue = None
+    m: int = 0
+    n: int = 0
+    k: int = 0
+    block_k: int = 32
+    block_n: int = 64
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MBlockScaledTileLoad(MOp):
+    """Decode one block-scaled KxN tile into threadgroup memory."""
+
+    ptr_values: MValue = None
+    ptr_scales: MValue = None
+    bits: int = 4
+    matrix_n: int = 0
+    block_k: int = 32
+    block_n: int = 64
+    num_threads: int = 128
 
     def result_type(self):
         return None
@@ -633,6 +669,8 @@ class MCoopTensorInit(MOp):
     acc_type: str = "float"
     in_type: str = "float"
     use_separated: bool = False
+    left_address_space: str = "device"
+    right_address_space: str = "device"
 
     def result_type(self):
         return None

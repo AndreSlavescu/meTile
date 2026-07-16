@@ -67,6 +67,8 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Multi-level IR pipeline: Tile IR (hardware-agnostic) &rarr; Metal IR (decomposed primitives) &rarr; MSL
 - CuTe-inspired layout algebra with hierarchical Shape:Stride, composition, complement, and logical divide. Supports arbitrary tile shapes.
 - Composable optimization passes that transform IR structure: shared memory padding / XOR swizzle, split-K, vectorized loads, serpentine MMA traversal, preloaded tiles, double-buffered K-loop, block swizzle for L2 locality
+- Schedule-algebra pass over finite tile permutations. It removes reflection-equivalent traversals and uses a minimum-description-length/locality proxy to emit branch-free linear, diagonal, Morton, or 4x4 Hilbert schedules.
+- Composable MXFP4/MXFP8 Metal IR operations for fused block-scale decode, threadgroup staging, and MPP matrix multiply.
 - Fused epilogues (ReLU, exp, scale) on register-resident accumulators via `thread_elements()` with zero global memory traffic.
 
 **Codegen**
@@ -76,7 +78,24 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 
 **Runtime**
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
+- GPU-timestamp autotuning with device/toolchain-keyed persistent config and metallib caches.
+- Automatic dense and block-scaled tile-family dispatch; explicit block sizes still bypass tuning.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
+
+## Block-Scaled GEMM
+
+MXFP4 and MXFP8 weights use 32-value groups with E8M0 scales. The compiler fuses
+dequantization into the same Metal 4 MPP kernel instead of materializing a dense weight:
+
+```python
+a = metile.Buffer(data=np.random.randn(128, 1024).astype(np.float32))
+w = metile.BlockScaledWeight.quantize(weight, format="mxfp4")  # weight is K x N
+
+out = metile.block_scaled_matmul(a, w)
+```
+
+The aligned fast path currently requires `M`/`N` multiples of 64 and `K` a multiple
+of 32. `prepare_block_scaled_matmul` returns a reusable hot-path dispatcher.
 
 ## Install
 
@@ -128,9 +147,12 @@ make bench
 | Layout | `ir/layout.py` | CuTe-inspired layout algebra (Shape:Stride, composition, logical divide) |
 | Lowering | `compiler/lowering.py` | Tile IR &rarr; Metal IR (GEMM detection, simdgroup/tensor_ops paths) |
 | Passes | `compiler/passes.py` | IR &rarr; IR transforms (serpentine, preload, pad, swizzle, split-K, vectorize) |
+| Schedule search | `compiler/schedule_search.py` | Permutation-group canonicalization and MDL/locality schedule selection |
+| Block scaling | `compiler/block_scaled.py` | Composes MXFP decode, tensor views, MPP MMA, and store Metal IR |
 | Codegen | `codegen/msl_emitter.py` | Metal IR &rarr; MSL (uniform op walker, no per-kernel templates) |
 | Runtime | `runtime/metal_device.py` | Metal API via ctypes (compile, dispatch, sync) |
 | Runtime | `runtime/buffer.py` | Zero-copy unified memory buffers |
+| Runtime | `runtime/block_scaled.py` | MXFP quantization and shape-specific tile-family dispatch |
 
 ## Citations
 

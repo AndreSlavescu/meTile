@@ -2,10 +2,13 @@ import contextlib
 import ctypes
 import ctypes.util
 import os
+import platform
 import subprocess
 import tempfile
 from functools import cached_property
 from typing import ClassVar
+
+from metile.runtime.cache import atomic_write_bytes, cache_root, stable_digest
 
 # Load frameworks
 _objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
@@ -220,6 +223,24 @@ class MetalDevice:
                 ) from e
             return self.compile_msl(source, function_name), False
 
+        cache_key = stable_digest(
+            {
+                "device": self.name,
+                "function": function_name,
+                "metal_std": metal_std,
+                "platform": platform.mac_ver()[0],
+                "source": source,
+                "toolchain": self.metal_compiler_version,
+            }
+        )
+        cached_library = cache_root() / "metallib" / f"{cache_key}.metallib"
+        if cached_library.is_file():
+            try:
+                return self._load_metallib(str(cached_library), function_name), True
+            except RuntimeError:
+                with contextlib.suppress(OSError):
+                    cached_library.unlink()
+
         with tempfile.NamedTemporaryFile(suffix=".metal", mode="w", delete=False) as f:
             f.write(source)
             msl_path = f.name
@@ -241,7 +262,9 @@ class MetalDevice:
                 text=True,
                 timeout=10,
             )
-            pipeline = self._load_metallib(lib_path, function_name)
+            with open(lib_path, "rb") as library_file:
+                atomic_write_bytes(cached_library, library_file.read())
+            pipeline = self._load_metallib(str(cached_library), function_name)
             return pipeline, True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             if metal_std:
@@ -322,6 +345,22 @@ class MetalDevice:
             return False
 
     @cached_property
+    def metal_compiler_version(self) -> str:
+        """Return an identity for invalidating cached offline binaries."""
+        if not self.has_metal_compiler:
+            return "runtime"
+        try:
+            result = subprocess.run(
+                ["xcrun", "metal", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return (result.stdout or result.stderr).strip() or "unknown"
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return "unknown"
+
+    @cached_property
     def max_threadgroup_memory(self) -> int:
         """Max threadgroup memory in bytes (MTLDevice.maxThreadgroupMemoryLength)."""
         return _send_uint64(self.device, "maxThreadgroupMemoryLength")
@@ -331,6 +370,7 @@ class MetalDevice:
         """Check if device supports Metal 4 tensor_ops (M5+ and Xcode required)."""
         if not self.has_metal_compiler:
             return False
+        path = None
         test_src = (
             "#include <metal_stdlib>\n"
             "#include <metal_tensor>\n"
@@ -362,8 +402,14 @@ class MetalDevice:
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
         finally:
-            with contextlib.suppress(OSError):
-                os.unlink(path)
+            if path is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(path)
+
+    @property
+    def block_scaling_backend(self) -> str:
+        """Report the active block-scaling implementation."""
+        return "fused_mpp" if self.supports_tensor_ops else "unsupported"
 
     def new_buffer(self, data: bytes, length: int) -> ctypes.c_void_p:
         """Create a Metal buffer from bytes data."""

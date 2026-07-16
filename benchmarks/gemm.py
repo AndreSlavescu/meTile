@@ -14,27 +14,6 @@ import metile
 from kernels.gemm import matmul
 from metile.runtime.metal_device import MetalDevice
 
-GEMM_CONFIGS = [
-    # 4 SGs (2x2), BK=32 baseline
-    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=32, WM=2, WN=2, K_UNROLL=1),
-    # 4 SGs (2x2), larger BK → unrolled K-loop (BK/32 copies per iteration)
-    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=64, WM=2, WN=2, K_UNROLL=1),
-    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=128, WM=2, WN=2, K_UNROLL=1),
-    # 16 SGs (4x4), BK=32 baseline
-    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=32, WM=4, WN=4, K_UNROLL=1),
-    # 16 SGs (4x4), larger BK → unrolled (BK/32 = 2x, 4x, 8x, 16x unroll)
-    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=64, WM=4, WN=4, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=128, WM=4, WN=4, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=256, WM=4, WN=4, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=512, WM=4, WN=4, K_UNROLL=1),
-]
-
-autotuned_matmul = metile.autotune(
-    configs=GEMM_CONFIGS,
-    key=["M", "N", "K"],
-    verbose=True,
-)(matmul)
-
 COOLDOWN = 3.0
 
 COL_SIZE = 20
@@ -88,7 +67,7 @@ def main():
         def grid_fn(cfg, M=M, N=N):
             return (metile.cdiv(M, cfg["BLOCK_M"]), metile.cdiv(N, cfg["BLOCK_N"]))
 
-        dispatch = autotuned_matmul[grid_fn].prepare(A_buf, B_buf, C_buf, M, N, K)
+        dispatch = matmul[grid_fn].prepare(A_buf, B_buf, C_buf, M, N, K)
         dev.sync()
 
         A_mx, B_mx = mx.array(A_np), mx.array(B_np)

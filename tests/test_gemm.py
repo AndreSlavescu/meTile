@@ -83,6 +83,33 @@ class TestSimdgroupGemm:
     def test_larger_512x512(self):
         _run_matmul(512, 512, 512, BM=64, BN=64, BK=32)
 
+    def test_odd_tile_grid_is_bijective(self):
+        _run_matmul(192, 320, 64, BM=64, BN=64, BK=16)
+
+    def test_cooperative_tensor_ops_compiles(self):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(23)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=32,
+            WM=2,
+            WN=2,
+            COOPERATIVE=True,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
 
 class TestF16NaiveGemm:
     def test_square_32x32(self):
@@ -110,6 +137,15 @@ class TestF16SimdgroupGemm:
 
 
 class TestAutotunedGemm:
+    def test_reautotune_replaces_existing_config_family(self):
+        """Wrapping an autotuned kernel tunes its underlying kernel, not the wrapper."""
+        replacement = metile.autotune(
+            configs=[metile.Config(BLOCK_M=32, BLOCK_N=32, BLOCK_K=32)],
+            key=["M", "N", "K"],
+            verbose=False,
+        )(matmul)
+        assert replacement.kernel_fn is matmul.kernel_fn
+
     def test_autotune_selects_config(self):
         """Autotuner picks a config and produces correct results."""
 
