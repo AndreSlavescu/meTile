@@ -82,9 +82,9 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 **Runtime**
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
 - Interleaved round-robin GPU-timestamp autotuning with device/toolchain-keyed persistent config and metallib caches.
-- Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates.
+- Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates, including 2- and 4-SIMDgroup MXFP tiles.
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
-- Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; concurrent hazards and resource lifetimes remain tracked automatically.
+- Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; short static GEMMs use a bounded poll-before-sleep completion policy while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
 
 ## Block-Scaled GEMM
@@ -101,8 +101,8 @@ out = metile.block_scaled_matmul(a, w)
 
 The aligned fast path currently requires `M`/`N` multiples of 64 and `K` a multiple
 of 32. `prepare_block_scaled_matmul` autotunes staged and direct register-fragment
-representations, including paired K steps that reuse E8M0 scale fragments, and returns
-a reusable hot-path dispatcher.
+representations, including paired K steps that reuse E8M0 scale fragments and 32x64
+two-SIMDgroup output tiles, and returns a reusable hot-path dispatcher.
 
 ## Install
 

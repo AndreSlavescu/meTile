@@ -162,6 +162,7 @@ class FastDispatcher:
         "_input_resources",
         "_output_resources",
         "_pipeline",
+        "_prefer_low_latency",
         "_resources",
         "_set_buf_fn",
         "_set_buf_sel",
@@ -172,7 +173,15 @@ class FastDispatcher:
         "_tg",
     )
 
-    def __init__(self, compiled, metal_buffers, grid, dev, resources=()):
+    def __init__(
+        self,
+        compiled,
+        metal_buffers,
+        grid,
+        dev,
+        resources=(),
+        prefer_low_latency=False,
+    ):
         dev._ensure_cached_selectors()
         self._pipeline = compiled.pipeline
         self._buffers = tuple(metal_buffers)
@@ -180,6 +189,7 @@ class FastDispatcher:
         self._concurrent = not compiled.is_gemm
         self._dev = dev
         self._description_bits = compiled.description_bits
+        self._prefer_low_latency = bool(prefer_low_latency)
         buffer_values = tuple(
             buffer.value if isinstance(buffer, ctypes.c_void_p) else int(buffer)
             for buffer in self._buffers
@@ -271,6 +281,7 @@ class FastDispatcher:
             dev._pending_inputs.update(self._input_resources)
             dev._pending_outputs.update(self._output_resources)
         dev._pending_lifetimes[id(self)] = self
+        dev._pending_prefer_low_latency &= self._prefer_low_latency
         dev._pending_dispatches += 1
         if dev._pending_dispatches >= 64:
             dev._commit_pending_unlocked()
@@ -387,12 +398,22 @@ class KernelLauncher:
         """
         self(*args, **kwargs)
         MetalDevice.get().sync()
+        parameter_names = tuple(self.kernel_fn._sig.parameters)
+        arguments = dict(zip(parameter_names, args))
+        arguments.update((name, value) for name, value in kwargs.items() if name in parameter_names)
+        dimensions = tuple(arguments.get(axis) for axis in ("M", "N", "K"))
+        prefer_low_latency = self._last_compiled.is_gemm and all(
+            isinstance(dimension, (int, np.integer)) for dimension in dimensions
+        )
+        if prefer_low_latency:
+            prefer_low_latency = np.prod(dimensions, dtype=np.int64) <= 512**3
         return FastDispatcher(
             self._last_compiled,
             self._last_metal_buffers,
             self.grid,
             MetalDevice.get(),
             self._last_resources,
+            prefer_low_latency=prefer_low_latency,
         )
 
     def _compile(self, args, constexprs: dict, param_names: list[str]) -> CompiledKernel:

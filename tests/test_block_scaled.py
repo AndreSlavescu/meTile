@@ -156,3 +156,29 @@ def test_block_scaled_register_dispatch_matches_dequantized_reference(
     output = output_buffer.numpy()
     expected = activations @ quantized.dequantize()
     np.testing.assert_allclose(output, expected, rtol=5e-2, atol=5e-2)
+
+
+@pytest.mark.skipif(not MetalDevice.get().supports_tensor_ops, reason="requires Metal 4 MPP")
+def test_block_scaled_two_simdgroup_tile_matches_dequantized_reference():
+    rng = np.random.default_rng(37)
+    activations = rng.normal(size=(64, 64)).astype(np.float32)
+    weight = rng.normal(size=(64, 64)).astype(np.float32)
+    quantized = metile.BlockScaledWeight.quantize(weight, format="mxfp4")
+    activations_buffer = metile.Buffer(data=activations)
+    output_buffer = metile.Buffer.empty((64, 64))
+    dispatch = _prepare_block_scaled_dispatch(
+        activations_buffer,
+        quantized,
+        output_buffer,
+        32,
+        64,
+        register_fragments=True,
+        schedule="linear",
+        fragment_type="bfloat",
+        k_unroll=2,
+    )
+
+    dispatch()
+    output = output_buffer.numpy()
+    expected = activations @ quantized.dequantize()
+    np.testing.assert_allclose(output, expected, rtol=5e-2, atol=5e-2)

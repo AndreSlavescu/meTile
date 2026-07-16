@@ -6,6 +6,7 @@ import platform
 import subprocess
 import tempfile
 import threading
+import time
 from functools import cached_property
 from typing import ClassVar
 
@@ -145,6 +146,8 @@ class MetalDevice:
         self._pending_inputs = set()
         self._pending_outputs = set()
         self._pending_lifetimes = {}
+        self._pending_prefer_low_latency = True
+        self._last_prefer_low_latency = False
         self._inflight_lifetimes = []
         self._dispatch_lock = threading.RLock()
 
@@ -512,6 +515,7 @@ class MetalDevice:
     _msg_send_id_uint64 = None  # one uint64 arg -> pointer
     _msg_send_void = None  # zero-arg -> void
     _msg_send_double = None  # zero-arg -> double (for GPU timestamps)
+    _msg_send_uint64 = None  # zero-arg -> uint64 (for command-buffer status)
     _sel_commandBuffer = None
     _sel_commandBufferUnretained = None
     _sel_computeCommandEncoder = None
@@ -521,6 +525,7 @@ class MetalDevice:
     _sel_waitUntilCompleted = None
     _sel_GPUStartTime = None
     _sel_GPUEndTime = None
+    _sel_status = None
     _memory_barrier_sel = None
     _memory_barrier_fn = None
 
@@ -611,6 +616,12 @@ class MetalDevice:
         )(msg_ptr)
         MetalDevice._sel_GPUStartTime = _objc.sel_registerName(b"GPUStartTime")
         MetalDevice._sel_GPUEndTime = _objc.sel_registerName(b"GPUEndTime")
+        MetalDevice._msg_send_uint64 = ctypes.CFUNCTYPE(
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        )(msg_ptr)
+        MetalDevice._sel_status = _objc.sel_registerName(b"status")
         MetalDevice._memory_barrier_sel = _objc.sel_registerName(b"memoryBarrierWithScope:")
         MetalDevice._memory_barrier_fn = ctypes.CFUNCTYPE(
             None,
@@ -647,6 +658,7 @@ class MetalDevice:
         send_void(encoder, MetalDevice._sel_endEncoding)
         send_void(cmd_buffer, MetalDevice._sel_commit)
         self._last_cmd_buffer = cmd_buffer
+        self._last_prefer_low_latency = False
 
     def _pending_encoder_unlocked(self, concurrent: bool):
         """Return the shared hot-path encoder, creating it on first use."""
@@ -700,6 +712,9 @@ class MetalDevice:
         send_void(self._pending_encoder, MetalDevice._sel_endEncoding)
         send_void(self._pending_cmd_buffer, MetalDevice._sel_commit)
         self._last_cmd_buffer = self._pending_cmd_buffer
+        self._last_prefer_low_latency = (
+            self._pending_prefer_low_latency and self._pending_dispatches <= 8
+        )
         self._pending_cmd_buffer = None
         self._pending_encoder = None
         self._pending_pipeline = None
@@ -708,6 +723,7 @@ class MetalDevice:
         self._pending_concurrent = None
         self._pending_inputs.clear()
         self._pending_outputs.clear()
+        self._pending_prefer_low_latency = True
         self._inflight_lifetimes.extend(self._pending_lifetimes.values())
         self._pending_lifetimes.clear()
 
@@ -727,10 +743,29 @@ class MetalDevice:
             cb = self._last_cmd_buffer
             if cb is not None:
                 self._ensure_cached_selectors()
-                MetalDevice._msg_send_void(cb, MetalDevice._sel_waitUntilCompleted)
+                completed = False
+                if self._last_prefer_low_latency and self.low_latency_spin_ns:
+                    deadline = time.perf_counter_ns() + self.low_latency_spin_ns
+                    while MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status) < 4:
+                        if time.perf_counter_ns() >= deadline:
+                            break
+                    completed = MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status) >= 4
+                if not completed:
+                    MetalDevice._msg_send_void(cb, MetalDevice._sel_waitUntilCompleted)
                 self._completed_cmd_buffer = cb
                 self._last_cmd_buffer = None
+                self._last_prefer_low_latency = False
                 self._inflight_lifetimes.clear()
+
+    @cached_property
+    def low_latency_spin_ns(self) -> int:
+        """Bounded active-wait window for latency-sensitive prepared dispatches."""
+        value = os.environ.get("METILE_LOW_LATENCY_SPIN_US", "900")
+        try:
+            microseconds = int(value)
+        except ValueError:
+            microseconds = 900
+        return max(0, microseconds) * 1_000
 
     def gpu_elapsed(self) -> float:
         """Return GPU execution time (seconds) of last completed command buffer.

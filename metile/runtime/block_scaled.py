@@ -20,7 +20,7 @@ _GROUP_SIZE = 32
 _compiled_block_scaled: dict[tuple, CompiledKernel] = {}
 _block_scaled_config_cache: dict[tuple, _BlockScaledConfig] = {}
 _block_scaled_cache_lock = threading.RLock()
-_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v4.json"
+_block_scaled_cache_path = cache_root() / "block-scaled-autotune-v5.json"
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,14 @@ _BLOCK_SCALED_CONFIGS = (
     _BlockScaledConfig(64, 64, register_fragments=True, schedule="linear"),
     _BlockScaledConfig(
         64,
+        64,
+        register_fragments=True,
+        schedule="linear",
+        fragment_type="bfloat",
+        k_unroll=2,
+    ),
+    _BlockScaledConfig(
+        32,
         64,
         register_fragments=True,
         schedule="linear",
@@ -406,6 +414,7 @@ def _prepare_block_scaled_dispatch(
         grid,
         dev,
         resources=(activations, weight.values, weight.scales, output),
+        prefer_low_latency=m * n * k <= 512**3,
     )
 
 

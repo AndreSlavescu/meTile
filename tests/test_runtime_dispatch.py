@@ -1,4 +1,7 @@
+import threading
+
 import numpy as np
+import pytest
 
 import metile
 from metile.runtime.metal_device import MetalDevice
@@ -98,3 +101,51 @@ def test_repeated_prepared_dispatch_reuses_encoder_bindings():
     dispatch.repeat(2)
     device.sync()
     assert calls == {"buffers": 2, "pipeline": 2}
+
+
+def test_low_latency_dispatch_marks_pending_command_buffer():
+    size = 256
+    destination = metile.Buffer.empty((size,))
+    dispatch = _fill_sequence[(1,)].prepare(destination, BLOCK=size)
+    device = MetalDevice.get()
+    dispatch._prefer_low_latency = True
+
+    dispatch()
+    assert device._pending_prefer_low_latency
+    device.sync()
+
+
+@pytest.mark.parametrize(
+    ("spin_ns", "status", "expected_status_calls", "expected_wait_calls"),
+    [(100_000, 4, 2, 0), (0, 2, 0, 1)],
+)
+def test_sync_selects_bounded_poll_or_blocking_wait(
+    monkeypatch, spin_ns, status, expected_status_calls, expected_wait_calls
+):
+    device = MetalDevice.__new__(MetalDevice)
+    device._dispatch_lock = threading.RLock()
+    device._last_cmd_buffer = 1
+    device._last_prefer_low_latency = True
+    device._inflight_lifetimes = [object()]
+    device._commit_pending_unlocked = lambda: None
+    device._ensure_cached_selectors = lambda: None
+    device.__dict__["low_latency_spin_ns"] = spin_ns
+    calls = {"status": 0, "wait": 0}
+
+    def command_buffer_status(*_):
+        calls["status"] += 1
+        return status
+
+    def wait_until_completed(*_):
+        calls["wait"] += 1
+
+    monkeypatch.setattr(MetalDevice, "_msg_send_uint64", command_buffer_status)
+    monkeypatch.setattr(MetalDevice, "_msg_send_void", wait_until_completed)
+    monkeypatch.setattr(MetalDevice, "_sel_status", object())
+    monkeypatch.setattr(MetalDevice, "_sel_waitUntilCompleted", object())
+
+    device.sync()
+
+    assert calls == {"status": expected_status_calls, "wait": expected_wait_calls}
+    assert device._last_cmd_buffer is None
+    assert not device._inflight_lifetimes

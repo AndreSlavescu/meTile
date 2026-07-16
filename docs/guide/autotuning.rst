@@ -109,7 +109,9 @@ and is independently measured rather than selected by a fixed heuristic.
 The block-scaled runtime also measures a paired reduction representation that reuses
 one E8M0 scale load across the two 16-wide steps in each 32-value quantization group.
 It executes the decoded weight fragments sequentially to avoid the register-pressure
-cost of dense-style fragment preloading.
+cost of dense-style fragment preloading. Small aligned shapes additionally search a
+``32x64`` two-SIMDgroup tile, which provides finer occupancy than the conventional
+four-SIMDgroup ``64x64`` tile on the base M5.
 
 
 Schedule Algebra and MDL
@@ -191,3 +193,11 @@ the shared encoder. ``repeat(count)`` additionally removes repeated Python lock
 transitions when the same prepared operation is intentionally encoded many times.
 Optional selectors are capability checked, and bound buffers remain alive through
 completion.
+
+Prepared static GEMMs at or below ``512x512x512`` are marked latency-sensitive. On
+``sync()``, the runtime polls command-buffer completion for at most 900 microseconds
+before falling back to ``waitUntilCompleted``. This avoids scheduler wake latency for
+short M5 kernels without unbounded spinning or changing the blocking behavior of long
+GEMMs. Set ``METILE_LOW_LATENCY_SPIN_US=0`` to disable active waiting, or provide a
+different non-negative microsecond budget for application-specific latency/power
+tradeoffs.
