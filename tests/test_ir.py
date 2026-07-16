@@ -232,3 +232,21 @@ def test_nax_preload_pass_decomposes_two_k_steps_before_mma():
     assert sum(isinstance(op, mir.MNaxLoadFragment) for op in loop.body[:first_mma]) == 8
     assert sum(isinstance(op, mir.MNaxFmaFragment) for op in loop.body) == 4
     assert not any(isinstance(op, mir.MNaxGemmRun) for op in loop.body)
+
+
+def test_nax_epilogue_decomposes_over_each_accumulator_fragment():
+    from metile.compiler.passes import decompose_nax_fragments
+    from metile.ir import metal_ir as mir
+
+    function = mir.MFunction("nax_epilogue", kernel_type="tensor_ops_gemm")
+    function.ops = [
+        mir.MNaxAccumulatorInit(),
+        mir.MNaxGemmEpilogue(operations=[("relu",)]),
+    ]
+
+    decompose_nax_fragments(function)
+    applications = [op for op in function.ops if isinstance(op, mir.MNaxApplyFragment)]
+    assert [op.source for op in applications] == ["d00", "d01", "d10", "d11"]
+    assert all(op.operations == [("relu",)] for op in applications)
+    assert len({id(op.operations) for op in applications}) == 4
+    assert not any(isinstance(op, mir.MNaxGemmEpilogue) for op in function.ops)

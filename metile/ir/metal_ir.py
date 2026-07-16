@@ -707,6 +707,16 @@ class MNaxGemmStore(MOp):
 
 
 @dataclass
+class MNaxGemmEpilogue(MOp):
+    """Apply a fused element-wise chain to all NAX accumulator fragments."""
+
+    operations: list[tuple] = field(default_factory=list)
+
+    def result_type(self):
+        return None
+
+
+@dataclass
 class MNaxTileLayout(MOp):
     """Map a simdgroup and its lanes onto one register-resident output tile."""
 
@@ -808,6 +818,17 @@ class MNaxFmaFragment(MOp):
     left: str = "a0"
     destination_low: str = "d00"
     destination_high: str = "d01"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxApplyFragment(MOp):
+    """Apply a fused element-wise chain to one register fragment."""
+
+    source: str = "d00"
+    operations: list[tuple] = field(default_factory=list)
 
     def result_type(self):
         return None

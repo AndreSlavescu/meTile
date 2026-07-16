@@ -70,8 +70,8 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Schedule-algebra pass over finite tile permutations. D4/rectangle group actions remove symmetry-equivalent traversals before emitting branch-free linear, grouped-2/4/8, diagonal, Morton, or 4x4 Hilbert schedules.
 - Minimum-description-length selection uses compressed generated source as a computable upper bound on Kolmogorov complexity. Runtime remains the primary objective; source size only breaks measurements within 0.25% of the fastest candidate.
 - Composable MXFP4/MXFP8 Metal IR operations for vectorized fused decode, optional threadgroup staging, register-resident NAX fragments, MPP matrix multiply, and stores.
-- NAX setup/run/store lowering decomposes into tile-layout, vector-load, cooperative-tensor pack, MMA, and fragment-store IR. Shape-tuned reduction epochs can preload adjacent K fragments without owning a whole kernel template.
-- Fused epilogues (ReLU, exp, scale) on register-resident accumulators via `thread_elements()` with zero global memory traffic.
+- NAX setup/run/epilogue/store lowering decomposes into tile-layout, vector-load, cooperative-tensor pack, MMA, per-fragment apply, and fragment-store IR. Shape-tuned reduction epochs can preload adjacent K fragments without owning a whole kernel template.
+- Autotuned fused epilogues (ReLU, GELU, SiLU, exp, scale) run directly on cooperative-tensor or NAX register fragments with zero intermediate global memory traffic.
 
 **Codegen**
 - Simdgroup matrix (8x8) MMA with decomposed load / MMA / store primitives

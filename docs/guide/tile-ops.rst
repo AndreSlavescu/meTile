@@ -143,10 +143,12 @@ Composable NAX Fragment Lowering
 --------------------------------
 
 The M5 register path does not emit a whole GEMM template. Initial lowering produces
-compact NAX setup, reduction, and store operations. The ``decompose_nax_fragments``
-Metal IR pass expands them into independently transformable operations for tile/lane
-layout, accumulator initialization, vector fragment loads, cooperative-tensor packing,
-native ``matmul2d`` MMA, and fragment stores.
+compact NAX setup, reduction, epilogue, and store operations. The
+``decompose_nax_fragments`` Metal IR pass expands them into independently transformable
+operations for tile/lane layout, accumulator initialization, vector fragment loads,
+cooperative-tensor packing, native ``matmul2d`` MMA, per-fragment element-wise apply,
+and fragment stores. GELU, SiLU, ReLU, and other detected chains therefore remain
+register-resident on the direct NAX path rather than forcing a slower lowering family.
 
 The autotuner can therefore vary reduction epochs and preload two adjacent K fragments
 before issuing their MMAs without changing the frontend kernel. Epoch pointers reduce

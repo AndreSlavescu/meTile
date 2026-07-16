@@ -3,6 +3,7 @@ import pytest
 
 import metile
 from kernels.gemm import matmul
+from kernels.mlp import matmul_gelu, matmul_silu
 from metile.runtime.metal_device import MetalDevice
 
 # tensor_ops uses TF32 (reduced precision) — need wider tolerance
@@ -221,6 +222,38 @@ class TestSimdgroupGemm:
             NAX_K_UNROLL=2,
         )
         np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
+    @pytest.mark.parametrize(
+        ("kernel", "activation"),
+        [
+            (matmul_gelu, lambda value: value / (1.0 + np.exp(-1.702 * value))),
+            (matmul_silu, lambda value: value / (1.0 + np.exp(-value))),
+        ],
+    )
+    def test_aligned_nax_fused_epilogue_compiles_and_matches(self, kernel, activation):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(41)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        kernel[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+        )
+        np.testing.assert_allclose(C, activation(A @ B), rtol=6e-2, atol=6e-2)
 
 
 class TestF16NaiveGemm:

@@ -226,6 +226,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
             f"{pad}nax_block_scaled_run({_val(op.ptr_a)}, {_val(op.ptr_values)}, "
             f"{_val(op.ptr_scales)}, bits={op.bits}, k={op.k_offset})"
         )
+    elif isinstance(op, mir.MNaxGemmEpilogue):
+        lines.append(f"{pad}nax_gemm_epilogue(ops={op.operations})")
     elif isinstance(op, mir.MNaxGemmStore):
         lines.append(f"{pad}nax_gemm_store({_val(op.ptr_c)})")
     elif isinstance(op, mir.MNaxTileLayout):
@@ -255,6 +257,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(
             f"{pad}nax_fma_fragment({op.left}, {op.destination_low}, {op.destination_high})"
         )
+    elif isinstance(op, mir.MNaxApplyFragment):
+        lines.append(f"{pad}nax_apply_fragment({op.source}, ops={op.operations})")
     elif isinstance(op, mir.MNaxStoreFragment):
         lines.append(
             f"{pad}nax_store_fragment({op.source}, row={op.row_offset}, col={op.col_offset})"

@@ -438,7 +438,13 @@ def _emit_gemm_op(
 
     elif isinstance(
         op,
-        (mir.MNaxGemmSetup, mir.MNaxGemmRun, mir.MNaxBlockScaledRun, mir.MNaxGemmStore),
+        (
+            mir.MNaxGemmSetup,
+            mir.MNaxGemmRun,
+            mir.MNaxBlockScaledRun,
+            mir.MNaxGemmEpilogue,
+            mir.MNaxGemmStore,
+        ),
     ):
         raise ValueError("fused NAX operations must run through decompose_nax_fragments")
 
@@ -465,6 +471,9 @@ def _emit_gemm_op(
 
     elif isinstance(op, mir.MNaxFmaFragment):
         _emit_nax_fma_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxApplyFragment):
+        _emit_nax_apply_fragment(op, lines, indent)
 
     elif isinstance(op, mir.MNaxStoreFragment):
         _emit_nax_store_fragment(op, lines, indent, func)
@@ -1105,6 +1114,14 @@ def _emit_nax_fma_fragment(op, lines, indent):
     lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
     lines.append(f"{pad}    {op.destination_low}[i] = nax_c[i];")
     lines.append(f"{pad}    {op.destination_high}[i] = nax_c[8 + i];")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_apply_fragment(op, lines, indent):
+    pad = "    " * indent
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    _emit_epilogue_chain(op.operations, f"{op.source}[i]", lines, f"{pad}    ")
     lines.append(f"{pad}}}")
 
 

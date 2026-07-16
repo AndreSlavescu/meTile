@@ -2,6 +2,7 @@ from kernels.gemm import MATMUL_CONFIGS, matmul, matmul_relu, matmul_swizzled
 
 __all__ = ["MATMUL_CONFIGS", "matmul", "matmul_relu", "matmul_swizzled"]
 from kernels.layernorm import layernorm
+from kernels.mlp import matmul_gelu, matmul_silu
 from kernels.reduce import REDUCE_KERNELS, reduce_2, reduce_4, reduce_8, reduce_16
 from kernels.rmsnorm import rmsnorm
 from kernels.simdgroup_specialized_elementwise import (
@@ -26,7 +27,9 @@ __all__ = [
     "gelu_silu_kernel",
     "layernorm",
     "matmul",
+    "matmul_gelu",
     "matmul_relu",
+    "matmul_silu",
     "matmul_swizzled",
     "reduce_2",
     "reduce_4",

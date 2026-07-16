@@ -135,6 +135,18 @@ MATMUL_CONFIGS = [
         BLOCK_K=16,
         WM=4,
         WN=4,
+        SWIZZLE="hilbert",
+        NAX_FRAGMENTS=True,
+        NAX_OUTER_K=512,
+        NAX_K_UNROLL=2,
+        NAX_TRAILING_EPOCH_BARRIER=True,
+    ),
+    metile.Config(
+        BLOCK_M=128,
+        BLOCK_N=128,
+        BLOCK_K=16,
+        WM=4,
+        WN=4,
         SWIZZLE="grouped4",
         NAX_FRAGMENTS=True,
         NAX_OUTER_K=512,
@@ -237,6 +249,7 @@ def matmul_swizzled(
     metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
 
 
+@metile.autotune(configs=MATMUL_CONFIGS, key=["M", "N", "K"], verbose=False)
 @metile.kernel
 def matmul_relu(
     A,

@@ -1004,8 +1004,6 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     if constexprs.get("NAX_FRAGMENTS", False):
         if msl_type != "float" or cooperative or SM != 32 or SN != 32 or BK != 16:
             raise ValueError("NAX fragments require f32, 32x32 per-simdgroup tiles, and BLOCK_K=16")
-        if epilogue:
-            raise ValueError("NAX fragment epilogues are not implemented")
         if not all(constexprs.get(f"_ALIGNED_{axis}", False) for axis in ("M", "N", "K")):
             raise ValueError("NAX fragments currently require aligned M, N, and K")
         outer_k = int(constexprs.get("NAX_OUTER_K", 0))
@@ -1113,6 +1111,8 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                     ],
                 )
             )
+        if epilogue:
+            mfunc.add_op(mir.MNaxGemmEpilogue(operations=epilogue))
         mfunc.add_op(mir.MNaxGemmStore(ptr_c=ptr_C))
         return mfunc
 

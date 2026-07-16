@@ -353,6 +353,11 @@ def _decompose_nax_ops(ops: list[mir.MOp]) -> list[mir.MOp]:
                 index += 1
             decomposed.extend(_block_scaled_nax_steps(runs))
             continue
+        elif isinstance(op, mir.MNaxGemmEpilogue):
+            decomposed.extend(
+                mir.MNaxApplyFragment(source=source, operations=list(op.operations))
+                for source in ("d00", "d01", "d10", "d11")
+            )
         elif isinstance(op, mir.MNaxGemmStore):
             for source, row_offset, col_offset in (
                 ("d00", 0, 0),
