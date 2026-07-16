@@ -487,10 +487,15 @@ def _emit_gemm_op(
         _emit_coop_tensor_store(op, lines, indent)
 
     elif isinstance(op, mir.MBarrier):
-        if op.kind == "threadgroup":
-            lines.append(f"{pad}threadgroup_barrier(mem_flags::{op.flags});")
+        barrier = (
+            f"threadgroup_barrier(mem_flags::{op.flags});"
+            if op.kind == "threadgroup"
+            else f"simdgroup_barrier(mem_flags::{op.flags});"
+        )
+        if op.condition:
+            lines.append(f"{pad}if ({op.condition}) {{ {barrier} }}")
         else:
-            lines.append(f"{pad}simdgroup_barrier(mem_flags::{op.flags});")
+            lines.append(f"{pad}{barrier}")
 
     elif isinstance(op, mir.MSimdShuffleXor):
         result_type = ScalarType(op.dtype).to_msl()
@@ -1738,10 +1743,15 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         lines.append(f"{pad}threadgroup {op.elem_type} {op.alloc_name}[{op.size}];")
 
     elif isinstance(op, mir.MBarrier):
-        if op.kind == "threadgroup":
-            lines.append(f"{pad}threadgroup_barrier(mem_flags::{op.flags});")
+        barrier = (
+            f"threadgroup_barrier(mem_flags::{op.flags});"
+            if op.kind == "threadgroup"
+            else f"simdgroup_barrier(mem_flags::{op.flags});"
+        )
+        if op.condition:
+            lines.append(f"{pad}if ({op.condition}) {{ {barrier} }}")
         else:
-            lines.append(f"{pad}simdgroup_barrier(mem_flags::{op.flags});")
+            lines.append(f"{pad}{barrier}")
 
     elif isinstance(op, mir.MThreadgroupReduce):
         _emit_threadgroup_reduce(op, lines, indent, func)

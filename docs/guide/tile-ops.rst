@@ -151,7 +151,11 @@ native ``matmul2d`` MMA, and fragment stores.
 The autotuner can therefore vary reduction epochs and preload two adjacent K fragments
 before issuing their MMAs without changing the frontend kernel. Epoch pointers reduce
 address arithmetic, static aligned dimensions remove scalar buffer bindings, and the
-runtime measures one- and two-fragment representations per problem shape. The preload
+runtime measures one- and two-fragment representations per problem shape. A separate
+candidate skips only the redundant first epoch barrier while preserving the fences that
+bound compiler scheduling and register live ranges between epochs. Another candidate
+moves those fences to the tails of non-final epochs, which gives the Metal compiler a
+different but equivalent live-range boundary for sustained reductions. The preload
 form is retained only for dense GEMM; measurements show that applying it to fused MXFP
 decode increases register pressure. Block-scaled lowering instead keeps decoded weights
 single-step-live while optionally pairing two K steps and reusing their common E8M0

@@ -1065,18 +1065,39 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                 index_alias="k",
                 index_expression="k1",
             )
+            if constexprs.get("NAX_TRAILING_EPOCH_BARRIER", False):
+                epoch_body = [
+                    epoch_a_op,
+                    epoch_b_op,
+                    inner_loop,
+                    mir.MBarrier(
+                        kind="threadgroup",
+                        flags="mem_none",
+                        condition=f"k0 + {outer_k}u < K",
+                    ),
+                ]
+            else:
+                epoch_body = [
+                    mir.MBarrier(
+                        kind="threadgroup",
+                        flags="mem_none",
+                        condition=(
+                            "k0 != 0u"
+                            if constexprs.get("NAX_SKIP_FIRST_EPOCH_BARRIER", False)
+                            else None
+                        ),
+                    ),
+                    epoch_a_op,
+                    epoch_b_op,
+                    inner_loop,
+                ]
             mfunc.add_op(
                 mir.MForLoop(
                     iv_name="k0",
                     start=0,
                     end=K_val,
                     step=outer_k,
-                    body=[
-                        mir.MBarrier(kind="threadgroup", flags="mem_none"),
-                        epoch_a_op,
-                        epoch_b_op,
-                        inner_loop,
-                    ],
+                    body=epoch_body,
                 )
             )
         else:

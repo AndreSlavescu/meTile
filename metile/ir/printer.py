@@ -179,7 +179,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
 
     # Barriers
     elif isinstance(op, mir.MBarrier):
-        lines.append(f"{pad}barrier({op.kind}, {op.flags})")
+        condition = f", if={op.condition}" if op.condition else ""
+        lines.append(f"{pad}barrier({op.kind}, {op.flags}{condition})")
 
     # Simdgroup ops
     elif isinstance(op, mir.MSimdgroupAccDecl):

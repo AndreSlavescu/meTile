@@ -327,6 +327,7 @@ class MBarrier(MOp):
 
     kind: str = "threadgroup"
     flags: str = "mem_threadgroup"
+    condition: str | None = None
 
     def result_type(self):
         return None

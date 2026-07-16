@@ -99,6 +99,13 @@ On the aligned M5 NAX path, ``NAX_OUTER_K`` controls the reduction epoch and
 ``NAX_K_UNROLL=2`` preloads two 16-wide K fragments before issuing their native MMAs.
 These are candidate parameters rather than global defaults because the winning register
 footprint and epoch width change with matrix shape.
+``NAX_SKIP_FIRST_EPOCH_BARRIER`` retains every inter-epoch scheduling fence but skips
+the redundant fence before the first epoch. It is searched as a separate representation
+because the uniform predicate helps medium reductions but the unconditional form can
+remain faster for long reductions.
+``NAX_TRAILING_EPOCH_BARRIER`` moves the same inter-epoch fence to the end of each
+non-final epoch. This equivalent placement shortens live ranges on sustained reductions
+and is independently measured rather than selected by a fixed heuristic.
 The block-scaled runtime also measures a paired reduction representation that reuses
 one E8M0 scale load across the two 16-wide steps in each 32-value quantization group.
 It executes the decoded weight fragments sequentially to avoid the register-pressure

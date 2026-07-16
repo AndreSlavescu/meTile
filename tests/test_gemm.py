@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 import metile
 from kernels.gemm import matmul
@@ -158,6 +159,40 @@ class TestSimdgroupGemm:
             SWIZZLE="linear",
             NAX_FRAGMENTS=True,
             NAX_OUTER_K=64,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
+    @pytest.mark.parametrize(
+        "barrier_config",
+        [
+            {"NAX_SKIP_FIRST_EPOCH_BARRIER": True},
+            {"NAX_TRAILING_EPOCH_BARRIER": True},
+        ],
+    )
+    def test_aligned_nax_can_move_epoch_barriers(self, barrier_config):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(38)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+            NAX_OUTER_K=64,
+            **barrier_config,
         )
         np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
 
