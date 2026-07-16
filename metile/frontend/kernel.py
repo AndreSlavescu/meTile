@@ -71,6 +71,7 @@ class CompiledKernel:
         func_name: str,
         threadgroup_size: tuple[int, int, int],
         is_gemm: bool = False,
+        prefer_ordered: bool = False,
         output_indices: tuple[int, ...] = (),
         argument_indices: tuple[int, ...] | None = None,
     ):
@@ -79,6 +80,7 @@ class CompiledKernel:
         self.func_name = func_name
         self.threadgroup_size = threadgroup_size
         self.is_gemm = is_gemm
+        self.prefer_ordered = prefer_ordered
         self.output_indices = output_indices
         self.argument_indices = argument_indices
         self.description_bits = compressed_description_bits(msl_source)
@@ -186,7 +188,7 @@ class FastDispatcher:
         self._pipeline = compiled.pipeline
         self._buffers = tuple(metal_buffers)
         self._resources = tuple(resources)
-        self._concurrent = not compiled.is_gemm
+        self._concurrent = not compiled.is_gemm and not compiled.prefer_ordered
         self._dev = dev
         self._description_bits = compiled.description_bits
         self._completion_spin_ns = max(0, int(completion_spin_ns))
@@ -589,6 +591,9 @@ class KernelLauncher:
             func_name=metal_ir.name,
             threadgroup_size=metal_ir.threadgroup_size,
             is_gemm=is_gemm or is_tensor_ops or is_specialized,
+            prefer_ordered=any(
+                isinstance(op, (mir.MBarrier, mir.MThreadgroupAlloc)) for op in metal_ir.ops
+            ),
             output_indices=tuple(
                 index for index, param in enumerate(metal_ir.params) if param.is_output
             ),

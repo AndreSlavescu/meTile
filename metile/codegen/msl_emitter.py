@@ -32,6 +32,7 @@ _UNARY_MSL = {
     "abs": "abs",
     "neg": "-",
     "tanh": "tanh",
+    "reverse_bits": "reverse_bits",
 }
 
 _BINOP_SYMBOLS_EPILOGUE = {

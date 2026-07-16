@@ -39,11 +39,22 @@ class Config:
 _autotune_cache: dict = {}
 _autotune_latency_cache: dict = {}
 _persistent_cache_lock = threading.Lock()
-_persistent_cache_path = cache_root() / "autotune-v3.json"
+_persistent_cache_path = cache_root() / "autotune-v4.json"
 
 _REFINEMENT_MARGIN = 0.08
 _REFINEMENT_MAX_CANDIDATES = 8
 _REFINEMENT_REPS = 30
+
+
+def _selection_score(gpu_samples, wall_samples):
+    """Score short kernels by launch-to-completion latency, long kernels by GPU time."""
+    if not wall_samples:
+        return None
+    wall_time = statistics.median(wall_samples)
+    if not gpu_samples:
+        return wall_time
+    gpu_time = statistics.median(gpu_samples)
+    return wall_time if completion_spin_budget_ns(gpu_time) else gpu_time
 
 
 class AutotunedKernel:
@@ -111,14 +122,17 @@ class AutotunedLauncher:
         results = self._benchmark_candidates(args, kwargs, dev)
         successful = [
             (dt, description_bits, cfg)
-            for cfg, dt, description_bits, error in results
+            for cfg, dt, description_bits, error, _ in results
             if error is None and dt is not None and description_bits is not None
         ]
 
         if not successful:
             raise RuntimeError(f"All {len(at.configs)} configs failed for '{at.kernel_fn.name}'")
         best = choose_mdl_tie(successful)
-        gpu_seconds = next(dt for cfg, dt, _, _ in results if cfg == best and dt is not None)
+        selection_time, gpu_seconds = next(
+            (dt, gpu_time) for cfg, dt, _, _, gpu_time in results if cfg == best
+        )
+        gpu_seconds = gpu_seconds if gpu_seconds is not None else selection_time
 
         _autotune_cache[cache_key] = best
         _autotune_latency_cache[cache_key] = gpu_seconds
@@ -127,7 +141,7 @@ class AutotunedLauncher:
         if at.verbose:
             key_str = ", ".join(f"{k}={v}" for k, v in zip(at.key, key_values))
             print(f"autotune {at.kernel_fn.name} [{key_str}]: {best}")
-            for cfg, dt, _, err in results:
+            for cfg, dt, _, err, _ in results:
                 tag = " <--" if cfg == best else ""
                 if dt is not None:
                     print(f"  {cfg}: {dt * 1000:.2f}ms{tag}")
@@ -246,12 +260,14 @@ class AutotunedLauncher:
                 merged = {**kwargs, **config.kwargs}
                 grid = self._resolve_grid(config)
                 dispatch = at.kernel_fn[grid].prepare(*args, **merged)
+                dispatch._completion_spin_ns = 1_500_000
                 states.append(
                     {
                         "config": config,
                         "description_bits": dispatch.description_bits,
                         "dispatch": dispatch,
-                        "samples": [],
+                        "gpu_samples": [],
+                        "wall_samples": [],
                         "error": None,
                     }
                 )
@@ -261,7 +277,8 @@ class AutotunedLauncher:
                         "config": config,
                         "description_bits": None,
                         "dispatch": None,
-                        "samples": [],
+                        "gpu_samples": [],
+                        "wall_samples": [],
                         "error": error,
                     }
                 )
@@ -276,16 +293,19 @@ class AutotunedLauncher:
                 ordered.reverse()
             for state in ordered:
                 try:
-                    start = time.perf_counter()
+                    start = time.perf_counter_ns()
                     state["dispatch"]()
                     dev.sync()
                     if timed:
                         gpu_time = dev.gpu_elapsed()
-                        state["samples"].append(
-                            gpu_time if gpu_time > 0 else time.perf_counter() - start
-                        )
+                        state["wall_samples"].append((time.perf_counter_ns() - start) * 1e-9)
+                        if gpu_time > 0:
+                            state["gpu_samples"].append(gpu_time)
                 except Exception as error:
                     state["error"] = error
+
+        def score(state):
+            return _selection_score(state["gpu_samples"], state["wall_samples"])
 
         for round_index in range(at.warmup):
             run_round(round_index, timed=False)
@@ -293,14 +313,14 @@ class AutotunedLauncher:
             run_round(round_index, timed=True)
 
         ranked = sorted(
-            (state for state in states if state["samples"] and state["error"] is None),
-            key=lambda state: statistics.median(state["samples"]),
+            (state for state in states if state["wall_samples"] and state["error"] is None),
+            key=score,
         )
         if ranked:
-            cutoff = statistics.median(ranked[0]["samples"]) * (1.0 + _REFINEMENT_MARGIN)
-            finalists = [
-                state for state in ranked if statistics.median(state["samples"]) <= cutoff
-            ][:_REFINEMENT_MAX_CANDIDATES]
+            cutoff = score(ranked[0]) * (1.0 + _REFINEMENT_MARGIN)
+            finalists = [state for state in ranked if score(state) <= cutoff][
+                :_REFINEMENT_MAX_CANDIDATES
+            ]
             if len(finalists) > 1:
                 for round_index in range(_REFINEMENT_REPS):
                     run_round(at.rep + round_index, timed=True, candidates=finalists)
@@ -308,9 +328,10 @@ class AutotunedLauncher:
         return [
             (
                 state["config"],
-                statistics.median(state["samples"]) if state["samples"] else None,
+                score(state) if state["wall_samples"] else None,
                 state["description_bits"],
                 state["error"],
+                statistics.median(state["gpu_samples"]) if state["gpu_samples"] else None,
             )
             for state in states
         ]

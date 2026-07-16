@@ -12,286 +12,224 @@ def fft_kernel(
     X_im,
     Y_re,
     Y_im,
-    BIT_REV,
     TW_re,
     TW_im,
     N,
+    BATCH: metile.constexpr,
     NUM_STAGES: metile.constexpr,
     BLOCK: metile.constexpr,
+    ELEMS_PER_THREAD: metile.constexpr,
+    BIT_REVERSE_GATHER: metile.constexpr,
+    TWIDDLE_SHARED: metile.constexpr,
 ):
+    if BATCH <= 0:
+        raise ValueError("BATCH must be positive")
+
     row = metile.program_id(0)
     tid = metile.thread_id()
     row_off = row * N
 
-    s_re = metile.shared(BLOCK)
-    s_im = metile.shared(BLOCK)
-    tw_src_re = metile.shared(BLOCK)
-    tw_src_im = metile.shared(BLOCK)
-
-    metile.store(tw_src_re + tid, metile.load(TW_re + tid))
-    metile.store(tw_src_im + tid, metile.load(TW_im + tid))
-
-    rev = metile.load(BIT_REV + tid)
-    metile.store(s_re + rev, metile.load(X_re + row_off + tid))
-    metile.store(s_im + rev, metile.load(X_im + row_off + tid))
-    metile.barrier()
-
-    my_re = metile.load(s_re + tid)
-    my_im = metile.load(s_im + tid)
-
-    SIMD_STAGES = min(5, NUM_STAGES)  # log2(32) = 5
-    for stage in range(SIMD_STAGES):
-        half = 1 << stage
-        is_even = (tid & half) == 0
-
-        p_re = metile.simd_shuffle_xor(my_re, half)
-        p_im = metile.simd_shuffle_xor(my_im, half)
-
-        if stage == 0:
-            my_re = metile.where(is_even, my_re + p_re, p_re - my_re)
-            my_im = metile.where(is_even, my_im + p_im, p_im - my_im)
-        else:
-            half_mask = half - 1
-            tw_pos = tid & half_mask
-            tw_r = metile.load(tw_src_re + half_mask + tw_pos)
-            tw_i = metile.load(tw_src_im + half_mask + tw_pos)
-
-            t_re = p_re * tw_r - p_im * tw_i
-            t_im = p_re * tw_i + p_im * tw_r
-
-            pt_re = metile.simd_shuffle_xor(t_re, half)
-            pt_im = metile.simd_shuffle_xor(t_im, half)
-
-            my_re = metile.where(is_even, my_re + t_re, p_re - pt_re)
-            my_im = metile.where(is_even, my_im + t_im, p_im - pt_im)
-
-    REMAINING = NUM_STAGES - SIMD_STAGES
-    if REMAINING > 0:
-        metile.barrier()
-        metile.store(s_re + tid, my_re)
-        metile.store(s_im + tid, my_im)
-        metile.barrier()
-
-    if REMAINING > 0:
-        for stage_offset in metile.tile_range(0, REMAINING):
-            stage = stage_offset + SIMD_STAGES
-            half = 1 << stage
-            half_bit = tid & half
-            half_mask = half - 1
-
-            even_idx = tid - half_bit
-            odd_idx = even_idx + half
-
-            tw_pos = tid & half_mask
-            tw_r = metile.load(tw_src_re + half_mask + tw_pos)
-            tw_i = metile.load(tw_src_im + half_mask + tw_pos)
-
-            e_re = metile.load(s_re + even_idx)
-            e_im = metile.load(s_im + even_idx)
-            o_re = metile.load(s_re + odd_idx)
-            o_im = metile.load(s_im + odd_idx)
-
-            t_re = o_re * tw_r - o_im * tw_i
-            t_im = o_re * tw_i + o_im * tw_r
-
-            out_re = metile.where(half_bit == 0, e_re + t_re, e_re - t_re)
-            out_im = metile.where(half_bit == 0, e_im + t_im, e_im - t_im)
-
-            metile.barrier()
-            metile.store(s_re + tid, out_re)
-            metile.store(s_im + tid, out_im)
-            metile.barrier()
-
-    if NUM_STAGES <= SIMD_STAGES:
-        metile.store(s_re + tid, my_re)
-        metile.store(s_im + tid, my_im)
-
-    metile.store(Y_re + row_off + tid, metile.load(s_re + tid))
-    metile.store(Y_im + row_off + tid, metile.load(s_im + tid))
-
-
-def _make_fft_kernel_large(elems_per_thread):
-    import math as _math
-
-    LOG_ELEMS = int(_math.log2(elems_per_thread))
-
-    @metile.kernel
-    def fft_kernel_large(
-        X_re,
-        X_im,
-        Y_re,
-        Y_im,
-        BIT_REV,
-        TW_re,
-        TW_im,
-        N,
-        NUM_STAGES: metile.constexpr,
-        BLOCK: metile.constexpr,
-    ):
-        row = metile.program_id(0)
-        tid = metile.thread_id()
-        row_off = row * N
-
-        n_total = BLOCK * elems_per_thread
+    log_elements = int(math.log2(ELEMS_PER_THREAD))
+    n_total = BLOCK * ELEMS_PER_THREAD
+    simd_stages = min(5, NUM_STAGES)
+    threadgroup_stages = NUM_STAGES - simd_stages - log_elements
+    if not BIT_REVERSE_GATHER or threadgroup_stages > 0:
         s_re = metile.shared(n_total)
         s_im = metile.shared(n_total)
-        USE_TW_SHARED = elems_per_thread <= 2
-        if USE_TW_SHARED:
-            tw_src_re = metile.shared(n_total)
-            tw_src_im = metile.shared(n_total)
-            for e in range(elems_per_thread):
-                idx = tid + e * BLOCK
-                metile.store(tw_src_re + idx, metile.load(TW_re + idx))
-                metile.store(tw_src_im + idx, metile.load(TW_im + idx))
-        else:
-            tw_src_re = TW_re
-            tw_src_im = TW_im
+    if TWIDDLE_SHARED:
+        tw_source_re = metile.shared(n_total)
+        tw_source_im = metile.shared(n_total)
+        for element in range(ELEMS_PER_THREAD):
+            index = tid + element * BLOCK
+            metile.store(tw_source_re + index, metile.load(TW_re + index))
+            metile.store(tw_source_im + index, metile.load(TW_im + index))
+        if BIT_REVERSE_GATHER:
+            metile.barrier()
+    else:
+        tw_source_re = TW_re
+        tw_source_im = TW_im
 
-        for e in range(elems_per_thread):
-            idx = tid + e * BLOCK
-            rev = metile.load(BIT_REV + idx)
-            metile.store(s_re + rev, metile.load(X_re + row_off + idx))
-            metile.store(s_im + rev, metile.load(X_im + row_off + idx))
+    element_re = []
+    element_im = []
+    if BIT_REVERSE_GATHER:
+        for element in range(ELEMS_PER_THREAD):
+            index = tid + element * BLOCK
+            reverse_index = metile.reverse_bits(index) >> (32 - NUM_STAGES)
+            element_re.append(metile.load(X_re + row_off + reverse_index))
+            element_im.append(metile.load(X_im + row_off + reverse_index))
+    else:
+        for element in range(ELEMS_PER_THREAD):
+            index = tid + element * BLOCK
+            reverse_index = metile.reverse_bits(index) >> (32 - NUM_STAGES)
+            metile.store(s_re + reverse_index, metile.load(X_re + row_off + index))
+            metile.store(s_im + reverse_index, metile.load(X_im + row_off + index))
         metile.barrier()
 
-        elem_re = []
-        elem_im = []
-        for e in range(elems_per_thread):
-            idx = tid + e * BLOCK
-            elem_re.append(metile.load(s_re + idx))
-            elem_im.append(metile.load(s_im + idx))
+        for element in range(ELEMS_PER_THREAD):
+            index = tid + element * BLOCK
+            element_re.append(metile.load(s_re + index))
+            element_im.append(metile.load(s_im + index))
 
-        SIMD_STAGES = min(5, NUM_STAGES)
-        for stage in range(SIMD_STAGES):
-            half = 1 << stage
-            for e in range(elems_per_thread):
-                idx = tid + e * BLOCK
-                is_even = (tid & half) == 0
+    for stage in range(simd_stages):
+        half = 1 << stage
+        is_even = (tid & half) == 0
+        if stage > 0:
+            half_mask = half - 1
+            twiddle_position = tid & half_mask
+            twiddle_re = metile.load(tw_source_re + half_mask + twiddle_position)
+            twiddle_im = metile.load(tw_source_im + half_mask + twiddle_position)
+        for element in range(ELEMS_PER_THREAD):
+            partner_re = metile.simd_shuffle_xor(element_re[element], half)
+            partner_im = metile.simd_shuffle_xor(element_im[element], half)
 
-                p_re = metile.simd_shuffle_xor(elem_re[e], half)
-                p_im = metile.simd_shuffle_xor(elem_im[e], half)
+            if stage == 0:
+                element_re[element] = metile.where(
+                    is_even,
+                    element_re[element] + partner_re,
+                    partner_re - element_re[element],
+                )
+                element_im[element] = metile.where(
+                    is_even,
+                    element_im[element] + partner_im,
+                    partner_im - element_im[element],
+                )
+            else:
+                butterfly_re = metile.where(is_even, partner_re, element_re[element])
+                butterfly_im = metile.where(is_even, partner_im, element_im[element])
+                transformed_re = butterfly_re * twiddle_re - butterfly_im * twiddle_im
+                transformed_im = butterfly_re * twiddle_im + butterfly_im * twiddle_re
 
-                if stage == 0:
-                    elem_re[e] = metile.where(is_even, elem_re[e] + p_re, p_re - elem_re[e])
-                    elem_im[e] = metile.where(is_even, elem_im[e] + p_im, p_im - elem_im[e])
-                else:
-                    half_mask = half - 1
-                    tw_pos = tid & half_mask
-                    tw_r = metile.load(tw_src_re + half_mask + tw_pos)
-                    tw_i = metile.load(tw_src_im + half_mask + tw_pos)
+                element_re[element] = metile.where(
+                    is_even,
+                    element_re[element] + transformed_re,
+                    partner_re - transformed_re,
+                )
+                element_im[element] = metile.where(
+                    is_even,
+                    element_im[element] + transformed_im,
+                    partner_im - transformed_im,
+                )
 
-                    t_re = p_re * tw_r - p_im * tw_i
-                    t_im = p_re * tw_i + p_im * tw_r
+    if threadgroup_stages > 0:
+        for element in range(ELEMS_PER_THREAD):
+            index = tid + element * BLOCK
+            metile.store(s_re + index, element_re[element])
+            metile.store(s_im + index, element_im[element])
+        metile.barrier()
 
-                    pt_re = metile.simd_shuffle_xor(t_re, half)
-                    pt_im = metile.simd_shuffle_xor(t_im, half)
-
-                    elem_re[e] = metile.where(is_even, elem_re[e] + t_re, p_re - pt_re)
-                    elem_im[e] = metile.where(is_even, elem_im[e] + t_im, p_im - pt_im)
-
-        TG_STAGES = NUM_STAGES - SIMD_STAGES - LOG_ELEMS
-        if TG_STAGES > 0:
-            metile.barrier()
-            for e in range(elems_per_thread):
-                idx = tid + e * BLOCK
-                metile.store(s_re + idx, elem_re[e])
-                metile.store(s_im + idx, elem_im[e])
-            metile.barrier()
-
-        if TG_STAGES > 0:
-            for stage_offset in metile.tile_range(0, TG_STAGES):
-                stage = stage_offset + SIMD_STAGES
-                half = 1 << stage
-                half_mask = half - 1
-
-                results_re = []
-                results_im = []
-                for e in range(elems_per_thread):
-                    idx = tid + e * BLOCK
-                    half_bit = idx & half
-                    even_idx = idx - half_bit
-                    odd_idx = even_idx + half
-
-                    tw_pos = idx & half_mask
-                    tw_r = metile.load(tw_src_re + half_mask + tw_pos)
-                    tw_i = metile.load(tw_src_im + half_mask + tw_pos)
-
-                    e_re = metile.load(s_re + even_idx)
-                    e_im = metile.load(s_im + even_idx)
-                    o_re = metile.load(s_re + odd_idx)
-                    o_im = metile.load(s_im + odd_idx)
-
-                    t_re = o_re * tw_r - o_im * tw_i
-                    t_im = o_re * tw_i + o_im * tw_r
-
-                    out_re = metile.where(half_bit == 0, e_re + t_re, e_re - t_re)
-                    out_im = metile.where(half_bit == 0, e_im + t_im, e_im - t_im)
-
-                    results_re.append(out_re)
-                    results_im.append(out_im)
-
-                metile.barrier()
-                for e in range(elems_per_thread):
-                    idx = tid + e * BLOCK
-                    metile.store(s_re + idx, results_re[e])
-                    metile.store(s_im + idx, results_im[e])
-                metile.barrier()
-
-            for e in range(elems_per_thread):
-                idx = tid + e * BLOCK
-                elem_re[e] = metile.load(s_re + idx)
-                elem_im[e] = metile.load(s_im + idx)
-
-        for local_stage in range(LOG_ELEMS):
-            local_half_elems = 1 << local_stage
-            local_stride = 2 * local_half_elems
-            stage = NUM_STAGES - LOG_ELEMS + local_stage
+        for stage_offset in range(threadgroup_stages):
+            stage = stage_offset + simd_stages
             half = 1 << stage
             half_mask = half - 1
+            twiddle_position = tid & half_mask
+            twiddle_re = metile.load(tw_source_re + half_mask + twiddle_position)
+            twiddle_im = metile.load(tw_source_im + half_mask + twiddle_position)
 
-            for g in range(elems_per_thread // local_stride):
-                e_even = g * local_stride
-                e_odd = e_even + local_half_elems
+            results_re = []
+            results_im = []
+            for element in range(ELEMS_PER_THREAD):
+                index = tid + element * BLOCK
+                half_bit = index & half
+                even_index = index - half_bit
+                odd_index = even_index + half
 
-                idx_even = tid + e_even * BLOCK
-                tw_pos = idx_even & half_mask
-                tw_r = metile.load(tw_src_re + half_mask + tw_pos)
-                tw_i = metile.load(tw_src_im + half_mask + tw_pos)
+                even_re = metile.load(s_re + even_index)
+                even_im = metile.load(s_im + even_index)
+                odd_re = metile.load(s_re + odd_index)
+                odd_im = metile.load(s_im + odd_index)
 
-                a_re, a_im = elem_re[e_even], elem_im[e_even]
-                b_re, b_im = elem_re[e_odd], elem_im[e_odd]
+                transformed_re = odd_re * twiddle_re - odd_im * twiddle_im
+                transformed_im = odd_re * twiddle_im + odd_im * twiddle_re
 
-                t_re = b_re * tw_r - b_im * tw_i
-                t_im = b_re * tw_i + b_im * tw_r
+                results_re.append(
+                    metile.where(half_bit == 0, even_re + transformed_re, even_re - transformed_re)
+                )
+                results_im.append(
+                    metile.where(half_bit == 0, even_im + transformed_im, even_im - transformed_im)
+                )
 
-                elem_re[e_even] = a_re + t_re
-                elem_im[e_even] = a_im + t_im
-                elem_re[e_odd] = a_re - t_re
-                elem_im[e_odd] = a_im - t_im
+            if stage_offset + 1 < threadgroup_stages:
+                metile.barrier()
+                for element in range(ELEMS_PER_THREAD):
+                    index = tid + element * BLOCK
+                    metile.store(s_re + index, results_re[element])
+                    metile.store(s_im + index, results_im[element])
+                metile.barrier()
+            else:
+                element_re = results_re
+                element_im = results_im
 
-        for e in range(elems_per_thread):
-            idx = tid + e * BLOCK
-            metile.store(Y_re + row_off + idx, elem_re[e])
-            metile.store(Y_im + row_off + idx, elem_im[e])
+    for local_stage in range(log_elements):
+        local_half_elements = 1 << local_stage
+        local_stride = 2 * local_half_elements
+        stage = NUM_STAGES - log_elements + local_stage
+        half = 1 << stage
+        half_mask = half - 1
 
-    return fft_kernel_large
+        for offset in range(local_half_elements):
+            representative_index = tid + offset * BLOCK
+            twiddle_position = representative_index & half_mask
+            twiddle_re = metile.load(tw_source_re + half_mask + twiddle_position)
+            twiddle_im = metile.load(tw_source_im + half_mask + twiddle_position)
+
+            for group in range(ELEMS_PER_THREAD // local_stride):
+                even_element = group * local_stride + offset
+                odd_element = even_element + local_half_elements
+
+                even_re, even_im = element_re[even_element], element_im[even_element]
+                odd_re, odd_im = element_re[odd_element], element_im[odd_element]
+
+                transformed_re = odd_re * twiddle_re - odd_im * twiddle_im
+                transformed_im = odd_re * twiddle_im + odd_im * twiddle_re
+
+                element_re[even_element] = even_re + transformed_re
+                element_im[even_element] = even_im + transformed_im
+                element_re[odd_element] = even_re - transformed_re
+                element_im[odd_element] = even_im - transformed_im
+
+    for element in range(ELEMS_PER_THREAD):
+        index = tid + element * BLOCK
+        metile.store(Y_re + row_off + index, element_re[element])
+        metile.store(Y_im + row_off + index, element_im[element])
 
 
-_FFT_KERNELS = {
-    1: fft_kernel,
-    2: _make_fft_kernel_large(2),
-}
+_FFT_TUNERS = {}
 
 
-def _bit_reverse_permutation(N):
-    bits = int(math.log2(N))
-    perm = np.zeros(N, dtype=np.int32)
-    for i in range(N):
-        rev = 0
-        for b in range(bits):
-            rev = (rev << 1) | ((i >> b) & 1)
-        perm[i] = rev
-    return perm
+def _fft_configs(n):
+    configs = []
+    for elements_per_thread in (1, 2, 4, 8, 16, 32):
+        if n % elements_per_thread:
+            continue
+        block = n // elements_per_thread
+        if block > 1024 or (n >= 32 and block < 32):
+            continue
+        if n < 32 and elements_per_thread != 1:
+            continue
+        twiddle_placements = (False,) if n >= 2048 else (False, True)
+        for bit_reverse_gather in (False, True):
+            for twiddle_shared in twiddle_placements:
+                configs.append(
+                    metile.Config(
+                        BLOCK=block,
+                        ELEMS_PER_THREAD=elements_per_thread,
+                        BIT_REVERSE_GATHER=bit_reverse_gather,
+                        TWIDDLE_SHARED=twiddle_shared,
+                    )
+                )
+    return configs
+
+
+def _fft_tuner(n):
+    tuner = _FFT_TUNERS.get(n)
+    if tuner is None:
+        tuner = metile.autotune(
+            configs=_fft_configs(n),
+            key=["BATCH", "N"],
+            verbose=False,
+        )(fft_kernel)
+        _FFT_TUNERS[n] = tuner
+    return tuner
 
 
 def _twiddle_factors(num_stages):
@@ -308,25 +246,21 @@ def fft_dispatch(batch, N, x_re_buf, x_im_buf, y_re_buf, y_im_buf):
     assert N & (N - 1) == 0, "N must be a power of 2"
     assert N <= 2048, "N must be <= 2048 (shared memory limit)"
     num_stages = int(math.log2(N))
-    elems = max(1, N // 1024)
-    block = min(N, 1024)
 
-    perm = _bit_reverse_permutation(N)
     tw_re, tw_im = _twiddle_factors(num_stages)
 
-    kern = _FFT_KERNELS[elems]
+    tuner = _fft_tuner(N)
     grid = (batch,)
-    return kern[grid].prepare(
+    return tuner[grid].prepare(
         x_re_buf,
         x_im_buf,
         y_re_buf,
         y_im_buf,
-        metile.Buffer(data=perm),
         metile.Buffer(data=tw_re),
         metile.Buffer(data=tw_im),
         N,
+        BATCH=batch,
         NUM_STAGES=num_stages,
-        BLOCK=block,
     )
 
 

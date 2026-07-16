@@ -75,14 +75,16 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 
 **Codegen**
 - Simdgroup matrix (8x8) MMA with decomposed load / MMA / store primitives
+- Native unsigned `reverse_bits` lowering for branch-free permutation decoders
 - Metal 4 tensor_ops (`matmul2d`) with runtime GPU-family and toolchain checks; the M5 path supports preemptive, cooperative, and direct register-fragment execution
 - Per-kernel `max_total_threads_per_threadgroup` specialization and shared op-by-op emission instead of monolithic whole-kernel templates
 - AOT compilation via `xcrun metal -O2` with JIT fallback (`newLibraryWithSource`) when Xcode is unavailable
 
 **Runtime**
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
-- Interleaved round-robin GPU-timestamp autotuning with device/toolchain-keyed persistent config, measured-latency, and metallib caches.
+- Interleaved round-robin autotuning uses synchronized end-to-end latency for sub-millisecond kernels and GPU timestamps for sustained workloads, with device/toolchain-keyed persistent config, measured-latency, and metallib caches.
 - Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates, including 2- and 4-SIMDgroup MXFP tiles.
+- Batched FFT dispatch searches threadgroup width, register-local radix decomposition, bit-reversal placement, and twiddle placement per transform shape instead of selecting a monolithic kernel template.
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
 - Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; measured short kernels receive an adaptive bounded poll-before-sleep budget while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.

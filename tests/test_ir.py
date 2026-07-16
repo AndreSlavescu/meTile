@@ -2,7 +2,7 @@ from metile.codegen.msl_emitter import emit
 from metile.compiler.lowering import lower
 from metile.ir import tile_ir as tir
 from metile.ir.printer import print_metal_ir, print_tile_ir
-from metile.ir.types import I32, PtrType
+from metile.ir.types import I32, U32, PtrType
 
 
 def _build_vector_add_ir() -> tir.Function:
@@ -99,6 +99,20 @@ def test_msl_compiles():
     dev = MetalDevice.get()
     pipeline = dev.compile_msl(msl, metal_func.name)
     assert pipeline is not None
+
+
+def test_reverse_bits_lowers_to_native_unsigned_msl():
+    from metile.ir import metal_ir as mir
+
+    func = tir.Function(name="reverse_bits", params=[tir.Param("value", I32)])
+    value = tir.Value("value", I32)
+    reversed_value = func.add_op(tir.Unary(op="reverse_bits", operand=value))
+
+    assert reversed_value.type == U32
+    metal_func = lower(func)
+    reverse_op = next(op for op in metal_func.ops if isinstance(op, mir.MUnary))
+    assert reverse_op.result_type() == U32
+    assert "reverse_bits" in emit(metal_func)
 
 
 def _build_simdgroup_role_ir() -> tir.Function:

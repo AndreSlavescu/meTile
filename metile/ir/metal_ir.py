@@ -155,12 +155,14 @@ class MCast(MOp):
 
 @dataclass
 class MUnary(MOp):
-    """Unary math operation (exp, log, sqrt, abs, neg)."""
+    """Unary operation (exp, log, sqrt, abs, neg, reverse_bits)."""
 
     op: str = ""
     operand: MValue = None
 
     def result_type(self) -> ScalarType:
+        if self.op == "reverse_bits":
+            return U32
         return self.operand.type
 
 

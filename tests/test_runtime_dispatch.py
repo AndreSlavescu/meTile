@@ -156,6 +156,18 @@ def test_completion_spin_budget_tracks_measured_gpu_latency(gpu_seconds, expecte
     assert completion_spin_budget_ns(gpu_seconds) == expected_ns
 
 
+def test_autotune_scores_short_kernels_by_end_to_end_latency():
+    from metile.frontend.autotune import _selection_score
+
+    assert _selection_score([0.0001, 0.00011], [0.0005, 0.0006]) == pytest.approx(0.00055)
+
+
+def test_autotune_scores_long_kernels_by_gpu_latency():
+    from metile.frontend.autotune import _selection_score
+
+    assert _selection_score([0.002, 0.0022], [0.003, 0.0032]) == pytest.approx(0.0021)
+
+
 def test_autotune_persists_measured_completion_budget(tmp_path, monkeypatch):
     from metile.frontend import autotune as autotune_module
 

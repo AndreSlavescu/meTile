@@ -2,9 +2,9 @@ Autotuning
 ==========
 
 Different problem sizes benefit from different tile configurations. meTile's autotuner
-benchmarks GPU timestamps and caches the fastest one per problem shape. Winners persist
-across processes and are invalidated when the device, compiler toolchain, kernel source,
-or candidate family changes.
+benchmarks each representation and caches the fastest one per problem shape. Winners
+persist across processes and are invalidated when the device, compiler toolchain, kernel
+source, or candidate family changes.
 
 
 Basic Usage
@@ -48,7 +48,8 @@ The grid must be a callable that computes the grid shape from the config:
 On the first call with new key values, the autotuner:
 
 1. Compiles every valid config
-2. Benchmarks candidates in rotated, alternating round-robin order
+2. Benchmarks candidates in rotated, alternating round-robin order, recording both
+   GPU timestamps and synchronized launch-to-completion latency
 3. Re-benchmarks up to eight candidates within 8% of the provisional winner in a
    30-round rotating finalist tournament
 4. Selects the fastest one, using generated-code size only for a sub-percent tie
@@ -56,6 +57,12 @@ On the first call with new key values, the autotuner:
 6. Dispatches with the winning config
 
 Subsequent calls with the same key values reuse the winner without re-tuning.
+
+For kernels measured at one millisecond or less, selection uses synchronized end-to-end
+latency because command encoding and completion handling are material parts of the hot
+path. Longer throughput kernels use GPU timestamps so host scheduling noise does not
+distort device execution. The raw GPU latency of the selected candidate is persisted
+separately and drives the prepared dispatch completion policy.
 
 The cache defaults to ``~/Library/Caches/metile`` on macOS. Set
 ``METILE_CACHE_DIR`` to relocate it, or ``METILE_DISABLE_DISK_CACHE=1`` to disable
@@ -130,6 +137,12 @@ topological fundamental group. Likewise, exact Kolmogorov complexity is
 uncomputable. meTile uses DEFLATE-compressed generated MSL length as a reproducible
 minimum-description-length upper bound. Measured latency is always primary: MDL can
 only choose a smaller representation when it is within 0.25% of the fastest result.
+
+The same compositional policy applies beyond GEMM traversal. The FFT candidate family
+keeps one kernel expressed from ordinary eDSL operations while searching threadgroup
+width, the number of register-local radix-2 stages, bit-reversed gather versus shared
+scatter, and global versus threadgroup twiddle placement. Native ``reverse_bits``
+lowering makes the permutation decoder branch-free without a host-generated index table.
 
 
 Verbose Output

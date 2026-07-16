@@ -472,6 +472,11 @@ def tanh(x) -> TracingProxy:
     return _unary("tanh", x)
 
 
+def reverse_bits(x) -> TracingProxy:
+    """Reverse the bits of a scalar 32-bit integer."""
+    return _unary("reverse_bits", x)
+
+
 def maximum(a, b) -> TracingProxy:
     """Element-wise maximum: max(a, b)."""
     return _binop("max", a, b)

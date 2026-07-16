@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from metile.ir.types import BOOL, I32, PtrType, ScalarType, TileType
+from metile.ir.types import BOOL, I32, U32, PtrType, ScalarType, TileType
 
 
 @dataclass
@@ -99,10 +99,12 @@ class BinOp(Op):
 class Unary(Op):
     """Unary operation on scalars or tiles."""
 
-    op: str = ""  # "exp", "log", "sqrt", "abs", "neg"
+    op: str = ""  # "exp", "log", "sqrt", "abs", "neg", "reverse_bits"
     operand: Value = None
 
     def result_type(self):
+        if self.op == "reverse_bits":
+            return U32
         return self.operand.type
 
 
