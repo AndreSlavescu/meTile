@@ -85,7 +85,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 **Runtime**
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
 - Interleaved round-robin autotuning uses synchronized end-to-end latency for sub-millisecond kernels and GPU timestamps for sustained workloads, with launch-grid-, shape-, device-, and toolchain-keyed persistent config, measured-latency, and metallib caches.
-- Online decode attention is one ordinary eDSL kernel. The runtime searches 2-, 4-, 8-, 16-, and 32-SIMDgroup schedules per head count, context length, and head dimension.
+- Online decode attention is composed from ordinary eDSL kernels. The runtime measures single-pass 2/4/8/16/32-SIMDgroup schedules and long-context two-pass token partitions per head count, context length, and head dimension.
 - Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates, including 2- and 4-SIMDgroup MXFP tiles.
 - Batched FFT dispatch searches threadgroup width, register-local radix decomposition, bit-reversal placement, and twiddle placement per transform shape instead of selecting a monolithic kernel template.
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
@@ -111,11 +111,12 @@ two-SIMDgroup output tiles, and returns a reusable hot-path dispatcher.
 
 ## Decode Attention
 
-The decode kernel keeps query values and online-softmax state in registers and merges
-SIMDgroup partials without materializing an attention matrix:
+The decode kernels keep query values and online-softmax state in registers and merge
+SIMDgroup partials without materializing an attention matrix. For long contexts, the
+runtime also measures a multi-threadgroup first pass and a second online merge:
 
 ```python
-from kernels.attention import attention_decode
+from kernels import attention_decode
 
 dispatch = attention_decode[(num_heads,)].prepare(
     query, key, value, output, context_length, head_dim**-0.5, D=head_dim

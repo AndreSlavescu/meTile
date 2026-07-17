@@ -160,6 +160,12 @@ width, the number of register-local radix-2 stages, bit-reversed gather versus s
 scatter, and global versus threadgroup twiddle placement. Native ``reverse_bits``
 lowering makes the permutation decoder branch-free without a host-generated index table.
 
+Decode attention applies the same policy across algorithms. Short and highly parallel
+shapes search one online-softmax threadgroup per head. Long contexts additionally search
+a multi-threadgroup partial pass followed by an online merge pass. Both kernels remain
+ordinary eDSL programs, and the persisted winner is keyed by head grid, context length,
+head dimension, device, toolchain, source, and candidate family.
+
 
 Verbose Output
 --------------

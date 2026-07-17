@@ -11,7 +11,7 @@ import numpy as np
 from benchutils import bench_interleaved
 
 import metile
-from kernels.attention import attention_decode
+from kernels import attention_decode
 from metile.runtime.metal_device import MetalDevice
 
 COOLDOWN = 3.0
@@ -26,7 +26,14 @@ def main():
 
     print(f"    {'shape':>18}  {'meTile (us)':>12}  {'MLX (us)':>12}  {'speedup':>9}")
     print("    " + "-" * 57)
-    for heads, tokens in ((32, 128), (32, 512), (32, 2048), (16, 8192)):
+    for heads, tokens in (
+        (32, 128),
+        (32, 512),
+        (32, 2048),
+        (1, 8192),
+        (2, 8192),
+        (16, 8192),
+    ):
         query = random.standard_normal((heads, dimension), dtype=np.float32)
         key = random.standard_normal((heads, tokens, dimension), dtype=np.float32)
         value = random.standard_normal((heads, tokens, dimension), dtype=np.float32)
