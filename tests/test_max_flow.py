@@ -74,29 +74,29 @@ def test_max_flow_matches_exhaustive_cuts_on_small_graphs():
 
 def test_exact_solvers_are_reusable_and_agree_on_random_graphs():
     random = Random(7)
-    for vertex_count in range(2, 11):
-        for _ in range(20):
-            network = FlowNetwork()
-            vertices = list(range(vertex_count))
-            edges = []
-            for source in vertices:
-                for target in vertices:
-                    if source != target and random.random() < 0.25:
-                        edge = (source, target, random.randint(1, 20))
-                        edges.append(edge)
-                        network.add_edge(*edge)
+    for _ in range(500):
+        vertex_count = random.randint(2, 12)
+        network = FlowNetwork()
+        vertices = list(range(vertex_count))
+        edges = []
+        for source in vertices:
+            for target in vertices:
+                if source != target and random.random() < 0.25:
+                    edge = (source, target, random.uniform(0.01, 20.0))
+                    edges.append(edge)
+                    network.add_edge(*edge)
 
-            dinic = network.minimum_cut(0, vertex_count - 1, solver="dinic")
-            push_relabel = network.minimum_cut(0, vertex_count - 1, solver="push_relabel")
-            automatic = network.minimum_cut(0, vertex_count - 1)
-            repeated = network.minimum_cut(0, vertex_count - 1, solver="dinic")
+        dinic = network.minimum_cut(0, vertex_count - 1, solver="dinic")
+        push_relabel = network.minimum_cut(0, vertex_count - 1, solver="push_relabel")
+        automatic = network.minimum_cut(0, vertex_count - 1)
+        repeated = network.minimum_cut(0, vertex_count - 1, solver="dinic")
 
-            assert push_relabel[0] == pytest.approx(dinic[0])
-            assert automatic[0] == pytest.approx(dinic[0])
-            assert repeated == dinic
-            assert _cut_capacity(edges, dinic[1]) == pytest.approx(dinic[0])
-            assert _cut_capacity(edges, push_relabel[1]) == pytest.approx(push_relabel[0])
-            assert _cut_capacity(edges, automatic[1]) == pytest.approx(automatic[0])
+        assert push_relabel[0] == pytest.approx(dinic[0])
+        assert automatic[0] == pytest.approx(dinic[0])
+        assert repeated == dinic
+        assert _cut_capacity(edges, dinic[1]) == pytest.approx(dinic[0])
+        assert _cut_capacity(edges, push_relabel[1]) == pytest.approx(push_relabel[0])
+        assert _cut_capacity(edges, automatic[1]) == pytest.approx(automatic[0])
 
 
 def test_auto_solver_keeps_small_graphs_on_dinic():
