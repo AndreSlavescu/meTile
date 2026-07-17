@@ -156,8 +156,10 @@ patch.restore()
 
 The dispatcher benchmarks native MLX alongside generated blocks. It requires at least
 5% primitive-level headroom before crossing the framework boundary; otherwise the call
-stays on MLX. Unsupported prefill attention, masks, sinks, quantized KV caches, and dtypes
-also fall back exactly. RMSNorm supports FP16/FP32 and accumulates in FP32.
+stays on MLX. A high-level compute DAG also discovers multi-output residual-add/RMSNorm
+fusion using an exact max-flow/min-cut pass and a stricter 10% switch margin. Unsupported
+prefill attention, masks, sinks, quantized KV caches, and dtypes also fall back exactly.
+RMSNorm supports FP16/FP32 and accumulates in FP32.
 
 On this M5 32 GB machine with MLX 0.32.0 and MLX-LM 0.31.3, a five-trial interleaved
 Llama 3.2 1B 4-bit run at 128 prompt / 256 generated tokens measured 138.16 tok/s for

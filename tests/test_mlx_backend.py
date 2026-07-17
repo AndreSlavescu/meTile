@@ -39,6 +39,17 @@ def test_framework_dispatch_requires_headroom_over_native():
     assert faster == generated
 
 
+def test_framework_dispatch_accepts_larger_graph_fusion_margin():
+    native = mlx_backend.MLXAddRMSNormConfig("mlx")
+    generated = mlx_backend.MLXAddRMSNormConfig("metile", 256)
+
+    selected = mlx_backend._choose_framework_config(
+        [(1.0, 0, native), (0.92, 100, generated)], margin=0.10
+    )
+
+    assert selected == native
+
+
 def test_mlx_attention_decode_matches_mlx_gqa(monkeypatch):
     mx = pytest.importorskip("mlx.core")
     monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
@@ -83,6 +94,56 @@ def test_mlx_rms_norm_matches_mlx_float16(monkeypatch):
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=2e-3, atol=2e-3)
 
 
+def test_mlx_fused_add_rms_norm_preserves_both_outputs(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_backend._mlx_add_rms_kernel_cache.clear()
+    mlx_backend._mlx_add_rms_schedule_cache.clear()
+    random = np.random.default_rng(29)
+    values = mx.array(random.standard_normal((2, 1, 2048)).astype(np.float16))
+    residual = mx.array(random.standard_normal((2, 1, 2048)).astype(np.float16))
+    weight = mx.array(random.standard_normal((2048,)).astype(np.float16))
+
+    actual_sum, actual_norm = mlx_backend.mlx_add_rms_norm(
+        values, residual, weight, 1e-5, autotune=False
+    )
+    expected_sum = values + residual
+    expected_norm = mx.fast.rms_norm(expected_sum, weight, 1e-5)
+    mx.eval(actual_sum, actual_norm, expected_sum, expected_norm)
+
+    np.testing.assert_array_equal(np.array(actual_sum), np.array(expected_sum))
+    np.testing.assert_allclose(np.array(actual_norm), np.array(expected_norm), rtol=3e-3, atol=3e-3)
+
+
+def test_mlx_graph_executor_runs_selected_fusion(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends.mlx_graph import compile_mlx_graph
+    from metile.ir.graph_ir import GraphBuilder, TensorSpec
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    random = np.random.default_rng(31)
+    values = mx.array(random.standard_normal((1, 64)).astype(np.float32))
+    residual = mx.array(random.standard_normal((1, 64)).astype(np.float32))
+    weight = mx.array(random.standard_normal((64,)).astype(np.float32))
+    builder = GraphBuilder()
+    spec = TensorSpec((1, 64), "f32")
+    values_input = builder.input("values", spec)
+    residual_input = builder.input("residual", spec)
+    weight_input = builder.input("weight", TensorSpec((64,), "f32"))
+    summed = builder.add(values_input, residual_input)
+    normalized = builder.rms_norm(summed, weight_input, 1e-5)
+    executable = compile_mlx_graph(builder.build((summed, normalized)), autotune=False)
+
+    actual_sum, actual_norm = executable(values, residual, weight)
+    expected_sum = values + residual
+    expected_norm = mx.fast.rms_norm(expected_sum, weight, 1e-5)
+    mx.eval(actual_sum, actual_norm, expected_sum, expected_norm)
+
+    assert executable.plan.regions[0].rule.name == "residual_add_rms_norm"
+    np.testing.assert_allclose(np.array(actual_sum), np.array(expected_sum), rtol=0, atol=0)
+    np.testing.assert_allclose(np.array(actual_norm), np.array(expected_norm), rtol=2e-5, atol=2e-5)
+
+
 def test_mlx_lm_patch_restores_modules_loaded_after_application(monkeypatch):
     pytest.importorskip("mlx_lm")
     import mlx.nn as nn
@@ -104,3 +165,69 @@ def test_mlx_lm_patch_restores_modules_loaded_after_application(monkeypatch):
     assert base.scaled_dot_product_attention is original
     assert llama.scaled_dot_product_attention is original
     assert nn.RMSNorm.__call__ is original_rms_norm
+
+
+def test_mlx_lm_patch_restores_graph_fused_transformer_block():
+    pytest.importorskip("mlx_lm")
+    from mlx_lm.models import llama
+
+    from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+
+    class Model:
+        def __init__(self):
+            self.layers = [llama.TransformerBlock.__new__(llama.TransformerBlock)]
+
+        def __call__(self):
+            pass
+
+    original = llama.TransformerBlock.__call__
+    patch = apply_metile_to_mlx_lm(
+        Model(),
+        attention=False,
+        rms_norm=False,
+        graph_fusion=True,
+    )
+
+    assert llama.TransformerBlock.__call__ is not original
+    patch.restore()
+    assert llama.TransformerBlock.__call__ is original
+
+
+def test_mlx_lm_graph_fusion_deoptimizes_to_original_block(monkeypatch):
+    pytest.importorskip("mlx_lm")
+    from types import SimpleNamespace
+
+    from mlx_lm.models import llama
+
+    from metile.backends.mlx import MLXAddRMSNormConfig
+    from metile.integrations import mlx_lm
+
+    calls = []
+
+    def original(self, values, mask=None, cache=None):
+        calls.append((self, values, mask, cache))
+        return "native"
+
+    monkeypatch.setattr(llama.TransformerBlock, "__call__", original)
+    monkeypatch.setattr(
+        mlx_lm,
+        "mlx_add_rms_norm_selection",
+        lambda *_: MLXAddRMSNormConfig("mlx"),
+    )
+
+    class Model:
+        def __init__(self):
+            self.layers = [llama.TransformerBlock.__new__(llama.TransformerBlock)]
+
+        def __call__(self):
+            pass
+
+    patch = mlx_lm.apply_metile_to_mlx_lm(
+        Model(), attention=False, rms_norm=False, graph_fusion=True
+    )
+    fake_block = SimpleNamespace(post_attention_layernorm=SimpleNamespace(eps=1e-5))
+    result = llama.TransformerBlock.__call__(fake_block, "values", "mask", "cache")
+
+    assert result == "native"
+    assert calls == [(fake_block, "values", "mask", "cache")]
+    patch.restore()

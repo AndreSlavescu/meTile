@@ -1,3 +1,4 @@
+from metile.compiler.graph_fusion import FusionTarget, plan_graph_fusion
 from metile.frontend.autotune import Config, autotune
 from metile.frontend.kernel import kernel
 from metile.frontend.tracing import (
@@ -41,6 +42,7 @@ from metile.frontend.tracing import (
     where,
     zeros,
 )
+from metile.ir.graph_ir import ComputeGraph, GraphBuilder, TensorSpec
 from metile.ir.layout import (
     Layout,
     col_major,
@@ -66,11 +68,15 @@ from metile.runtime.buffer import MtileBuffer as Buffer
 __all__ = [
     "BlockScaledWeight",
     "Buffer",
+    "ComputeGraph",
     "Config",
+    "FusionTarget",
     "GlobalAddressSpace",
+    "GraphBuilder",
     "KernelPipeline",
     "Layout",
     "TensorDescriptor",
+    "TensorSpec",
     "TensorView",
     "TiledView",
     "abs",
@@ -96,6 +102,7 @@ __all__ = [
     "minimum",
     "next_power_of_2",
     "persistent_range",
+    "plan_graph_fusion",
     "prepare_block_scaled_matmul",
     "print_layout",
     "program_id",

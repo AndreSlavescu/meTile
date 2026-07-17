@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 
 import metile
+from kernels.add_rmsnorm import add_rmsnorm
 from kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
 from kernels.rmsnorm import rmsnorm
 from metile.compiler.schedule_search import choose_mdl_tie
@@ -23,7 +24,11 @@ _mlx_cache_path = cache_root() / "mlx-attention-autotune-v1.json"
 _mlx_rms_kernel_cache = {}
 _mlx_rms_schedule_cache = {}
 _mlx_rms_cache_path = cache_root() / "mlx-rmsnorm-autotune-v1.json"
+_mlx_add_rms_kernel_cache = {}
+_mlx_add_rms_schedule_cache = {}
+_mlx_add_rms_cache_path = cache_root() / "mlx-add-rmsnorm-autotune-v2.json"
 _FRAMEWORK_SWITCH_MARGIN = 0.05
+_GRAPH_FUSION_SWITCH_MARGIN = 0.10
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,12 @@ class MLXRMSNormConfig:
     block: int = 0
 
 
+@dataclass(frozen=True)
+class MLXAddRMSNormConfig:
+    algorithm: str
+    block: int = 0
+
+
 _MLX_ATTENTION_CONFIGS = tuple(
     [MLXAttentionConfig("mlx")]
     + [MLXAttentionConfig("metile", config.kwargs["BLOCK"]) for config in ATTENTION_DECODE_CONFIGS]
@@ -45,6 +56,10 @@ _MLX_ATTENTION_CONFIGS = tuple(
 _MLX_RMSNORM_CONFIGS = tuple(
     [MLXRMSNormConfig("mlx")]
     + [MLXRMSNormConfig("metile", block) for block in (32, 64, 128, 256, 512, 1024)]
+)
+_MLX_ADD_RMSNORM_CONFIGS = tuple(
+    [MLXAddRMSNormConfig("mlx")]
+    + [MLXAddRMSNormConfig("metile", block) for block in (32, 64, 128, 256, 512, 1024)]
 )
 
 
@@ -80,6 +95,25 @@ class _MLXRMSNormKernel:
             output_shapes=[values.shape],
             output_dtypes=[values.dtype],
         )[0]
+
+
+@dataclass(frozen=True)
+class _MLXAddRMSNormKernel:
+    operation: object
+    block: int
+    description_bits: int
+
+    def __call__(self, values, residual, weight):
+        rows = values.size // values.shape[-1]
+        return tuple(
+            self.operation(
+                inputs=[values, residual, weight],
+                grid=(rows * self.block, 1, 1),
+                threadgroup=(self.block, 1, 1),
+                output_shapes=[values.shape, values.shape],
+                output_dtypes=[values.dtype, values.dtype],
+            )
+        )
 
 
 def _require_mlx():
@@ -197,6 +231,43 @@ def _compile_mlx_rms_norm(hidden, dtype, eps, block):
     return kernel
 
 
+def _compile_mlx_add_rms_norm(hidden, dtype, eps, block):
+    mx = _require_mlx()
+    numpy_dtype = _mlx_dtype_to_numpy(dtype)
+    kernel_key = (hidden, numpy_dtype.str, float(eps), block)
+    cached = _mlx_add_rms_kernel_cache.get(kernel_key)
+    if cached is not None:
+        return cached
+
+    values = metile.Buffer.empty((hidden,), dtype=numpy_dtype)
+    residual = metile.Buffer.empty((hidden,), dtype=numpy_dtype)
+    weight = metile.Buffer.empty((hidden,), dtype=numpy_dtype)
+    summed = metile.Buffer.empty((hidden,), dtype=numpy_dtype)
+    output = metile.Buffer.empty((hidden,), dtype=numpy_dtype)
+    compiled = add_rmsnorm.get_compiled(
+        values,
+        residual,
+        weight,
+        summed,
+        output,
+        hidden,
+        float(eps),
+        BLOCK=block,
+    )
+    source = _mlx_kernel_body(compiled.msl_source)
+    source = _replace_identifier(source, "N", "X_shape[X_ndim - 1]")
+    source = _replace_identifier(source, "eps", f"{float(eps):.12g}f")
+    operation = mx.fast.metal_kernel(
+        name=f"metile_add_rmsnorm_{stable_digest(kernel_key)[:16]}",
+        input_names=["X", "Residual", "W"],
+        output_names=["Sum", "Out"],
+        source=source,
+    )
+    kernel = _MLXAddRMSNormKernel(operation, block, compiled.description_bits)
+    _mlx_add_rms_kernel_cache[kernel_key] = kernel
+    return kernel
+
+
 def _token_bucket(tokens):
     return 1 << max(tokens - 1, 0).bit_length()
 
@@ -286,6 +357,50 @@ def _write_rms_config(key, config):
     atomic_write_json(_mlx_rms_cache_path, payload)
 
 
+def _add_rms_persistent_key(values, eps, configs):
+    mx = _require_mlx()
+    device = mx.device_info()
+    return stable_digest(
+        {
+            "architecture": device.get("architecture"),
+            "configs": [vars(config) for config in configs],
+            "dtype": str(values.dtype),
+            "eps": float(eps),
+            "hidden": values.shape[-1],
+            "mlx": mx.__version__,
+            "rows": _token_bucket(values.size // values.shape[-1]),
+            "source": inspect.getsource(add_rmsnorm.fn),
+            "switch_margin": _GRAPH_FUSION_SWITCH_MARGIN,
+            "tuner": 2,
+        }
+    )
+
+
+def _read_add_rms_config(key, configs):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return None
+    payload = read_json(_mlx_add_rms_cache_path, {}).get(key)
+    if not isinstance(payload, dict):
+        return None
+    return next(
+        (
+            config
+            for config in configs
+            if config.algorithm == payload.get("algorithm")
+            and config.block == payload.get("block", 0)
+        ),
+        None,
+    )
+
+
+def _write_add_rms_config(key, config):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return
+    payload = read_json(_mlx_add_rms_cache_path, {})
+    payload[key] = {"algorithm": config.algorithm, "block": config.block}
+    atomic_write_json(_mlx_add_rms_cache_path, payload)
+
+
 def _tune_mlx_attention(query, key, value, scale, configs):
     mx = _require_mlx()
     dimension = query.shape[-1]
@@ -363,11 +478,79 @@ def _tune_mlx_rms_norm(values, weight, eps, configs):
     return _choose_framework_config(results)
 
 
-def _choose_framework_config(results):
+def _tune_mlx_add_rms_norm(values, residual, weight, eps, configs):
+    mx = _require_mlx()
+    kernels = []
+    for config in configs:
+        if config.algorithm == "mlx":
+
+            def native_dispatch():
+                summed = values + residual
+                return summed, mx.fast.rms_norm(summed, weight, eps)
+
+            kernels.append((config, native_dispatch, 0))
+        else:
+            kernel = _compile_mlx_add_rms_norm(values.shape[-1], values.dtype, eps, config.block)
+            kernels.append(
+                (
+                    config,
+                    lambda kernel=kernel: kernel(values, residual, weight),
+                    kernel.description_bits,
+                )
+            )
+    for _, dispatch, _ in kernels:
+        mx.eval(*dispatch())
+
+    samples = {config: [] for config in configs}
+    for round_index in range(11):
+        ordered = kernels[round_index % len(kernels) :] + kernels[: round_index % len(kernels)]
+        if round_index & 1:
+            ordered.reverse()
+        for config, dispatch, _ in ordered:
+            start = time.perf_counter_ns()
+            mx.eval(*dispatch())
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+
+    provisional = {
+        config: statistics.median(config_samples) for config, config_samples in samples.items()
+    }
+    best = min(provisional.values())
+    native_config = next(config for config in configs if config.algorithm == "mlx")
+    fastest_generated_config = min(
+        (config for config in configs if config.algorithm == "metile"),
+        key=provisional.__getitem__,
+    )
+    finalists = {
+        config
+        for config, latency in provisional.items()
+        if latency <= best * 1.10 or config is native_config or config is fastest_generated_config
+    }
+    finalist_kernels = [candidate for candidate in kernels if candidate[0] in finalists]
+    samples = {config: [] for config in finalists}
+    for round_index in range(31):
+        ordered = (
+            finalist_kernels[round_index % len(finalist_kernels) :]
+            + finalist_kernels[: round_index % len(finalist_kernels)]
+        )
+        if round_index & 1:
+            ordered.reverse()
+        for config, dispatch, _ in ordered:
+            start = time.perf_counter_ns()
+            mx.eval(*dispatch())
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+
+    results = [
+        (statistics.median(samples[config]), description_bits, config)
+        for config, _, description_bits in finalist_kernels
+    ]
+    return _choose_framework_config(results, margin=_GRAPH_FUSION_SWITCH_MARGIN)
+
+
+def _choose_framework_config(results, *, margin=_FRAMEWORK_SWITCH_MARGIN):
     native = next(result for result in results if result[2].algorithm == "mlx")
     generated = [result for result in results if result[2].algorithm == "metile"]
     fastest_generated = min(generated, key=lambda result: result[0])
-    if fastest_generated[0] >= native[0] * (1.0 - _FRAMEWORK_SWITCH_MARGIN):
+    if fastest_generated[0] >= native[0] * (1.0 - margin):
         return native[2]
     return choose_mdl_tie(generated)
 
@@ -472,6 +655,53 @@ def mlx_rms_norm(values, weight, eps, *, autotune=True):
     return kernel(values, weight)
 
 
+def mlx_add_rms_norm(values, residual, weight, eps, *, autotune=True):
+    """Fuse residual addition and RMSNorm while preserving both outputs."""
+    mx = _require_mlx()
+    if values.shape != residual.shape or values.dtype != residual.dtype:
+        raise ValueError("meTile fused add/RMSNorm requires matching residual inputs")
+    if values.ndim < 1 or weight.ndim != 1 or values.shape[-1] != weight.shape[0]:
+        raise ValueError("meTile fused add/RMSNorm requires a matching RMSNorm weight")
+    if values.dtype != weight.dtype:
+        raise TypeError("meTile fused add/RMSNorm requires matching input and weight dtypes")
+    _mlx_dtype_to_numpy(values.dtype)
+
+    rows = values.size // values.shape[-1]
+    schedule_key = (
+        _token_bucket(rows),
+        values.shape[-1],
+        str(values.dtype),
+        float(eps),
+    )
+    selected = _mlx_add_rms_schedule_cache.get(schedule_key)
+    if selected is None:
+        with _mlx_cache_lock:
+            selected = _mlx_add_rms_schedule_cache.get(schedule_key)
+            if selected is None:
+                persistent_key = _add_rms_persistent_key(values, eps, _MLX_ADD_RMSNORM_CONFIGS)
+                selected = _read_add_rms_config(persistent_key, _MLX_ADD_RMSNORM_CONFIGS)
+            if selected is None:
+                selected = (
+                    _tune_mlx_add_rms_norm(
+                        values,
+                        residual,
+                        weight,
+                        eps,
+                        _MLX_ADD_RMSNORM_CONFIGS,
+                    )
+                    if autotune
+                    else MLXAddRMSNormConfig("metile", 256)
+                )
+                _write_add_rms_config(persistent_key, selected)
+            _mlx_add_rms_schedule_cache[schedule_key] = selected
+
+    if selected.algorithm == "mlx":
+        summed = values + residual
+        return summed, mx.fast.rms_norm(summed, weight, eps)
+    kernel = _compile_mlx_add_rms_norm(values.shape[-1], values.dtype, eps, selected.block)
+    return kernel(values, residual, weight)
+
+
 def mlx_attention_dispatches():
     """Return the in-process MLX attention schedule decisions."""
     return tuple(
@@ -504,9 +734,41 @@ def mlx_rms_norm_dispatches():
     )
 
 
+def mlx_add_rms_norm_dispatches():
+    """Return the in-process fused residual/RMSNorm schedule decisions."""
+    return tuple(
+        {
+            "row_bucket": key[0],
+            "hidden": key[1],
+            "dtype": key[2],
+            "eps": key[3],
+            "algorithm": config.algorithm,
+            "block": config.block,
+        }
+        for key, config in sorted(_mlx_add_rms_schedule_cache.items())
+    )
+
+
+def mlx_add_rms_norm_selection(values, eps):
+    """Return the cached graph-fusion decision for a runtime shape, if known."""
+    rows = values.size // values.shape[-1]
+    return _mlx_add_rms_schedule_cache.get(
+        (
+            _token_bucket(rows),
+            values.shape[-1],
+            str(values.dtype),
+            float(eps),
+        )
+    )
+
+
 __all__ = [
+    "MLXAddRMSNormConfig",
     "MLXAttentionConfig",
     "MLXRMSNormConfig",
+    "mlx_add_rms_norm",
+    "mlx_add_rms_norm_dispatches",
+    "mlx_add_rms_norm_selection",
     "mlx_attention_decode",
     "mlx_attention_dispatches",
     "mlx_rms_norm",

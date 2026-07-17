@@ -21,8 +21,8 @@ Apply the reversible model patch after or before loading an MLX-LM model:
    # Generation uses independently tuned attention and RMSNorm primitives.
    patch.restore()
 
-The handle is also a context manager. ``attention=False`` or ``rms_norm=False`` disables
-either patch target independently.
+The handle is also a context manager. ``attention=False``, ``rms_norm=False``, or
+``graph_fusion=False`` disables each patch target independently.
 
 Dispatch Policy
 ---------------
@@ -37,6 +37,11 @@ Decode attention supports FP16/FP32 MHA, GQA, and MQA with a one-token query. Pr
 attention masks, sinks, quantized KV caches, unsupported dimensions, and unsupported
 dtypes retain MLX-LM's original implementation. RMSNorm supports FP16/FP32 values and
 weights with FP32 accumulation.
+
+The integration also captures the canonical Llama residual-add followed by RMSNorm as a
+high-level compute DAG. The graph fusion pass uses an exact max-flow/min-cut partition,
+preserves the residual as a second output, and measures the fused multi-output kernel against
+the original MLX graph. Graph fusion requires 10 percent isolated headroom before switching.
 
 Model Benchmark
 ---------------
@@ -53,6 +58,6 @@ adds a configurable cooldown, and reports both decode throughput and total time:
      --trials 5 \
      --delay 2
 
-Use ``--disable-attention`` or ``--disable-rmsnorm`` for ablation runs. The final report
-lists every native/generated schedule decision so a throughput result cannot silently
-attribute an MLX fallback to meTile.
+Use ``--disable-attention``, ``--disable-rmsnorm``, or ``--disable-graph-fusion`` for
+ablation runs. The final report lists every native/generated schedule decision so a
+throughput result cannot silently attribute an MLX fallback to meTile.

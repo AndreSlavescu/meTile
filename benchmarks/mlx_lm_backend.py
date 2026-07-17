@@ -8,7 +8,11 @@ import mlx.core as mx
 from mlx_lm import load, stream_generate
 from mlx_lm.models.cache import make_prompt_cache
 
-from metile.backends.mlx import mlx_attention_dispatches, mlx_rms_norm_dispatches
+from metile.backends.mlx import (
+    mlx_add_rms_norm_dispatches,
+    mlx_attention_dispatches,
+    mlx_rms_norm_dispatches,
+)
 from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
 
 
@@ -26,6 +30,7 @@ def _arguments():
     parser.add_argument("--delay", type=float, default=2.0)
     parser.add_argument("--disable-attention", action="store_true")
     parser.add_argument("--disable-rmsnorm", action="store_true")
+    parser.add_argument("--disable-graph-fusion", action="store_true")
     parser.add_argument("--skip-verify", action="store_true")
     return parser.parse_args()
 
@@ -36,6 +41,7 @@ def _generate(model, tokenizer, prompt, arguments, patched):
             model=model,
             attention=not arguments.disable_attention,
             rms_norm=not arguments.disable_rmsnorm,
+            graph_fusion=not arguments.disable_graph_fusion,
         )
         if patched
         else None
@@ -72,6 +78,7 @@ def _verify_model(model, prompt, arguments):
         model=model,
         attention=not arguments.disable_attention,
         rms_norm=not arguments.disable_rmsnorm,
+        graph_fusion=not arguments.disable_graph_fusion,
     ):
         patched_prefix = model(tokens[:, :-1], cache=patched_cache)
         mx.eval(patched_prefix)
@@ -133,6 +140,12 @@ def main():
         )
     print("Selected RMSNorm schedules")
     for dispatch in mlx_rms_norm_dispatches():
+        print(
+            f"rows<={dispatch['row_bucket']} hidden={dispatch['hidden']}: "
+            f"{dispatch['algorithm']} block={dispatch['block']}"
+        )
+    print("Selected graph-fused residual/RMSNorm schedules")
+    for dispatch in mlx_add_rms_norm_dispatches():
         print(
             f"rows<={dispatch['row_bucket']} hidden={dispatch['hidden']}: "
             f"{dispatch['algorithm']} block={dispatch['block']}"
