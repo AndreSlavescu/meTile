@@ -5,25 +5,27 @@ from kernels.rmsnorm import rmsnorm
 from metile.runtime.metal_device import MetalDevice
 
 
-def _run_rmsnorm(rows, hidden, block=256):
+def _run_rmsnorm(rows, hidden, block=256, dtype=np.float32):
     """Run rmsnorm and check against numpy reference."""
-    X_np = np.random.randn(rows, hidden).astype(np.float32)
-    W_np = np.random.randn(hidden).astype(np.float32)
+    X_np = np.random.randn(rows, hidden).astype(dtype)
+    W_np = np.random.randn(hidden).astype(dtype)
 
     X_buf = metile.Buffer(data=X_np.ravel())
     W_buf = metile.Buffer(data=W_np.ravel())
-    Out_buf = metile.Buffer.zeros((rows * hidden,))
+    Out_buf = metile.Buffer.zeros((rows * hidden,), dtype=dtype)
 
-    rmsnorm[(rows,)](X_buf, W_buf, Out_buf, hidden, BLOCK=block)
+    rmsnorm[(rows,)](X_buf, W_buf, Out_buf, hidden, 1e-5, BLOCK=block)
     MetalDevice.get().sync()
 
     result = Out_buf.numpy().reshape(rows, hidden)
 
     # numpy reference
-    rms = np.sqrt(np.mean(X_np**2, axis=-1, keepdims=True) + 1e-5)
-    ref = X_np / rms * W_np
+    reference_values = X_np.astype(np.float32)
+    rms = np.sqrt(np.mean(reference_values**2, axis=-1, keepdims=True) + 1e-5)
+    ref = (reference_values / rms * W_np.astype(np.float32)).astype(dtype)
 
-    np.testing.assert_allclose(result, ref, rtol=1e-5, atol=1e-5)
+    tolerance = 2e-3 if dtype == np.float16 else 1e-5
+    np.testing.assert_allclose(result, ref, rtol=tolerance, atol=tolerance)
 
 
 class TestRMSNorm:
@@ -48,6 +50,9 @@ class TestRMSNorm:
     def test_single_row(self):
         _run_rmsnorm(1, 512)
 
+    def test_vectorized_float16(self):
+        _run_rmsnorm(1, 2048, dtype=np.float16)
+
     def test_unit_weights(self):
         """Unit weights should give plain RMS normalization."""
         rows, hidden = 32, 256
@@ -58,7 +63,7 @@ class TestRMSNorm:
         W_buf = metile.Buffer(data=W_np.ravel())
         Out_buf = metile.Buffer.zeros((rows * hidden,))
 
-        rmsnorm[(rows,)](X_buf, W_buf, Out_buf, hidden, BLOCK=256)
+        rmsnorm[(rows,)](X_buf, W_buf, Out_buf, hidden, 1e-5, BLOCK=256)
         MetalDevice.get().sync()
 
         result = Out_buf.numpy().reshape(rows, hidden)
@@ -77,7 +82,7 @@ class TestRMSNorm:
         W_buf = metile.Buffer(data=W_np.ravel())
         Out_buf = metile.Buffer.zeros((rows * hidden,))
 
-        rmsnorm[(rows,)](X_buf, W_buf, Out_buf, hidden, BLOCK=256)
+        rmsnorm[(rows,)](X_buf, W_buf, Out_buf, hidden, 1e-5, BLOCK=256)
         MetalDevice.get().sync()
 
         result = Out_buf.numpy().reshape(rows, hidden)

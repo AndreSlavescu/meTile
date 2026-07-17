@@ -166,6 +166,12 @@ a multi-threadgroup partial pass followed by an online merge pass. Both kernels 
 ordinary eDSL programs, and the persisted winner is keyed by head grid, context length,
 head dimension, device, toolchain, source, and candidate family.
 
+The optional MLX backend also includes native MLX itself as a candidate. Framework
+integration adds a 5% switch margin before selecting generated Metal, because an opaque
+custom primitive can change graph scheduling even when isolated timings are nearly tied.
+Attention and RMSNorm choices persist independently by MLX version, device, dtype, and
+shape bucket.
+
 
 Verbose Output
 --------------

@@ -18,13 +18,20 @@ docs = [
     "furo>=2024.1",
     "sphinx-copybutton>=0.5",
 ]
+mlx = [
+    "mlx>=0.31",
+]
+mlx-lm = [
+    "mlx>=0.31",
+    "mlx-lm>=0.31",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["metile*"]
+include = ["kernels*", "metile*"]
 
 [tool.ruff]
 line-length = 100

@@ -1698,6 +1698,14 @@ class _ElementwiseLoweringContext:
             self.value_map[op.result.name] = mv
             return [m_op]
 
+        elif isinstance(op, tir.Cast):
+            value = self._resolve(op.value)
+            m_op = mir.MCast(value=value, target_dtype=op.dtype)
+            mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
+            m_op.result = mv
+            self.value_map[op.result.name] = mv
+            return [m_op]
+
         elif isinstance(op, tir.Arange):
             self.block_size = op.size
             if self._mode == "row_parallel":

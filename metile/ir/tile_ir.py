@@ -69,6 +69,19 @@ class Constant(Op):
 
 
 @dataclass
+class Cast(Op):
+    """Explicitly convert a scalar or tile to another element type."""
+
+    value: Value = None
+    dtype: str = "f32"
+
+    def result_type(self):
+        if isinstance(self.value.type, TileType):
+            return TileType(self.value.type.shape, self.dtype)
+        return ScalarType(self.dtype)
+
+
+@dataclass
 class Arange(Op):
     """Create a 1D tile of sequential integers [start, start+size)."""
 

@@ -84,22 +84,25 @@ def _prepare_two_pass(
     key,
     value,
     output,
-    heads,
+    batch,
+    query_heads,
+    key_value_heads,
     tokens,
     scale,
     dimension,
     config,
     scratch=None,
 ):
+    total_query_heads = batch * query_heads
     num_blocks = metile.cdiv(tokens, config.tokens_per_block)
     if scratch is None:
-        partial_output = metile.Buffer.empty((heads * num_blocks * dimension,))
-        partial_maximum = metile.Buffer.empty((heads * num_blocks * 32,))
-        partial_sum = metile.Buffer.empty((heads * num_blocks * 32,))
+        partial_output = metile.Buffer.empty((total_query_heads * num_blocks * dimension,))
+        partial_maximum = metile.Buffer.empty((total_query_heads * num_blocks * 32,))
+        partial_sum = metile.Buffer.empty((total_query_heads * num_blocks * 32,))
     else:
         partial_output, partial_maximum, partial_sum = scratch
 
-    first = attention_decode_partial_kernel[(heads * num_blocks,)].prepare(
+    first = attention_decode_partial_kernel[(total_query_heads * num_blocks,)].prepare(
         query,
         key,
         value,
@@ -109,11 +112,13 @@ def _prepare_two_pass(
         tokens,
         scale,
         D=dimension,
+        Q_HEADS=query_heads,
+        KV_HEADS=key_value_heads,
         NUM_BLOCKS=num_blocks,
         TOKENS_PER_BLOCK=config.tokens_per_block,
         BLOCK=config.partial_block,
     )
-    second = attention_decode_merge_kernel[(heads,)].prepare(
+    second = attention_decode_merge_kernel[(total_query_heads,)].prepare(
         partial_output,
         partial_maximum,
         partial_sum,
@@ -125,14 +130,16 @@ def _prepare_two_pass(
     return _TwoPassDispatcher(first, second)
 
 
-def _attention_persistent_key(heads, tokens, dimension, candidates):
+def _attention_persistent_key(batch, query_heads, key_value_heads, tokens, dimension, candidates):
     device = MetalDevice.get()
     return stable_digest(
         {
             "candidates": [asdict(candidate) for candidate in candidates],
             "device": device.name,
             "dimension": dimension,
-            "heads": heads,
+            "batch": batch,
+            "query_heads": query_heads,
+            "key_value_heads": key_value_heads,
             "merge_source": inspect.getsource(attention_decode_merge_kernel.fn),
             "partial_source": inspect.getsource(attention_decode_partial_kernel.fn),
             "single_source": inspect.getsource(attention_decode_kernel.fn),
@@ -198,12 +205,26 @@ def _tune_attention_dispatch(dispatches):
     return selected, gpu_seconds, dispatch
 
 
-def _prepare_attention_decode(query, key, value, output, heads, tokens, scale, dimension):
+def _prepare_attention_decode(
+    query,
+    key,
+    value,
+    output,
+    batch,
+    query_heads,
+    key_value_heads,
+    tokens,
+    scale,
+    dimension,
+):
+    total_query_heads = batch * query_heads
     candidates = [AttentionDecodeConfig("single_pass")]
     if tokens >= 4096:
         candidates.extend(_two_pass_candidates(tokens))
-    tuning_key = (heads, tokens, dimension)
-    persistent_key = _attention_persistent_key(heads, tokens, dimension, candidates)
+    tuning_key = (batch, query_heads, key_value_heads, tokens, dimension)
+    persistent_key = _attention_persistent_key(
+        batch, query_heads, key_value_heads, tokens, dimension, candidates
+    )
 
     with _attention_cache_lock:
         cached = _attention_config_cache.get(tuning_key)
@@ -213,15 +234,25 @@ def _prepare_attention_decode(query, key, value, output, heads, tokens, scale, d
         if cached is not None:
             selected, gpu_seconds = cached
             if selected.algorithm == "single_pass":
-                return attention_decode_single_pass[(heads,)].prepare(
-                    query, key, value, output, tokens, scale, D=dimension
+                return attention_decode_single_pass[(total_query_heads,)].prepare(
+                    query,
+                    key,
+                    value,
+                    output,
+                    tokens,
+                    scale,
+                    D=dimension,
+                    Q_HEADS=query_heads,
+                    KV_HEADS=key_value_heads,
                 )
             dispatch = _prepare_two_pass(
                 query,
                 key,
                 value,
                 output,
-                heads,
+                batch,
+                query_heads,
+                key_value_heads,
                 tokens,
                 scale,
                 dimension,
@@ -231,8 +262,16 @@ def _prepare_attention_decode(query, key, value, output, heads, tokens, scale, d
             return dispatch
 
         dispatches = []
-        single_dispatch = attention_decode_single_pass[(heads,)].prepare(
-            query, key, value, output, tokens, scale, D=dimension
+        single_dispatch = attention_decode_single_pass[(total_query_heads,)].prepare(
+            query,
+            key,
+            value,
+            output,
+            tokens,
+            scale,
+            D=dimension,
+            Q_HEADS=query_heads,
+            KV_HEADS=key_value_heads,
         )
         dispatches.append((candidates[0], single_dispatch))
 
@@ -240,9 +279,9 @@ def _prepare_attention_decode(query, key, value, output, heads, tokens, scale, d
         if two_pass:
             max_blocks = max(metile.cdiv(tokens, config.tokens_per_block) for config in two_pass)
             scratch = (
-                metile.Buffer.empty((heads * max_blocks * dimension,)),
-                metile.Buffer.empty((heads * max_blocks * 32,)),
-                metile.Buffer.empty((heads * max_blocks * 32,)),
+                metile.Buffer.empty((total_query_heads * max_blocks * dimension,)),
+                metile.Buffer.empty((total_query_heads * max_blocks * 32,)),
+                metile.Buffer.empty((total_query_heads * max_blocks * 32,)),
             )
             for config in two_pass:
                 dispatches.append(
@@ -253,7 +292,9 @@ def _prepare_attention_decode(query, key, value, output, heads, tokens, scale, d
                             key,
                             value,
                             output,
-                            heads,
+                            batch,
+                            query_heads,
+                            key_value_heads,
                             tokens,
                             scale,
                             dimension,
@@ -275,15 +316,38 @@ def _prepare_attention_decode(query, key, value, output, heads, tokens, scale, d
 
 
 class _AttentionDecodeLauncher:
-    def __init__(self, heads):
-        self.heads = heads
+    def __init__(self, batch, query_heads):
+        self.batch = batch
+        self.query_heads = query_heads
 
-    def prepare(self, query, key, value, output, tokens, scale, *, D):
-        _validate_attention_arguments(query, key, value, output, self.heads, tokens, D)
-        return _prepare_attention_decode(query, key, value, output, self.heads, tokens, scale, D)
+    def prepare(self, query, key, value, output, tokens, scale, *, D, KV_HEADS=None):
+        key_value_heads = self.query_heads if KV_HEADS is None else KV_HEADS
+        _validate_attention_arguments(
+            query,
+            key,
+            value,
+            output,
+            self.batch,
+            self.query_heads,
+            key_value_heads,
+            tokens,
+            D,
+        )
+        return _prepare_attention_decode(
+            query,
+            key,
+            value,
+            output,
+            self.batch,
+            self.query_heads,
+            key_value_heads,
+            tokens,
+            scale,
+            D,
+        )
 
-    def __call__(self, query, key, value, output, tokens, scale, *, D):
-        dispatch = self.prepare(query, key, value, output, tokens, scale, D=D)
+    def __call__(self, query, key, value, output, tokens, scale, *, D, KV_HEADS=None):
+        dispatch = self.prepare(query, key, value, output, tokens, scale, D=D, KV_HEADS=KV_HEADS)
         dispatch()
 
 
@@ -291,18 +355,28 @@ class AttentionDecode:
     def __getitem__(self, grid):
         if isinstance(grid, int):
             grid = (grid,)
-        if (
-            not isinstance(grid, tuple)
-            or len(grid) != 1
-            or not isinstance(grid[0], int)
-            or isinstance(grid[0], bool)
-            or grid[0] <= 0
-        ):
-            raise ValueError("decode attention requires a static one-dimensional head grid")
-        return _AttentionDecodeLauncher(grid[0])
+        valid_grid = isinstance(grid, tuple) and len(grid) in (1, 2)
+        if valid_grid:
+            valid_grid = all(
+                isinstance(size, int) and not isinstance(size, bool) and size > 0 for size in grid
+            )
+        if not valid_grid:
+            raise ValueError("decode attention requires a static (heads,) or (batch, heads) grid")
+        batch, query_heads = (1, grid[0]) if len(grid) == 1 else grid
+        return _AttentionDecodeLauncher(batch, query_heads)
 
 
-def _validate_attention_arguments(query, key, value, output, heads, tokens, dimension):
+def _validate_attention_arguments(
+    query,
+    key,
+    value,
+    output,
+    batch,
+    query_heads,
+    key_value_heads,
+    tokens,
+    dimension,
+):
     if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens <= 0:
         raise ValueError("decode attention token count must be a positive integer")
     if (
@@ -312,12 +386,19 @@ def _validate_attention_arguments(query, key, value, output, heads, tokens, dime
         or dimension % 32
     ):
         raise ValueError("decode attention head dimension must be a positive multiple of 32")
+    if (
+        not isinstance(key_value_heads, int)
+        or isinstance(key_value_heads, bool)
+        or key_value_heads <= 0
+        or query_heads % key_value_heads
+    ):
+        raise ValueError("decode attention KV_HEADS must be a positive divisor of query heads")
 
     buffers = {
-        "query": (query, heads * dimension),
-        "key": (key, heads * tokens * dimension),
-        "value": (value, heads * tokens * dimension),
-        "output": (output, heads * dimension),
+        "query": (query, batch * query_heads * dimension),
+        "key": (key, batch * key_value_heads * tokens * dimension),
+        "value": (value, batch * key_value_heads * tokens * dimension),
+        "output": (output, batch * query_heads * dimension),
     }
     for name, (buffer, required_elements) in buffers.items():
         dtype = getattr(buffer, "dtype", None)

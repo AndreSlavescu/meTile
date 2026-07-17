@@ -1,6 +1,7 @@
 import metile
 
 ATTENTION_DECODE_CONFIGS = [
+    metile.Config(BLOCK=32),
     metile.Config(BLOCK=64),
     metile.Config(BLOCK=128),
     metile.Config(BLOCK=256),
@@ -25,10 +26,16 @@ def attention_decode_kernel(
     N,
     scale,
     D: metile.constexpr,
+    Q_HEADS: metile.constexpr,
+    KV_HEADS: metile.constexpr,
     BLOCK: metile.constexpr,
 ):
-    """Online MHA decode attention over flattened ``[head, token, dim]`` tensors."""
-    head = metile.program_id(0)
+    """Online decode attention over flattened batched MHA/GQA/MQA tensors."""
+    query_index = metile.program_id(0)
+    batch = query_index // Q_HEADS
+    query_head = query_index % Q_HEADS
+    group_size = Q_HEADS // KV_HEADS
+    key_value_head = batch * KV_HEADS + query_head // group_size
     thread = metile.thread_id()
     lane = metile.simd_lane_id()
     simdgroup = thread // 32
@@ -39,7 +46,7 @@ def attention_decode_kernel(
     partial_sums = metile.shared(BLOCK, dtype="f32")
     partial_outputs = metile.shared(D * num_simdgroups, dtype="f32")
 
-    query_offset = head * D
+    query_offset = query_index * D
     query = []
     for component in range(values_per_lane):
         dimension = lane * values_per_lane + component
@@ -50,7 +57,7 @@ def attention_decode_kernel(
     local_outputs = [metile.scalar(0.0) for _ in range(values_per_lane)]
 
     for token in metile.tile_range(simdgroup, N, num_simdgroups):
-        token_offset = (head * N + token) * D
+        token_offset = (key_value_head * N + token) * D
         score = 0.0
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
@@ -115,7 +122,7 @@ def attention_decode_kernel(
             output_values.append(metile.simd_sum(source_output * source_factor) / denominator)
 
     writer = lane == 0
-    output_offset = head * D
+    output_offset = query_index * D
     for output_index in range(len(output_values)):
         metile.store(
             Out + output_offset + output_dimensions[output_index],
@@ -135,13 +142,19 @@ def attention_decode_partial_kernel(
     N,
     scale,
     D: metile.constexpr,
+    Q_HEADS: metile.constexpr,
+    KV_HEADS: metile.constexpr,
     NUM_BLOCKS: metile.constexpr,
     TOKENS_PER_BLOCK: metile.constexpr,
     BLOCK: metile.constexpr,
 ):
     work = metile.program_id(0)
-    head = work // NUM_BLOCKS
+    query_index = work // NUM_BLOCKS
     token_block = work % NUM_BLOCKS
+    batch = query_index // Q_HEADS
+    query_head = query_index % Q_HEADS
+    group_size = Q_HEADS // KV_HEADS
+    key_value_head = batch * KV_HEADS + query_head // group_size
     thread = metile.thread_id()
     lane = metile.simd_lane_id()
     simdgroup = thread // 32
@@ -152,7 +165,7 @@ def attention_decode_partial_kernel(
     partial_sums = metile.shared(BLOCK, dtype="f32")
     partial_outputs = metile.shared(D * num_simdgroups, dtype="f32")
 
-    query_offset = head * D
+    query_offset = query_index * D
     query = []
     for component in range(values_per_lane):
         dimension = lane * values_per_lane + component
@@ -165,7 +178,7 @@ def attention_decode_partial_kernel(
     token_end = metile.minimum(token_start + TOKENS_PER_BLOCK, N)
 
     for token in metile.tile_range(token_start + simdgroup, token_end, num_simdgroups):
-        token_offset = (head * N + token) * D
+        token_offset = (key_value_head * N + token) * D
         score = 0.0
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
@@ -304,7 +317,7 @@ def attention_decode_merge_kernel(
 
 attention_decode_single_pass = metile.autotune(
     configs=ATTENTION_DECODE_CONFIGS,
-    key=["N", "D"],
+    key=["N", "D", "Q_HEADS", "KV_HEADS"],
     verbose=False,
 )(attention_decode_kernel)
 

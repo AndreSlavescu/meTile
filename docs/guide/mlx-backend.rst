@@ -1,0 +1,58 @@
+MLX-LM Backend
+==============
+
+meTile can embed generated Metal bodies in MLX's lazy graph without copying through
+NumPy or a separate ``MTLBuffer``. Install the optional integration dependencies:
+
+.. code-block:: bash
+
+   pip install -e ".[mlx-lm]"
+
+Apply the reversible model patch after or before loading an MLX-LM model:
+
+.. code-block:: python
+
+   from mlx_lm import load
+   from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+
+   model, tokenizer = load("mlx-community/Llama-3.2-1B-Instruct-4bit")
+   patch = apply_metile_to_mlx_lm(model=model)
+
+   # Generation uses independently tuned attention and RMSNorm primitives.
+   patch.restore()
+
+The handle is also a context manager. ``attention=False`` or ``rms_norm=False`` disables
+either patch target independently.
+
+Dispatch Policy
+---------------
+
+Native MLX is an explicit autotune candidate. Generated kernels must beat it by at least
+5% in isolated primitive timing before the integration crosses the framework boundary.
+This guard band accounts for command-graph composition effects that a standalone kernel
+benchmark cannot observe. Decisions persist by device architecture, MLX version, dtype,
+shape bucket, source, and candidate family.
+
+Decode attention supports FP16/FP32 MHA, GQA, and MQA with a one-token query. Prefill,
+attention masks, sinks, quantized KV caches, unsupported dimensions, and unsupported
+dtypes retain MLX-LM's original implementation. RMSNorm supports FP16/FP32 values and
+weights with FP32 accumulation.
+
+Model Benchmark
+---------------
+
+The benchmark loads an actual MLX-LM model, warms both paths, alternates trial order,
+adds a configurable cooldown, and reports both decode throughput and total time:
+
+.. code-block:: bash
+
+   python benchmarks/mlx_lm_backend.py \
+     --model mlx-community/Llama-3.2-1B-Instruct-4bit \
+     --prompt-tokens 128 \
+     --generation-tokens 256 \
+     --trials 5 \
+     --delay 2
+
+Use ``--disable-attention`` or ``--disable-rmsnorm`` for ablation runs. The final report
+lists every native/generated schedule decision so a throughput result cannot silently
+attribute an MLX fallback to meTile.

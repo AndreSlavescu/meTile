@@ -465,6 +465,15 @@ def scalar(value, dtype=None) -> TracingProxy:
     return TracingProxy(result)
 
 
+def cast(value, dtype) -> TracingProxy:
+    """Explicitly convert a scalar or tile to ``dtype``."""
+    if dtype not in ("f16", "f32", "i32", "u32"):
+        raise ValueError(f"unsupported cast dtype: {dtype}")
+    ctx = _get_ctx()
+    result = ctx.add_op(tir.Cast(value=_to_value(value), dtype=dtype))
+    return TracingProxy(result)
+
+
 def exp(x) -> TracingProxy:
     """Element-wise exponential."""
     return _unary("exp", x)

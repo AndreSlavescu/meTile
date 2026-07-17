@@ -1948,7 +1948,7 @@ def _emit_vec4_for_loop(
             f"{pad}for (int {op.iv_name} = {start}; {op.iv_name} < {var}; "
             f"{op.iv_name} += {vstep}) {{"
         )
-        vec4_vals: set[str] = set()
+        vec4_vals: dict[str, str] = {}
         for body_op in op.body:
             _emit_vec4_op(body_op, lines, indent + 1, func, vec4_vals, vec_size)
         lines.append(f"{pad}}}")
@@ -1965,7 +1965,7 @@ def _emit_vec4_for_loop(
             offset = stage * vstep
             lines.append(f"{pad}    {{ // stage {stage}")
             lines.append(f"{pad}        const int {op.iv_name} = {pipe_iv} + {offset};")
-            vec4_vals_stage: set[str] = set()
+            vec4_vals_stage: dict[str, str] = {}
             for body_op in op.body:
                 _emit_vec4_op(body_op, lines, indent + 2, func, vec4_vals_stage, vec_size)
             lines.append(f"{pad}    }}")
@@ -1977,18 +1977,21 @@ def _emit_vec4_op(
     lines: list[str],
     indent: int,
     func: mir.MFunction,
-    vec4_vals: set[str],
+    vec4_vals: dict[str, str],
     vec_size: int,
 ):
-    """Emit a single op in vec4 context, tracking which values are float4."""
+    """Emit one vectorized op while preserving each value's element type."""
     pad = "    " * indent
 
     if isinstance(op, mir.MCast):
         src = _val_name(op.value, func)
         target_type = ScalarType(op.target_dtype).to_msl()
         name = op.result.name
-        # Multiply lid by vec_size to space threads apart
-        if src == "lid":
+        if src in vec4_vals:
+            vector_type = f"{target_type}4"
+            vec4_vals[name] = vector_type
+            lines.append(f"{pad}{vector_type} {name} = {vector_type}({src});")
+        elif src == "lid":
             lines.append(
                 f"{pad}{target_type} {name} = static_cast<{target_type}>(lid) * {vec_size};"
             )
@@ -1999,15 +2002,19 @@ def _emit_vec4_op(
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
         name = op.result.name
-        vec4_vals.add(name)
-        lines.append(f"{pad}float4 {name} = *(device const float4*)({ptr} + {idx});")
+        vector_type = f"{ScalarType(op.dtype).to_msl()}4"
+        vec4_vals[name] = vector_type
+        lines.append(f"{pad}{vector_type} {name} = *(device const {vector_type}*)({ptr} + {idx});")
 
     elif isinstance(op, mir.DeviceStore):
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
         val = _val_name(op.value, func)
         if val in vec4_vals:
-            lines.append(f"{pad}*(device float4*)({ptr} + {idx}) = {val};")
+            pointer_dtype = op.ptr.type.dtype if isinstance(op.ptr.type, PtrType) else "f32"
+            vector_type = f"{ScalarType(pointer_dtype).to_msl()}4"
+            stored_value = val if vec4_vals[val] == vector_type else f"{vector_type}({val})"
+            lines.append(f"{pad}*(device {vector_type}*)({ptr} + {idx}) = {stored_value};")
         else:
             lines.append(f"{pad}{ptr}[{idx}] = {val};")
 
@@ -2059,14 +2066,15 @@ def _emit_vec4_op(
                 return
 
             # --- Vec4 x Vec4, or Vec4 x scalar (broadcast) ---
-            vec4_vals.add(name)
+            vector_type = f"{op.result.type.to_msl()}4"
+            vec4_vals[name] = vector_type
             if op.op in ("max", "min"):
-                lines.append(f"{pad}float4 {name} = {op.op}({lhs}, {rhs});")
+                lines.append(f"{pad}{vector_type} {name} = {op.op}({lhs}, {rhs});")
             elif op.op in _BINOP_SYMBOLS:
                 sym = _BINOP_SYMBOLS[op.op]
-                lines.append(f"{pad}float4 {name} = {lhs} {sym} {rhs};")
+                lines.append(f"{pad}{vector_type} {name} = {lhs} {sym} {rhs};")
             else:
-                lines.append(f"{pad}float4 {name} = {op.op}({lhs}, {rhs});")
+                lines.append(f"{pad}{vector_type} {name} = {op.op}({lhs}, {rhs});")
         else:
             # Scalar-only op (index math, etc.)
             result_type = op.result.type.to_msl()
@@ -2081,11 +2089,12 @@ def _emit_vec4_op(
         name = op.result.name
         msl_fn = _UNARY_MSL.get(op.op, op.op)
         if src in vec4_vals:
-            vec4_vals.add(name)
+            vector_type = f"{op.result.type.to_msl()}4"
+            vec4_vals[name] = vector_type
             if op.op == "neg":
-                lines.append(f"{pad}float4 {name} = -{src};")
+                lines.append(f"{pad}{vector_type} {name} = -{src};")
             else:
-                lines.append(f"{pad}float4 {name} = {msl_fn}({src});")
+                lines.append(f"{pad}{vector_type} {name} = {msl_fn}({src});")
         else:
             result_type = op.result.type.to_msl()
             if op.op == "neg":
@@ -2099,8 +2108,9 @@ def _emit_vec4_op(
         fv = _val_name(op.false_val, func)
         name = op.result.name
         if tv in vec4_vals or fv in vec4_vals:
-            vec4_vals.add(name)
-            lines.append(f"{pad}float4 {name} = select({fv}, {tv}, {cond});")
+            vector_type = vec4_vals.get(tv, vec4_vals.get(fv))
+            vec4_vals[name] = vector_type
+            lines.append(f"{pad}{vector_type} {name} = select({fv}, {tv}, {cond});")
         else:
             result_type = op.result.type.to_msl()
             lines.append(f"{pad}{result_type} {name} = {cond} ? {tv} : {fv};")

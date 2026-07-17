@@ -1,7 +1,7 @@
 Decode Attention
 ================
 
-``kernels.attention_decode`` implements single-query MHA decode as composable
+``kernels.attention_decode`` implements single-query MHA/GQA/MQA decode as composable
 meTile eDSL kernels. It never materializes the score matrix. Each SIMDgroup streams a
 subset of key/value tokens, maintains a numerically stable online-softmax recurrence in
 registers, and merges its maximum, denominator, and output partials.
@@ -10,7 +10,7 @@ registers, and merges its maximum, denominator, and output partials.
 
    from kernels import attention_decode
 
-   dispatch = attention_decode[(num_heads,)].prepare(
+   dispatch = attention_decode[(batch, query_heads)].prepare(
        query,
        key,
        value,
@@ -18,11 +18,13 @@ registers, and merges its maximum, denominator, and output partials.
        context_length,
        head_dim ** -0.5,
        D=head_dim,
+       KV_HEADS=key_value_heads,
    )
    dispatch()
 
-The contiguous float32 layouts are query/output ``[heads, D]`` and key/value
-``[heads, tokens, D]``. The current kernel requires ``D`` to be divisible by 32.
+The contiguous float32 layouts are query/output ``[batch, query_heads, D]`` and
+key/value ``[batch, key_value_heads, tokens, D]``. Query heads must be divisible by
+key/value heads, and ``D`` must be divisible by 32.
 
 The runtime measures both a single-pass threadgroup and, for long contexts, a two-pass
 form that partitions tokens across threadgroups and merges unnormalized online-softmax
@@ -38,7 +40,7 @@ as a whole-kernel source template:
 * ``fast_exp`` maps to Metal's fast exponential for online normalization.
 * ``shared`` and ``barrier`` assemble partial results across SIMDgroups.
 
-The autotuned wrapper searches single-pass threadgroup widths from 64 through 1024
+The autotuned wrapper searches single-pass threadgroup widths from 32 through 1024
 threads plus two-pass token partitions and partial/merge threadgroup shapes. Its cache
 key includes the launch grid as well as context length and head dimension, so a schedule
 measured for a highly parallel head batch is not reused for a low-head decode. The

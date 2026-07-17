@@ -30,6 +30,8 @@ def _format_tile_op(op: tir.Op, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}thread_id(){suffix}")
     elif isinstance(op, tir.Constant):
         lines.append(f"{pad}{prefix}constant({op.value}){suffix}")
+    elif isinstance(op, tir.Cast):
+        lines.append(f"{pad}{prefix}cast(%{op.value.name}, {op.dtype}){suffix}")
     elif isinstance(op, tir.Arange):
         start = f"%{op.start.name}" if op.start else "0"
         lines.append(f"{pad}{prefix}arange({start}, {start}+{op.size}){suffix}")

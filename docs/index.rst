@@ -41,6 +41,7 @@ Programming Guide
    guide/memory
    guide/tile-ops
    guide/autotuning
+   guide/mlx-backend
 
 Kernel Examples
 ---------------

@@ -61,6 +61,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 
 **eDSL & Frontend**
 - Python-based eDSL: `@metile.kernel`, `program_id`, `arange`, `load`/`store`, `dot`, `tile_load`/`tile_store`
+- Explicit `cast` operations keep mixed-precision accumulation and storage choices visible in Tile IR.
 - Explicit loop-carried scalar SSA values plus native `simd_sum`, `simd_max`, and `fast_exp` primitives for composable online algorithms
 - Autotuner (`@metile.autotune`) with config search over block sizes, SG counts, execution modes, and tile schedules
 
@@ -91,6 +92,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
 - Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; measured short kernels receive an adaptive bounded poll-before-sleep budget while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
+- Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape.
 
 ## Block-Scaled GEMM
 
@@ -118,19 +120,62 @@ runtime also measures a multi-threadgroup first pass and a second online merge:
 ```python
 from kernels import attention_decode
 
-dispatch = attention_decode[(num_heads,)].prepare(
-    query, key, value, output, context_length, head_dim**-0.5, D=head_dim
+dispatch = attention_decode[(batch, query_heads)].prepare(
+    query,
+    key,
+    value,
+    output,
+    context_length,
+    head_dim**-0.5,
+    D=head_dim,
+    KV_HEADS=key_value_heads,
 )
 dispatch()
 ```
 
-The current public kernel accepts contiguous float32 MHA tensors flattened as query/output
-``[heads, D]`` and key/value ``[heads, tokens, D]``, with ``D`` divisible by 32.
+The public kernel accepts contiguous float32 MHA/GQA/MQA tensors flattened as query/output
+``[batch, query_heads, D]`` and key/value ``[batch, key_value_heads, tokens, D]``, with
+``query_heads`` divisible by ``key_value_heads`` and ``D`` divisible by 32. The original
+one-dimensional ``(heads,)`` launch remains a batch-one MHA shorthand.
+
+## MLX-LM Backend
+
+meTile-generated Metal can execute as a lazy, zero-copy MLX primitive. The integration
+uses a Liger-style opt-in patch with independent attention and RMSNorm switches:
+
+```python
+from mlx_lm import load
+from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+
+model, tokenizer = load("mlx-community/Llama-3.2-1B-Instruct-4bit")
+patch = apply_metile_to_mlx_lm(model=model)
+
+# Restore every patched function or use the handle as a context manager.
+patch.restore()
+```
+
+The dispatcher benchmarks native MLX alongside generated blocks. It requires at least
+5% primitive-level headroom before crossing the framework boundary; otherwise the call
+stays on MLX. Unsupported prefill attention, masks, sinks, quantized KV caches, and dtypes
+also fall back exactly. RMSNorm supports FP16/FP32 and accumulates in FP32.
+
+On this M5 32 GB machine with MLX 0.32.0 and MLX-LM 0.31.3, a five-trial interleaved
+Llama 3.2 1B 4-bit run at 128 prompt / 256 generated tokens measured 138.16 tok/s for
+MLX and 139.59 tok/s with the guarded patch (1.010x decode, 1.014x end to end). Reproduce
+the model-level benchmark rather than relying on that machine-specific number:
+
+```bash
+python benchmarks/mlx_lm_backend.py \
+  --prompt-tokens 128 --generation-tokens 256 --trials 5 --delay 2
+```
 
 ## Install
 
 ```bash
 pip install -e ".[dev]"
+
+# Optional framework backend
+pip install -e ".[mlx-lm]"
 ```
 
 ## Run Tests
@@ -184,6 +229,8 @@ make bench
 | Runtime | `runtime/buffer.py` | Zero-copy unified memory buffers |
 | Runtime | `runtime/block_scaled.py` | MXFP quantization and shape-specific tile-family dispatch |
 | Attention | `kernels/attention.py` | Composable online-softmax decode kernel and schedule family |
+| MLX backend | `backends/mlx.py` | Zero-copy MLX primitives and native/generated guarded dispatch |
+| MLX-LM integration | `integrations/mlx_lm.py` | Reversible Liger-style model patching with exact fallbacks |
 
 ## Citations
 

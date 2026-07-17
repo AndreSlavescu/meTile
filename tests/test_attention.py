@@ -18,6 +18,19 @@ def _reference_attention(query, key, value, scale):
     return np.einsum("hn,hnd->hd", weights, value)
 
 
+def _reference_grouped_attention(query, key, value, scale):
+    query_heads = query.shape[1]
+    key_value_heads = key.shape[1]
+    key_value_indices = np.arange(query_heads) // (query_heads // key_value_heads)
+    expanded_key = key[:, key_value_indices]
+    expanded_value = value[:, key_value_indices]
+    scores = np.einsum("bhd,bhnd->bhn", query, expanded_key) * scale
+    scores -= scores.max(axis=-1, keepdims=True)
+    weights = np.exp(scores)
+    weights /= weights.sum(axis=-1, keepdims=True)
+    return np.einsum("bhn,bhnd->bhd", weights, expanded_value)
+
+
 def _run_attention(heads, tokens, dimension, block):
     random = np.random.default_rng(heads * 1000 + tokens + dimension + block)
     query = random.standard_normal((heads, dimension), dtype=np.float32)
@@ -34,6 +47,8 @@ def _run_attention(heads, tokens, dimension, block):
         tokens,
         scale,
         D=dimension,
+        Q_HEADS=heads,
+        KV_HEADS=heads,
         BLOCK=block,
     )
     MetalDevice.get().sync()
@@ -56,6 +71,8 @@ def _run_two_pass_attention(heads, tokens, dimension, config):
         metile.Buffer(data=key.ravel()),
         metile.Buffer(data=value.ravel()),
         output,
+        1,
+        heads,
         heads,
         tokens,
         scale,
@@ -70,7 +87,7 @@ def _run_two_pass_attention(heads, tokens, dimension, config):
     np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
 
 
-@pytest.mark.parametrize("block", [64, 128, 256, 512, 1024])
+@pytest.mark.parametrize("block", [32, 64, 128, 256, 512, 1024])
 def test_decode_attention_supports_runtime_schedule_shapes(block):
     _run_attention(heads=2, tokens=129, dimension=128, block=block)
 
@@ -109,6 +126,70 @@ def test_two_pass_decode_attention_supports_multiple_heads():
     )
 
 
+@pytest.mark.parametrize(("batch,query_heads,key_value_heads"), [(2, 4, 2), (2, 4, 1)])
+def test_decode_attention_supports_batched_gqa_and_mqa(batch, query_heads, key_value_heads):
+    tokens = 129
+    dimension = 128
+    random = np.random.default_rng(batch * 1000 + query_heads * 100 + key_value_heads)
+    query = random.standard_normal((batch, query_heads, dimension), dtype=np.float32)
+    key = random.standard_normal((batch, key_value_heads, tokens, dimension), dtype=np.float32)
+    value = random.standard_normal(key.shape, dtype=np.float32)
+    output = metile.Buffer.zeros((batch * query_heads * dimension,))
+    scale = float(dimension**-0.5)
+
+    attention_decode_kernel[(batch * query_heads,)](
+        metile.Buffer(data=query.ravel()),
+        metile.Buffer(data=key.ravel()),
+        metile.Buffer(data=value.ravel()),
+        output,
+        tokens,
+        scale,
+        D=dimension,
+        Q_HEADS=query_heads,
+        KV_HEADS=key_value_heads,
+        BLOCK=256,
+    )
+    MetalDevice.get().sync()
+
+    expected = _reference_grouped_attention(query, key, value, scale)
+    actual = output.numpy().reshape(batch, query_heads, dimension)
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
+
+
+def test_two_pass_decode_attention_supports_batched_gqa():
+    batch = 2
+    query_heads = 4
+    key_value_heads = 2
+    tokens = 4096
+    dimension = 64
+    random = np.random.default_rng(2026)
+    query = random.standard_normal((batch, query_heads, dimension), dtype=np.float32)
+    key = random.standard_normal((batch, key_value_heads, tokens, dimension), dtype=np.float32)
+    value = random.standard_normal(key.shape, dtype=np.float32)
+    output = metile.Buffer.zeros((batch * query_heads * dimension,))
+    scale = float(dimension**-0.5)
+
+    dispatch = _prepare_two_pass(
+        metile.Buffer(data=query.ravel()),
+        metile.Buffer(data=key.ravel()),
+        metile.Buffer(data=value.ravel()),
+        output,
+        batch,
+        query_heads,
+        key_value_heads,
+        tokens,
+        scale,
+        dimension,
+        AttentionDecodeConfig("two_pass", 512, 256, 128),
+    )
+    dispatch()
+    MetalDevice.get().sync()
+
+    expected = _reference_grouped_attention(query, key, value, scale)
+    actual = output.numpy().reshape(batch, query_heads, dimension)
+    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=2e-5)
+
+
 @pytest.mark.parametrize(
     ("grid,tokens,dimension,error"),
     [
@@ -143,6 +224,26 @@ def test_decode_attention_rejects_non_float_storage():
 
     with pytest.raises(TypeError, match="float32"):
         attention_decode[(1,)].prepare(query, key, value, output, 1, 0.125, D=64)
+
+
+def test_decode_attention_validates_grouped_head_count():
+    query = metile.Buffer.empty((6 * 64,))
+    key = metile.Buffer.empty((4 * 32 * 64,))
+    value = metile.Buffer.empty(key.shape)
+    output = metile.Buffer.empty(query.shape)
+
+    with pytest.raises(ValueError, match="positive divisor"):
+        attention_decode[(1, 6)].prepare(query, key, value, output, 32, 0.125, D=64, KV_HEADS=4)
+
+
+def test_decode_attention_validates_batched_grouped_buffer_sizes():
+    query = metile.Buffer.empty((2 * 4 * 64,))
+    key = metile.Buffer.empty((2 * 2 * 32 * 64 - 1,))
+    value = metile.Buffer.empty((2 * 2 * 32 * 64,))
+    output = metile.Buffer.empty(query.shape)
+
+    with pytest.raises(ValueError, match="key requires"):
+        attention_decode[(2, 4)].prepare(query, key, value, output, 32, 0.125, D=64, KV_HEADS=2)
 
 
 def test_dynamic_two_pass_candidates_fit_one_simdgroup_merge():
