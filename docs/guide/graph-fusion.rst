@@ -30,11 +30,28 @@ cuts an edge weighted by launch and intermediate-materialization cost. Fusing it
 target-resource edge. Infinite-capacity edges encode legality constraints. The source-side
 vertices in the residual graph form the selected region.
 
-The in-tree solver is deterministic and exact. Compiler fusion neighborhoods are normally
-small, so a compact Dinic implementation has lower compile-time constants than the
-almost-linear theoretical max-flow algorithms based on approximate minimum-ratio cycles
-and dynamic graph structures. The solver is isolated from graph construction so a verified
-large-graph implementation can replace it without changing fusion legality or lowering.
+The in-tree solvers are deterministic and exact. ``FlowNetwork`` stores an immutable
+capacity graph and builds a fresh residual graph per solve, which makes differential
+testing and repeated autotuning safe. Automatic dispatch uses Dinic directly for compiler
+networks below 32 vertices. Larger networks enter a three-round, order-interleaved
+tournament between Dinic and highest-label push-relabel with gap and global-relabeling
+heuristics because density alone does not predict the winner reliably. A
+topology-and-capacity cache then dispatches repeats directly. Push-relabel must demonstrate
+at least 10 percent headroom to replace the reference solver, protecting the compiler from
+timing noise and tail cases.
+
+The `almost-linear directed-flow result <https://arxiv.org/abs/2203.00671>`_ based on an
+interior-point method, approximate minimum-ratio cycles, and dynamic graph structures is a
+separate solver implementation, not a label for either engine above. The flow boundary is
+isolated from graph construction so that implementation can be differential-tested against
+Dinic before it participates in automatic dispatch, without changing fusion legality or
+lowering.
+
+Reproduce the current solver crossover with:
+
+.. code-block:: console
+
+   python benchmarks/max_flow.py
 
 Measured Dispatch
 -----------------
