@@ -104,6 +104,9 @@ kernel's signature are stored in ``func.constexprs`` and available to the compil
 Schedules can be searched alongside tile shapes with ``SWIZZLE="linear"``,
 ``"grouped2"``, ``"grouped4"``, ``"grouped8"``, ``"diagonal"``,
 ``"morton"``, ``"hilbert"``, or ``"auto"``.
+``SCHEDULE_ENCODING="arithmetic"`` or ``"bitwise"`` exposes equivalent decoder
+representations as ordinary autotune candidates; the default ``"auto"`` uses the
+compiler's target-cost and MDL extractor.
 On the aligned M5 NAX path, ``NAX_OUTER_K`` controls the reduction epoch and
 ``NAX_K_UNROLL=2`` preloads two 16-wide K fragments before issuing their native MMAs.
 These are candidate parameters rather than global defaults because the winning register
@@ -127,16 +130,27 @@ Schedule Algebra and MDL
 ------------------------
 
 Schedule selection is a composable Metal IR pass, not a whole-kernel template.
-Each traversal is represented as a finite permutation of the launch grid. Square
-grids use the eight-element dihedral group ``D4``; rectangular grids use the four
-shape-preserving reflections. The pass canonicalizes candidates under these group
-actions and searches one representative per orbit.
+Each traversal is represented as a finite permutation of the launch grid. The pass
+closes a small set of reflection and axis-exchange generators to derive the exact
+shape-preserving action: ``D4`` for interchangeable square grid and tile axes, ``D2``
+for ordinary rectangles or anisotropic square tiles, ``C2`` for degenerate one-axis
+grids, and the trivial group for a single tile. It verifies the action through orbit
+and stabilizer construction, canonicalizes traversals under the action, and searches
+one representative per orbit.
+
+Every static traversal lowers to a scalar schedule-expression program. Exact rewrite
+alternatives replace constant power-of-two multiply, divide, and remainder operations
+with shifts and masks. Extraction first minimizes a Metal operation-cost model and then
+uses the DEFLATE-compressed canonical expression encoding as a deterministic
+minimum-description-length tie-break. Code generation consumes the selected expression
+tree directly, so adding a decoder representation does not add a whole-kernel template.
 
 This is a finite symmetry group and fundamental-domain construction, not a
 topological fundamental group. Likewise, exact Kolmogorov complexity is
-uncomputable. meTile uses DEFLATE-compressed generated MSL length as a reproducible
-minimum-description-length upper bound. Measured latency is always primary: MDL can
-only choose a smaller representation when it is within 0.25% of the fastest result.
+uncomputable. For cross-kernel autotuning, meTile uses DEFLATE-compressed generated MSL
+length as a reproducible minimum-description-length upper bound. Measured latency is
+always primary: MDL can only choose a smaller representation when it is within 0.25%
+of the fastest result.
 
 The same compositional policy applies beyond GEMM traversal. The FFT candidate family
 keeps one kernel expressed from ordinary eDSL operations while searching threadgroup

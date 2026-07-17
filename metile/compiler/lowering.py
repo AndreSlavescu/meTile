@@ -1031,6 +1031,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                 block_size=swizzle_block_size,
                 grid_m=constexprs.get("_GRID_M"),
                 grid_n=constexprs.get("_GRID_N"),
+                encoding=constexprs.get("SCHEDULE_ENCODING", "auto"),
             )
         )
         mfunc.add_op(
@@ -1145,6 +1146,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
             block_size=swizzle_block_size,
             grid_m=constexprs.get("_GRID_M"),
             grid_n=constexprs.get("_GRID_N"),
+            encoding=constexprs.get("SCHEDULE_ENCODING", "auto"),
         )
     )
 

@@ -613,6 +613,10 @@ class MTileSchedule(MOp):
     grid_m: int | None = None
     grid_n: int | None = None
     is_static: bool = False
+    encoding: str = "auto"
+    description_bits: int | None = None
+    symmetry_group: str | None = None
+    axis_interchangeable: bool = False
 
     def result_type(self):
         return None

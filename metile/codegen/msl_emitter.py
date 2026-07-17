@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from metile.compiler.schedule_expr import select_schedule_program
 from metile.ir import metal_ir as mir
 from metile.ir.types import PtrType, ScalarType
 
@@ -1213,38 +1214,10 @@ def _emit_tile_schedule(op, lines, indent):
 
 
 def _emit_static_tile_schedule(op, lines, indent):
-    """Emit the cheapest branch-free representation chosen by schedule search."""
+    """Emit the branch-free expression program extracted by schedule search."""
     pad = "    " * indent
-    if op.pattern == "linear":
-        lines.append(f"{pad}const uint pid_m = tgp_id.x;")
-        lines.append(f"{pad}const uint pid_n = tgp_id.y;")
-    elif op.pattern == "diagonal":
-        lines.append(f"{pad}const uint pid_m = tgp_id.x;")
-        lines.append(f"{pad}const uint pid_n = (tgp_id.y + tgp_id.x) % {op.grid_n}u;")
-    elif op.pattern == "morton":
-        lines.append(f"{pad}const uint linear_id = tgp_id.x * {op.grid_n}u + tgp_id.y;")
-        lines.append(f"{pad}const uint panel_id = linear_id >> 2u;")
-        lines.append(f"{pad}const uint within = linear_id & 3u;")
-        lines.append(f"{pad}const uint pid_m = (panel_id / {op.grid_n // 2}u) * 2u + within / 2u;")
-        lines.append(f"{pad}const uint pid_n = (panel_id % {op.grid_n // 2}u) * 2u + within % 2u;")
-    elif op.pattern.startswith("grouped"):
-        group = int(op.pattern.removeprefix("grouped"))
-        virtual_width = op.grid_n * group
-        lines.append(f"{pad}const uint linear_id = tgp_id.y * {op.grid_m}u + tgp_id.x;")
-        lines.append(f"{pad}const uint virtual_x = linear_id % {virtual_width}u;")
-        lines.append(f"{pad}const uint virtual_y = linear_id / {virtual_width}u;")
-        lines.append(f"{pad}const uint pid_m = virtual_y * {group}u + virtual_x % {group}u;")
-        lines.append(f"{pad}const uint pid_n = virtual_x / {group}u;")
-    else:
-        lines.append(f"{pad}const uint linear_id = tgp_id.x * {op.grid_n}u + tgp_id.y;")
-        lines.append(f"{pad}constexpr ulong hilbert_m = 0xEBFA5014ul;")
-        lines.append(f"{pad}constexpr ulong hilbert_n = 0x05BEBE50ul;")
-        lines.append(f"{pad}const uint panel_id = linear_id >> 4u;")
-        lines.append(f"{pad}const uint within = linear_id & 15u;")
-        lines.append(f"{pad}const uint pid_m = (panel_id / {op.grid_n // 4}u) * 4u")
-        lines.append(f"{pad}    + uint((hilbert_m >> (within * 2u)) & 3ul);")
-        lines.append(f"{pad}const uint pid_n = (panel_id % {op.grid_n // 4}u) * 4u")
-        lines.append(f"{pad}    + uint((hilbert_n >> (within * 2u)) & 3ul);")
+    program = select_schedule_program(op.pattern, op.grid_m, op.grid_n, op.encoding)
+    lines.extend(f"{pad}{line}" for line in program.emit_lines())
 
 
 def _emit_matmul2d_setup(op, lines, indent, func):

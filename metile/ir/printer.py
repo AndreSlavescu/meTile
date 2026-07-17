@@ -216,7 +216,16 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
             f"in={op.in_type}, out={op.out_type})"
         )
     elif isinstance(op, mir.MTileSchedule):
-        lines.append(f"{pad}tile_schedule(pattern={op.pattern}, block={op.block_m}x{op.block_n})")
+        details = [f"pattern={op.pattern}", f"block={op.block_m}x{op.block_n}"]
+        if op.encoding != "auto":
+            details.append(f"encoding={op.encoding}")
+        if op.symmetry_group is not None:
+            details.append(f"group={op.symmetry_group}")
+        if op.axis_interchangeable:
+            details.append("axis_interchangeable")
+        if op.description_bits is not None:
+            details.append(f"mdl={op.description_bits}b")
+        lines.append(f"{pad}tile_schedule({', '.join(details)})")
     elif isinstance(op, mir.MNaxGemmSetup):
         lines.append(f"{pad}nax_gemm_setup(block={op.block_m}x{op.block_n})")
     elif isinstance(op, mir.MNaxGemmRun):
