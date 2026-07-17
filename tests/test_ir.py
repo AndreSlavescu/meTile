@@ -1,8 +1,18 @@
 from metile.codegen.msl_emitter import emit
 from metile.compiler.lowering import lower
+from metile.frontend.tracing import (
+    TracingContext,
+    TracingProxy,
+    fast_exp,
+    load,
+    maximum,
+    scalar,
+    store,
+    tile_range,
+)
 from metile.ir import tile_ir as tir
 from metile.ir.printer import print_metal_ir, print_tile_ir
-from metile.ir.types import I32, U32, PtrType
+from metile.ir.types import I32, U32, PtrType, ScalarType
 
 
 def _build_vector_add_ir() -> tir.Function:
@@ -113,6 +123,49 @@ def test_reverse_bits_lowers_to_native_unsigned_msl():
     reverse_op = next(op for op in metal_func.ops if isinstance(op, mir.MUnary))
     assert reverse_op.result_type() == U32
     assert "reverse_bits" in emit(metal_func)
+
+
+def test_explicit_scalar_is_carried_across_runtime_loop():
+    ctx = TracingContext("scalar_recurrence")
+    input_value = tir.Value("input", PtrType("f32"))
+    output_value = tir.Value("output", PtrType("f32"))
+    length_value = tir.Value("length", I32)
+    ctx.func.params = [
+        tir.Param("input", PtrType("f32")),
+        tir.Param("output", PtrType("f32"), is_output=True),
+        tir.Param("length", I32),
+    ]
+
+    with ctx:
+        input_proxy = TracingProxy(input_value)
+        output_proxy = TracingProxy(output_value)
+        length_proxy = TracingProxy(length_value)
+        local_max = scalar(-1e30)
+        for index in tile_range(0, length_proxy):
+            value = load(input_proxy + index)
+            new_max = maximum(local_max, value)
+            fast_exp(local_max - new_max)
+            local_max = new_max
+        store(output_proxy + 0, local_max)
+
+    msl = emit(lower(ctx.func))
+    assert "float _acc_0 = -1e+30f;" in msl
+    assert "= _acc_0 -" in msl
+    assert "fast::exp(" in msl
+    assert "simd_sum" not in msl
+
+
+def test_native_simd_math_primitives_emit_metal_intrinsics():
+    func = tir.Function(name="simd_math", params=[tir.Param("value", ScalarType("f32"))])
+    value = tir.Value("value", ScalarType("f32"))
+    summed = func.add_op(tir.Unary(op="simd_sum", operand=value))
+    maximum_value = func.add_op(tir.Unary(op="simd_max", operand=summed))
+    func.add_op(tir.Unary(op="fast_exp", operand=maximum_value))
+
+    msl = emit(lower(func))
+    assert "simd_sum(" in msl
+    assert "simd_max(" in msl
+    assert "fast::exp(" in msl
 
 
 def _build_simdgroup_role_ir() -> tir.Function:

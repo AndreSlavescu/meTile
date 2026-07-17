@@ -62,6 +62,7 @@ class Constant(Op):
 
     value: int | float = 0
     dtype: str = "i32"
+    explicit_scalar: bool = False
 
     def result_type(self) -> ScalarType:
         return ScalarType(self.dtype)
@@ -99,7 +100,7 @@ class BinOp(Op):
 class Unary(Op):
     """Unary operation on scalars or tiles."""
 
-    op: str = ""  # "exp", "log", "sqrt", "abs", "neg", "reverse_bits"
+    op: str = ""  # "exp", "fast_exp", "simd_sum", "simd_max", ...
     operand: Value = None
 
     def result_type(self):

@@ -61,6 +61,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 
 **eDSL & Frontend**
 - Python-based eDSL: `@metile.kernel`, `program_id`, `arange`, `load`/`store`, `dot`, `tile_load`/`tile_store`
+- Explicit loop-carried scalar SSA values plus native `simd_sum`, `simd_max`, and `fast_exp` primitives for composable online algorithms
 - Autotuner (`@metile.autotune`) with config search over block sizes, SG counts, execution modes, and tile schedules
 
 **Compiler**
@@ -83,7 +84,8 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 
 **Runtime**
 - Zero-copy unified memory via `metile.Buffer`. CPU and GPU share the same physical memory.
-- Interleaved round-robin autotuning uses synchronized end-to-end latency for sub-millisecond kernels and GPU timestamps for sustained workloads, with device/toolchain-keyed persistent config, measured-latency, and metallib caches.
+- Interleaved round-robin autotuning uses synchronized end-to-end latency for sub-millisecond kernels and GPU timestamps for sustained workloads, with launch-grid-, shape-, device-, and toolchain-keyed persistent config, measured-latency, and metallib caches.
+- Online decode attention is one ordinary eDSL kernel. The runtime searches 2-, 4-, 8-, 16-, and 32-SIMDgroup schedules per head count, context length, and head dimension.
 - Automatic dense and block-scaled tile/schedule dispatch across grouped, Morton, Hilbert, staged, and register-resident candidates, including 2- and 4-SIMDgroup MXFP tiles.
 - Batched FFT dispatch searches threadgroup width, register-local radix decomposition, bit-reversal placement, and twiddle placement per transform shape instead of selecting a monolithic kernel template.
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
@@ -106,6 +108,23 @@ The aligned fast path currently requires `M`/`N` multiples of 64 and `K` a multi
 of 32. `prepare_block_scaled_matmul` autotunes staged and direct register-fragment
 representations, including paired K steps that reuse E8M0 scale fragments and 32x64
 two-SIMDgroup output tiles, and returns a reusable hot-path dispatcher.
+
+## Decode Attention
+
+The decode kernel keeps query values and online-softmax state in registers and merges
+SIMDgroup partials without materializing an attention matrix:
+
+```python
+from kernels.attention import attention_decode
+
+dispatch = attention_decode[(num_heads,)].prepare(
+    query, key, value, output, context_length, head_dim**-0.5, D=head_dim
+)
+dispatch()
+```
+
+The current public kernel accepts contiguous float32 MHA tensors flattened as query/output
+``[heads, D]`` and key/value ``[heads, tokens, D]``, with ``D`` divisible by 32.
 
 ## Install
 
@@ -163,6 +182,7 @@ make bench
 | Runtime | `runtime/metal_device.py` | Metal API via ctypes (compile, capability-gated batching, dispatch, sync) |
 | Runtime | `runtime/buffer.py` | Zero-copy unified memory buffers |
 | Runtime | `runtime/block_scaled.py` | MXFP quantization and shape-specific tile-family dispatch |
+| Attention | `kernels/attention.py` | Composable online-softmax decode kernel and schedule family |
 
 ## Citations
 

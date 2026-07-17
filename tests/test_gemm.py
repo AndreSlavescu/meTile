@@ -304,6 +304,15 @@ class TestAutotunedGemm:
         )(matmul)
         assert first[(1, 1)]._cache_key((64, 64, 64)) != second[(1, 1)]._cache_key((64, 64, 64))
 
+    def test_autotune_cache_key_includes_launch_grid(self):
+        tuned = metile.autotune(
+            configs=[metile.Config(BLOCK_M=32)],
+            key=["M"],
+            verbose=False,
+        )(matmul)
+
+        assert tuned[(1, 1)]._cache_key((64,)) != tuned[(2, 1)]._cache_key((64,))
+
     def test_autotune_selects_config(self):
         """Autotuner picks a config and produces correct results."""
 

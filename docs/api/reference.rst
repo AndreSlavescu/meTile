@@ -116,6 +116,8 @@ Control Flow
      - Description
    * - ``metile.tile_range(start, end, step)``
      - Tiling loop (K-dimension iteration, multi-pass algorithms)
+   * - ``metile.scalar(value, dtype=None)``
+     - Explicit scalar SSA value for loop-carried recurrences
 
 
 Math Operations
@@ -131,6 +133,8 @@ All operate element-wise on scalars and tiles:
      - Description
    * - ``metile.exp(x)``
      - Exponential
+   * - ``metile.fast_exp(x)``
+     - Exponential using Metal's fast-math intrinsic
    * - ``metile.log(x)``
      - Natural logarithm
    * - ``metile.sqrt(x)``
@@ -181,6 +185,10 @@ Simdgroup Operations
      - XOR-based lane exchange within a simdgroup
    * - ``metile.simd_broadcast(value, lane)``
      - Broadcast from one lane to all lanes
+   * - ``metile.simd_sum(value)``
+     - Native sum across the current simdgroup
+   * - ``metile.simd_max(value)``
+     - Native maximum across the current simdgroup
    * - ``metile.barrier()``
      - Threadgroup memory barrier
    * - ``metile.shared(size, dtype)``

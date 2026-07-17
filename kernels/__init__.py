@@ -1,6 +1,14 @@
+from kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode
 from kernels.gemm import MATMUL_CONFIGS, matmul, matmul_relu, matmul_swizzled
 
-__all__ = ["MATMUL_CONFIGS", "matmul", "matmul_relu", "matmul_swizzled"]
+__all__ = [
+    "ATTENTION_DECODE_CONFIGS",
+    "MATMUL_CONFIGS",
+    "attention_decode",
+    "matmul",
+    "matmul_relu",
+    "matmul_swizzled",
+]
 from kernels.layernorm import layernorm
 from kernels.mlp import matmul_gelu, matmul_silu
 from kernels.reduce import REDUCE_KERNELS, reduce_2, reduce_4, reduce_8, reduce_16

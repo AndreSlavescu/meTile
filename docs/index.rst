@@ -50,6 +50,7 @@ Kernel Examples
 
    examples/vector-add
    examples/softmax
+   examples/attention
    examples/matmul
    examples/layernorm
    examples/fused-activations

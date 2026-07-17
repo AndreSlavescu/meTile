@@ -185,8 +185,17 @@ class AutotunedLauncher:
         return (
             self.autotuned.kernel_fn.name,
             self.autotuned._config_digest,
+            self._grid_key(),
             tuple(key_values),
         )
+
+    def _grid_key(self):
+        if callable(self.grid):
+            try:
+                return inspect.getsource(self.grid).strip()
+            except (OSError, TypeError):
+                return getattr(self.grid, "__qualname__", type(self.grid).__qualname__)
+        return tuple(self.grid)
 
     def _resolve_grid(self, config):
         return self.grid(config.kwargs) if callable(self.grid) else self.grid
@@ -215,6 +224,7 @@ class AutotunedLauncher:
                 "device": dev.name,
                 "kernel": at.kernel_fn.name,
                 "keys": key_values,
+                "grid": self._grid_key(),
                 "source": source,
                 "toolchain": dev.metal_compiler_version,
             }

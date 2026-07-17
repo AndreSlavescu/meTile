@@ -2152,8 +2152,8 @@ class _ElementwiseLoweringContext:
     def _detect_accumulation(self, for_range_op: tir.ForRange):
         """Detect accumulation patterns in a ForRange body.
 
-        Looks for Constants that feed into BinOp chains, where the
-        final values are used after the ForRange. Returns a list of
+        Looks for explicit scalar initializers that feed into BinOp chains,
+        where the final values are used after the ForRange. Returns a list of
         (init_name, init_value, final_name) tuples, or None if empty.
         """
         body = for_range_op.body
@@ -2175,7 +2175,7 @@ class _ElementwiseLoweringContext:
                 self._collect_tile_ir_refs(parent_op, post_refs)
 
         # Find escaped values (defined in body, used after)
-        escaped = set(body_defs.keys()) & post_refs
+        escaped = [name for name in body_defs if name in post_refs]
 
         results = []
         used_inits = set()
@@ -2187,7 +2187,7 @@ class _ElementwiseLoweringContext:
         return results or None
 
     def _walk_acc_chain(self, start_name, body_defs):
-        """Walk backward through BinOp chain to find the Constant root.
+        """Walk backward through BinOp chains to find a scalar state root.
 
         Returns (init_name, init_value, final_name) or None.
         """
@@ -2199,6 +2199,11 @@ class _ElementwiseLoweringContext:
             op = body_defs[current_name]
 
             if isinstance(op, tir.BinOp):
+                for operand in (op.lhs, op.rhs):
+                    defining_op = operand.defining_op
+                    if isinstance(defining_op, tir.Constant) and defining_op.explicit_scalar:
+                        return (operand.name, defining_op.value, start_name)
+
                 lhs_name = op.lhs.name
                 rhs_name = op.rhs.name
 

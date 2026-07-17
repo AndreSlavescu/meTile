@@ -5,6 +5,8 @@ Different problem sizes benefit from different tile configurations. meTile's aut
 benchmarks each representation and caches the fastest one per problem shape. Winners
 persist across processes and are invalidated when the device, compiler toolchain, kernel
 source, or candidate family changes.
+The concrete launch grid is part of the cache identity, which prevents a configuration
+measured at one degree of program-level parallelism from leaking into another.
 
 
 Basic Usage

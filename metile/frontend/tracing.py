@@ -447,9 +447,32 @@ def _unary(op_name: str, operand) -> TracingProxy:
     return TracingProxy(result)
 
 
+def scalar(value, dtype=None) -> TracingProxy:
+    """Create one explicit scalar SSA value.
+
+    Reusing the returned proxy across a runtime ``tile_range`` declares
+    loop-carried scalar state. This avoids relying on Python-literal identity
+    when expressing recurrences such as online softmax.
+    """
+    if isinstance(value, constexpr):
+        value = value._value
+    if not isinstance(value, (int, float)):
+        raise TypeError("scalar() value must be an int or float")
+    if dtype is None:
+        dtype = "f32" if isinstance(value, float) else "i32"
+    ctx = _get_ctx()
+    result = ctx.add_op(tir.Constant(value=value, dtype=dtype, explicit_scalar=True))
+    return TracingProxy(result)
+
+
 def exp(x) -> TracingProxy:
     """Element-wise exponential."""
     return _unary("exp", x)
+
+
+def fast_exp(x) -> TracingProxy:
+    """Element-wise exponential using Metal's fast-math intrinsic."""
+    return _unary("fast_exp", x)
 
 
 def log(x) -> TracingProxy:
@@ -765,6 +788,16 @@ def simd_broadcast(value, lane) -> TracingProxy:
     op = tir.SimdBroadcast(value=value_val, lane=lane_val)
     val = ctx.func.add_op(op, f"bcast_{len(ctx.func.ops)}")
     return TracingProxy(val)
+
+
+def simd_sum(value) -> TracingProxy:
+    """Sum a scalar across all lanes in the current simdgroup."""
+    return _unary("simd_sum", value)
+
+
+def simd_max(value) -> TracingProxy:
+    """Take the maximum scalar across the current simdgroup."""
+    return _unary("simd_max", value)
 
 
 def simd_lane_id() -> TracingProxy:

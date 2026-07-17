@@ -28,12 +28,15 @@ _CMP_SYMBOLS = {
 
 _UNARY_MSL = {
     "exp": "exp",
+    "fast_exp": "fast::exp",
     "log": "log",
     "sqrt": "sqrt",
     "abs": "abs",
     "neg": "-",
     "tanh": "tanh",
     "reverse_bits": "reverse_bits",
+    "simd_sum": "simd_sum",
+    "simd_max": "simd_max",
 }
 
 _BINOP_SYMBOLS_EPILOGUE = {

@@ -155,7 +155,7 @@ class MCast(MOp):
 
 @dataclass
 class MUnary(MOp):
-    """Unary operation (exp, log, sqrt, abs, neg, reverse_bits)."""
+    """Unary scalar operation, including native simdgroup reductions."""
 
     op: str = ""
     operand: MValue = None
