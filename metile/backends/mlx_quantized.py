@@ -38,11 +38,40 @@ class MLXAffineSwiGLUConfig:
     algorithm: str
     implementation: str = ""
     block: int = 0
+    outputs_per_simdgroup: int = 1
+    decode_dtype: str = "f32"
 
 
 _AFFINE_SWIGLU_CONFIGS = tuple(
     [MLXAffineSwiGLUConfig("mlx")]
-    + [MLXAffineSwiGLUConfig("metile", "scalar", block) for block in (32, 64, 128, 256)]
+    + [
+        MLXAffineSwiGLUConfig("metile", "scalar", block, outputs_per_simdgroup)
+        for block, outputs_per_simdgroup in (
+            (32, 1),
+            (32, 2),
+            (32, 4),
+            (32, 8),
+            (64, 1),
+            (64, 2),
+            (64, 4),
+            (128, 1),
+            (128, 2),
+            (128, 4),
+            (256, 1),
+            (256, 2),
+        )
+    ]
+    + [
+        MLXAffineSwiGLUConfig("metile", "scalar", block, outputs_per_simdgroup, "f16")
+        for block, outputs_per_simdgroup in (
+            (32, 1),
+            (64, 1),
+            (128, 1),
+            (128, 4),
+            (256, 1),
+            (256, 2),
+        )
+    ]
     + [MLXAffineSwiGLUConfig("metile", "nax", block) for block in (32, 64, 128)]
 )
 
@@ -52,12 +81,13 @@ class _MLXAffineQMVKernel:
     operation: object
     output_features: int
     block: int
+    outputs_per_simdgroup: int
     description_bits: int
 
     def __call__(self, values, weight, scales, biases):
         rows = values.size // values.shape[-1]
         output_shape = (*values.shape[:-1], self.output_features)
-        outputs_per_threadgroup = self.block // 32
+        outputs_per_threadgroup = self.block // 32 * self.outputs_per_simdgroup
         threadgroups = (rows * self.output_features + outputs_per_threadgroup - 1) // (
             outputs_per_threadgroup
         )
@@ -75,6 +105,7 @@ class _MLXAffineSwiGLUKernel:
     operation: object
     output_features: int
     block: int
+    outputs_per_simdgroup: int
     description_bits: int
 
     def __call__(
@@ -89,7 +120,7 @@ class _MLXAffineSwiGLUKernel:
     ):
         rows = values.size // values.shape[-1]
         output_shape = (*values.shape[:-1], self.output_features)
-        outputs_per_threadgroup = self.block // 32
+        outputs_per_threadgroup = self.block // 32 * self.outputs_per_simdgroup
         threadgroups = (rows * self.output_features + outputs_per_threadgroup - 1) // (
             outputs_per_threadgroup
         )
@@ -288,11 +319,27 @@ def _compile_affine_qmv(
     group_size=64,
     bits=4,
     block=32,
+    outputs_per_simdgroup=1,
+    decode_dtype="f32",
 ):
     import mlx.core as mx
 
     numpy_dtype = _mlx_dtype_to_numpy(dtype)
-    kernel_key = (input_features, output_features, numpy_dtype.str, group_size, bits, block)
+    outputs_per_threadgroup = block // 32 * outputs_per_simdgroup
+    if outputs_per_simdgroup < 1 or output_features % outputs_per_threadgroup:
+        raise ValueError("output features must tile the affine QMV threadgroups")
+    if decode_dtype not in {"f16", "f32"}:
+        raise ValueError("affine QMV decode dtype must be f16 or f32")
+    kernel_key = (
+        input_features,
+        output_features,
+        numpy_dtype.str,
+        group_size,
+        bits,
+        block,
+        outputs_per_simdgroup,
+        decode_dtype,
+    )
     cached = _affine_qmv_kernel_cache.get(kernel_key)
     if cached is not None:
         return cached
@@ -313,6 +360,8 @@ def _compile_affine_qmv(
         GROUP_SIZE=group_size,
         BITS=bits,
         BLOCK=block,
+        OUTPUTS_PER_SIMDGROUP=outputs_per_simdgroup,
+        HALF_DECODE=decode_dtype == "f16",
     )
     source = _mlx_kernel_body(compiled.msl_source)
     source = _replace_identifier(source, "K", f"{input_features}")
@@ -323,7 +372,13 @@ def _compile_affine_qmv(
         output_names=["Out"],
         source=source,
     )
-    kernel = _MLXAffineQMVKernel(operation, output_features, block, compiled.description_bits)
+    kernel = _MLXAffineQMVKernel(
+        operation,
+        output_features,
+        block,
+        outputs_per_simdgroup,
+        compiled.description_bits,
+    )
     _affine_qmv_kernel_cache[kernel_key] = kernel
     return kernel
 
@@ -335,11 +390,27 @@ def _compile_affine_swiglu_qmv(
     group_size=64,
     bits=4,
     block=32,
+    outputs_per_simdgroup=1,
+    decode_dtype="f32",
 ):
     import mlx.core as mx
 
     numpy_dtype = _mlx_dtype_to_numpy(dtype)
-    kernel_key = (input_features, output_features, numpy_dtype.str, group_size, bits, block)
+    outputs_per_threadgroup = block // 32 * outputs_per_simdgroup
+    if outputs_per_simdgroup < 1 or output_features % outputs_per_threadgroup:
+        raise ValueError("output features must tile the affine SwiGLU threadgroups")
+    if decode_dtype not in {"f16", "f32"}:
+        raise ValueError("affine SwiGLU decode dtype must be f16 or f32")
+    kernel_key = (
+        input_features,
+        output_features,
+        numpy_dtype.str,
+        group_size,
+        bits,
+        block,
+        outputs_per_simdgroup,
+        decode_dtype,
+    )
     cached = _affine_swiglu_kernel_cache.get(kernel_key)
     if cached is not None:
         return cached
@@ -368,6 +439,8 @@ def _compile_affine_swiglu_qmv(
         GROUP_SIZE=group_size,
         BITS=bits,
         BLOCK=block,
+        OUTPUTS_PER_SIMDGROUP=outputs_per_simdgroup,
+        HALF_DECODE=decode_dtype == "f16",
     )
     source = _mlx_kernel_body(compiled.msl_source)
     source = _replace_identifier(source, "K", f"{input_features}")
@@ -386,12 +459,29 @@ def _compile_affine_swiglu_qmv(
         output_names=["Out"],
         source=source,
     )
-    kernel = _MLXAffineSwiGLUKernel(operation, output_features, block, compiled.description_bits)
+    kernel = _MLXAffineSwiGLUKernel(
+        operation,
+        output_features,
+        block,
+        outputs_per_simdgroup,
+        compiled.description_bits,
+    )
     _affine_swiglu_kernel_cache[kernel_key] = kernel
     return kernel
 
 
-def mlx_affine_qmv(values, weight, scales, biases, *, group_size=64, bits=4, block=32):
+def mlx_affine_qmv(
+    values,
+    weight,
+    scales,
+    biases,
+    *,
+    group_size=64,
+    bits=4,
+    block=32,
+    outputs_per_simdgroup=1,
+    decode_dtype="f32",
+):
     """Execute one generated affine packed-weight QMV inside an MLX graph."""
     kernel = _compile_affine_qmv(
         values.shape[-1],
@@ -400,6 +490,8 @@ def mlx_affine_qmv(values, weight, scales, biases, *, group_size=64, bits=4, blo
         group_size,
         bits,
         block,
+        outputs_per_simdgroup,
+        decode_dtype,
     )
     return kernel(values, weight, scales, biases)
 
@@ -416,6 +508,8 @@ def mlx_affine_swiglu_qmv(
     group_size=64,
     bits=4,
     block=32,
+    outputs_per_simdgroup=1,
+    decode_dtype="f32",
 ):
     """Execute fused affine gate/up QMV projections with a SwiGLU epilogue."""
     kernel = _compile_affine_swiglu_qmv(
@@ -425,6 +519,8 @@ def mlx_affine_swiglu_qmv(
         group_size,
         bits,
         block,
+        outputs_per_simdgroup,
+        decode_dtype,
     )
     return kernel(
         values,
@@ -611,6 +707,8 @@ def _affine_swiglu_dispatch(
             group_size,
             bits,
             config.block,
+            config.outputs_per_simdgroup,
+            config.decode_dtype,
         )
         return (
             lambda: kernel(
@@ -792,6 +890,8 @@ def _read_affine_swiglu_config(key):
             if config.algorithm == payload.get("algorithm")
             and config.implementation == payload.get("implementation", "")
             and config.block == payload.get("block", 0)
+            and config.outputs_per_simdgroup == payload.get("outputs_per_simdgroup", 1)
+            and config.decode_dtype == payload.get("decode_dtype", "f32")
         ),
         None,
     )
@@ -804,7 +904,9 @@ def _write_affine_swiglu_config(key, config):
     payload[key] = {
         "algorithm": config.algorithm,
         "block": config.block,
+        "decode_dtype": config.decode_dtype,
         "implementation": config.implementation,
+        "outputs_per_simdgroup": config.outputs_per_simdgroup,
     }
     atomic_write_json(_affine_cache_path, payload)
 
@@ -908,8 +1010,10 @@ def mlx_affine_swiglu_dispatches():
             "group_size": key[3],
             "bits": key[4],
             "algorithm": config.algorithm,
+            "decode_dtype": config.decode_dtype,
             "implementation": config.implementation,
             "block": config.block,
+            "outputs_per_simdgroup": config.outputs_per_simdgroup,
         }
         for key, config in sorted(_affine_swiglu_schedule_cache.items())
     )

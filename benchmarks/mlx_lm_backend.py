@@ -158,7 +158,9 @@ def main():
     for dispatch in mlx_affine_swiglu_dispatches():
         print(
             f"{dispatch['input_features']}->{dispatch['output_features']}: "
-            f"{dispatch['algorithm']} {dispatch['implementation']} block={dispatch['block']}"
+            f"{dispatch['algorithm']} {dispatch['implementation']} block={dispatch['block']} "
+            f"outputs/simdgroup={dispatch['outputs_per_simdgroup']} "
+            f"decode={dispatch['decode_dtype']}"
         )
 
 

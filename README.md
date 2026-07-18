@@ -164,9 +164,10 @@ RMSNorm supports FP16/FP32 and accumulates in FP32.
 
 For affine 4-bit Llama MLPs, AOT repacking transposes packed nibbles and scale/bias groups
 once, then measures native MLX against generated scalar decode and Metal 4 NAX
-``matmul2d`` plus fused SwiGLU candidates. The selector verifies numerical compatibility,
-requires 10% headroom, persists the decision by device/source/shape, and discards repacked
-weights when native MLX wins.
+``matmul2d`` plus fused SwiGLU candidates. Scalar schedules independently tune threadgroup
+width, adjacent outputs per SIMDgroup, and FP16/FP32 decode arithmetic while retaining FP32
+accumulators. The selector verifies numerical compatibility, requires 10% headroom, persists
+the decision by device/source/shape, and discards repacked weights when native MLX wins.
 
 On this M5 32 GB machine with MLX 0.32.0 and MLX-LM 0.31.3, a five-trial interleaved
 Llama 3.2 1B 4-bit run at 128 prompt / 256 generated tokens measured 93.39 tok/s for
