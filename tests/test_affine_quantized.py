@@ -49,6 +49,22 @@ def test_affine_matmul_masks_ragged_prefill_rows():
     assert store.row_bound == 33
 
 
+def test_affine_matmul_maps_multiple_row_simdgroups():
+    function = lower_affine_matmul("affine_prefill_64x64", 65, 64, 64, block_m=64)
+    operations = tuple(_walk(function.ops))
+
+    schedule = next(
+        operation for operation in operations if isinstance(operation, mir.MTileSchedule)
+    )
+    setup = next(operation for operation in operations if isinstance(operation, mir.MNaxGemmSetup))
+
+    assert function.threadgroup_size == (128, 1, 1)
+    assert schedule.grid_m == 2
+    assert setup.block_m == 64
+    assert setup.wm == 2
+    assert setup.wn == 2
+
+
 def test_affine_swiglu_is_composed_from_binary_fragment_ir():
     function = lower_affine_swiglu_qmv("affine_swiglu_ir", 64, 64)
     operations = tuple(_walk(function.ops))

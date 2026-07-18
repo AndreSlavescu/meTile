@@ -57,9 +57,11 @@ return directly to the untouched transformer block.
 
 Affine 4-bit models add eager MLX and an M5-native ``matmul2d`` kernel over an AOT K-major
 repack to the same policy. The repack preserves the original affine nibbles, scales, and
-biases; it does not requantize model weights. Ragged prefill rows tune Morton, grouped, and
-Hilbert schedules against native MLX. Only prepared projection instances use the specialized
-class, and the first row below the configured threshold restores the original class. Steady-state
+biases; it does not requantize model weights. Ragged prefill rows tune both tile axes across
+32-, 64-, and 128-row NAX workgroups and Morton, grouped, Hilbert, and linear schedules against
+native MLX. Loads and stores remain row-masked for incomplete tiles. Only prepared projection
+instances use the specialized class, and the first row below the configured threshold restores
+the original class. Steady-state
 decode therefore does not traverse a wrapper. Exact compiled-MLX SwiGLU candidates use a 0.5
 percent switch margin, while generated kernels retain the stricter 3 percent margin. Quantized
 decode also evaluates a scratch-spilled SwiGLU schedule that shortens gate/up accumulator

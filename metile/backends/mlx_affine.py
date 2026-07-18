@@ -24,9 +24,9 @@ from metile.runtime.cache import atomic_write_json, cache_root, read_json, stabl
 _kernel_cache = {}
 _schedule_cache = {}
 _cache_lock = threading.RLock()
-_cache_path = cache_root() / "mlx-affine-matmul-autotune-v2.json"
+_cache_path = cache_root() / "mlx-affine-matmul-autotune-v3.json"
 _SWITCH_MARGIN = 0.03
-_TUNER_VERSION = 2
+_TUNER_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -34,13 +34,17 @@ class MLXAffineMatmulConfig:
     algorithm: str
     block_n: int = 0
     schedule: str = ""
+    block_m: int = 32
 
 
 _CONFIGS = (
-    MLXAffineMatmulConfig("mlx"),
-    MLXAffineMatmulConfig("metile", 32, "morton"),
-    MLXAffineMatmulConfig("metile", 64, "grouped4"),
-    MLXAffineMatmulConfig("metile", 128, "hilbert"),
+    MLXAffineMatmulConfig("mlx", block_m=0),
+    MLXAffineMatmulConfig("metile", 32, "morton", block_m=32),
+    MLXAffineMatmulConfig("metile", 64, "grouped4", block_m=32),
+    MLXAffineMatmulConfig("metile", 128, "hilbert", block_m=32),
+    MLXAffineMatmulConfig("metile", 64, "linear", block_m=64),
+    MLXAffineMatmulConfig("metile", 64, "morton", block_m=64),
+    MLXAffineMatmulConfig("metile", 64, "linear", block_m=128),
 )
 
 
@@ -85,13 +89,14 @@ class MLXAffineWeight:
 class _MLXAffineKernel:
     operation: object
     threadgroup: tuple[int, int, int]
+    block_m: int
     block_n: int
     output_features: int
     description_bits: int
 
     def __call__(self, values, weight):
         rows = values.size // values.shape[-1]
-        threadgroups_m = (rows + 31) // 32
+        threadgroups_m = (rows + self.block_m - 1) // self.block_m
         return self.operation(
             inputs=[values, weight.packed, weight.scales, weight.biases],
             grid=(
@@ -120,11 +125,15 @@ def _native_affine_matmul(values, weight):
     )
 
 
-def _candidate_configs(output_features):
+def _candidate_configs(rows, output_features):
     return tuple(
         config
         for config in _CONFIGS
-        if config.algorithm == "mlx" or output_features % config.block_n == 0
+        if config.algorithm == "mlx"
+        or (
+            output_features % config.block_n == 0
+            and (rows >= config.block_m or config.block_m == 32)
+        )
     )
 
 
@@ -149,6 +158,7 @@ def _compile_mlx_affine(rows, input_features, output_features, dtype, config):
                 rows,
                 output_features,
                 input_features,
+                block_m=config.block_m,
                 block_n=config.block_n,
                 schedule=config.schedule,
             )
@@ -166,6 +176,7 @@ def _compile_mlx_affine(rows, input_features, output_features, dtype, config):
     kernel = _MLXAffineKernel(
         operation,
         metal_ir.threadgroup_size,
+        config.block_m,
         config.block_n,
         output_features,
         compressed_description_bits(source),
@@ -317,7 +328,7 @@ def mlx_affine_matmul(values, weight, *, autotune=True):
         raise TypeError("MLX affine NAX matmul requires float16 activations")
 
     rows = values.size // values.shape[-1]
-    configs = _candidate_configs(weight.shape[1])
+    configs = _candidate_configs(rows, weight.shape[1])
     schedule_key = (
         rows,
         weight.shape[0],

@@ -582,7 +582,7 @@ def main():
     for dispatch in dispatches["affine_matmul"]:
         print(
             f"rows={dispatch['rows']} {dispatch['input_features']}->{dispatch['output_features']}: "
-            f"{dispatch['algorithm']} block_n={dispatch['block_n']} "
+            f"{dispatch['algorithm']} block={dispatch['block_m']}x{dispatch['block_n']} "
             f"schedule={dispatch['schedule']}"
         )
     if arguments.output_json is not None:

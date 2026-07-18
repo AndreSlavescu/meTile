@@ -10,6 +10,7 @@ def lower_affine_matmul(
     output_features: int,
     input_features: int,
     *,
+    block_m: int = 32,
     block_n: int = 64,
     group_size: int = 64,
     schedule: str = "linear",
@@ -17,15 +18,18 @@ def lower_affine_matmul(
     """Build a ragged affine uint4 matmul from native Metal 4 tensor operations."""
     if rows < 1:
         raise ValueError("affine matmul rows must be positive")
-    if output_features % block_n or block_n % 32:
-        raise ValueError("affine QMV output and block sizes must align to 32")
+    if block_m < 32 or block_n < 32 or block_m % 32 or output_features % block_n or block_n % 32:
+        raise ValueError("affine matmul M/N tiles must align to 32")
+    if block_m * block_n > 8192:
+        raise ValueError("affine matmul tile requires more than 256 threads")
     if input_features % group_size or group_size % 16:
         raise ValueError("affine QMV input and group sizes must align to 16")
     if group_size != 64:
         raise ValueError("native affine QMV currently supports group size 64")
 
-    block_m = 32
-    simdgroups = block_n // 32
+    wm = block_m // 32
+    wn = block_n // 32
+    simdgroups = wm * wn
     function = mir.MFunction(
         name=function_name,
         kernel_type="tensor_ops_gemm",
@@ -61,8 +65,8 @@ def lower_affine_matmul(
         mir.MNaxGemmSetup(
             block_m=block_m,
             block_n=block_n,
-            wm=1,
-            wn=simdgroups,
+            wm=wm,
+            wn=wn,
             m=rows,
             n=output_features,
             k=input_features,

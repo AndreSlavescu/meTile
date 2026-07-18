@@ -218,8 +218,10 @@ back exactly. RMSNorm supports FP16/FP32 and accumulates in FP32.
 
 For affine 4-bit model weights, AOT preparation preserves the original quantized values while
 transposing packed nibbles and scale/bias groups into a K-major NAX view. Ragged prefill rows
-then tune native MLX against generated Morton, grouped, and Hilbert schedules. Only prepared
-projection instances change class, so unrelated linear layers keep the exact MLX path and
+then tune native MLX against generated 32-, 64-, and 128-row NAX workgroups with Morton,
+grouped, Hilbert, and linear schedules. Both tile axes are runtime decisions, and ragged row
+loads and stores remain masked. Only prepared projection instances change class, so unrelated
+linear layers keep the exact MLX path and
 decode remains independently eligible for the guarded down/residual path in canonical Llama
 and Qwen2 blocks. Unsupported or multi-row calls immediately use the original block, while a
 warmed decode executor bypasses repeated compatibility and kernel-construction work. Model

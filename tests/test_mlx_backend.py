@@ -675,10 +675,42 @@ def test_mlx_affine_matmul_matches_native_ragged_prefill(monkeypatch):
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
 
 
+@pytest.mark.parametrize(("rows", "block_m"), ((65, 64), (129, 128)))
+def test_mlx_affine_multi_row_tile_matches_native_ragged_prefill(
+    monkeypatch,
+    rows,
+    block_m,
+):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_affine
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_affine._kernel_cache.clear()
+    random = np.random.default_rng(59)
+    input_features = output_features = 64
+    values = mx.array(random.normal(size=(1, rows, input_features)).astype(np.float16))
+    dense = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    packed, scales, biases = mx.quantize(dense, group_size=64, bits=4)
+    weight = mlx_affine.MLXAffineWeight.from_mlx(packed, scales, biases)
+    config = mlx_affine.MLXAffineMatmulConfig("metile", 64, "linear", block_m=block_m)
+
+    actual = mlx_affine._compile_mlx_affine(
+        rows,
+        input_features,
+        output_features,
+        values.dtype,
+        config,
+    )(values, weight)
+    expected = mlx_affine._native_affine_matmul(values, weight)
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
+
+
 def test_mlx_affine_dispatch_reports_native_or_composable_schedule(monkeypatch):
     from metile.backends import mlx_affine
 
-    config = mlx_affine.MLXAffineMatmulConfig("metile", 64, "grouped4")
+    config = mlx_affine.MLXAffineMatmulConfig("metile", 64, "grouped4", block_m=64)
     monkeypatch.setattr(
         mlx_affine,
         "_schedule_cache",
@@ -694,6 +726,7 @@ def test_mlx_affine_dispatch_reports_native_or_composable_schedule(monkeypatch):
             "group_size": 64,
             "bits": 4,
             "algorithm": "metile",
+            "block_m": 64,
             "block_n": 64,
             "schedule": "grouped4",
         },
@@ -707,7 +740,10 @@ def test_mlx_affine_backend_signature_tracks_candidate_family(monkeypatch):
     monkeypatch.setattr(
         mlx_affine,
         "_CONFIGS",
-        (*mlx_affine._CONFIGS, mlx_affine.MLXAffineMatmulConfig("metile", 256, "linear")),
+        (
+            *mlx_affine._CONFIGS,
+            mlx_affine.MLXAffineMatmulConfig("metile", 256, "linear", block_m=32),
+        ),
     )
 
     assert mlx_affine.mlx_affine_backend_signature() != original
