@@ -9,8 +9,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from metile.backends.mlx import _mlx_dtype_to_numpy, _mlx_kernel_body
+from metile.backends.mlx import (
+    _mlx_compiler_dtype,
+    _mlx_kernel_body,
+    _tune_framework_kernels,
+)
+from metile.codegen import msl_emitter
 from metile.codegen.msl_emitter import emit
+from metile.compiler import passes as compiler_passes
 from metile.compiler.block_scaled import lower_block_scaled_matmul
 from metile.compiler.passes import decompose_nax_fragments
 from metile.compiler.schedule_search import (
@@ -24,7 +30,9 @@ from metile.runtime.cache import atomic_write_json, cache_root, read_json, stabl
 _kernel_cache = {}
 _schedule_cache = {}
 _cache_lock = threading.RLock()
-_cache_path = cache_root() / "mlx-block-scaled-autotune-v1.json"
+_cache_path = cache_root() / "mlx-block-scaled-autotune-v2.json"
+_SWITCH_MARGIN = 0.10
+_TUNER_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -34,12 +42,19 @@ class MLXBlockScaledConfig:
     schedule: str
     fragment_type: str
     k_unroll: int
+    algorithm: str = "metile"
 
 
 _CONFIGS = (
+    MLXBlockScaledConfig(0, 0, "", "", 0, "mlx"),
     MLXBlockScaledConfig(32, 64, "linear", "bfloat", 2),
+    MLXBlockScaledConfig(32, 64, "hilbert", "bfloat", 2),
     MLXBlockScaledConfig(64, 64, "linear", "bfloat", 2),
+    MLXBlockScaledConfig(64, 64, "diagonal", "float", 1),
+    MLXBlockScaledConfig(128, 64, "grouped4", "bfloat", 2),
+    MLXBlockScaledConfig(64, 128, "linear", "bfloat", 2),
     MLXBlockScaledConfig(64, 128, "grouped4", "bfloat", 2),
+    MLXBlockScaledConfig(64, 128, "morton", "bfloat", 2),
     MLXBlockScaledConfig(64, 128, "hilbert", "float", 1),
 )
 
@@ -52,6 +67,8 @@ class MLXBlockScaledWeight:
     scales: object
     shape: tuple[int, int]
     format: str
+    native_values: object | None = None
+    native_scales: object | None = None
 
     @property
     def bits(self):
@@ -63,7 +80,18 @@ class MLXBlockScaledWeight:
 
         dense = np.array(weight, dtype=np.float32)
         packed, scales = _quantize_block_scaled_arrays(dense, format)
-        return cls(mx.array(packed), mx.array(scales), tuple(dense.shape), format)
+        values = mx.array(packed)
+        encoded_scales = mx.array(scales)
+        native_values, native_scales = mx.quantize(mx.array(dense.T), mode=format)
+        mx.eval(values, encoded_scales, native_values, native_scales)
+        return cls(
+            values,
+            encoded_scales,
+            tuple(dense.shape),
+            format,
+            native_values,
+            native_scales,
+        )
 
 
 @dataclass(frozen=True)
@@ -88,22 +116,28 @@ class _MLXBlockScaledKernel:
         )[0]
 
 
-def _candidate_configs(rows, output_features, reduction):
+def _candidate_configs(rows, output_features, reduction, native_available):
     return tuple(
         config
         for config in _CONFIGS
-        if output_features % config.block_n == 0
-        and reduction % (16 * config.k_unroll) == 0
-        and (rows >= config.block_m or config.block_m == 32)
+        if (config.algorithm == "mlx" and native_available)
+        or (
+            config.algorithm == "metile"
+            and output_features % config.block_n == 0
+            and reduction % (16 * config.k_unroll) == 0
+            and (rows >= config.block_m or config.block_m == 32)
+        )
     )
 
 
 def _compile_mlx_block_scaled(rows, reduction, output_features, dtype, format, config):
     import mlx.core as mx
 
-    numpy_dtype = _mlx_dtype_to_numpy(dtype)
+    numpy_dtype = _mlx_compiler_dtype(dtype)
     if numpy_dtype not in {np.dtype(np.float16), np.dtype(np.float32)}:
         raise TypeError("MLX block-scaled matmul requires float16 or float32 activations")
+    if config.algorithm != "metile":
+        raise ValueError("only meTile block-scaled configs compile a Metal kernel")
     key = (
         rows,
         reduction,
@@ -116,6 +150,11 @@ def _compile_mlx_block_scaled(rows, reduction, output_features, dtype, format, c
     if cached is not None:
         return cached
 
+    scalar_type = {
+        "mlx.core.bfloat16": "bf16",
+        "mlx.core.float16": "f16",
+        "mlx.core.float32": "f32",
+    }[str(dtype)]
     function_name = f"metile_mlx_bsmm_{stable_digest(key)[:16]}"
     metal_ir = decompose_nax_fragments(
         optimize_tile_schedules(
@@ -131,8 +170,8 @@ def _compile_mlx_block_scaled(rows, reduction, output_features, dtype, format, c
                 schedule=config.schedule,
                 fragment_type=config.fragment_type,
                 k_unroll=config.k_unroll,
-                activation_type="f16" if numpy_dtype == np.dtype(np.float16) else "f32",
-                output_type="f16" if numpy_dtype == np.dtype(np.float16) else "f32",
+                activation_type=scalar_type,
+                output_type=scalar_type,
             )
         )
     )
@@ -170,8 +209,31 @@ def _persistent_key(rows, reduction, output_features, dtype, format, configs):
             "output_features": output_features,
             "reduction": reduction,
             "rows": rows,
-            "source": inspect.getsource(lower_block_scaled_matmul),
-            "tuner": 1,
+            "source": mlx_block_scaled_backend_signature(),
+            "switch_margin": _SWITCH_MARGIN,
+            "tuner": _TUNER_VERSION,
+        }
+    )
+
+
+def mlx_block_scaled_backend_signature():
+    """Return every source/config identity that can alter MXFP dispatch."""
+    return stable_digest(
+        {
+            "candidates": inspect.getsource(_candidate_configs),
+            "compile": inspect.getsource(_compile_mlx_block_scaled),
+            "configs": [vars(config) for config in _CONFIGS],
+            "decompose": inspect.getsource(compiler_passes._block_scaled_nax_steps),
+            "decompose_step": inspect.getsource(compiler_passes._block_scaled_nax_step),
+            "dispatch": inspect.getsource(mlx_block_scaled_matmul),
+            "emit": inspect.getsource(msl_emitter._emit_nax_load_block_scaled_fragment),
+            "emit_scale": inspect.getsource(msl_emitter._emit_nax_load_block_scale),
+            "emit_store": inspect.getsource(msl_emitter._emit_nax_store_fragment),
+            "lowering": inspect.getsource(lower_block_scaled_matmul),
+            "native": inspect.getsource(_native_block_scaled_matmul),
+            "switch_margin": _SWITCH_MARGIN,
+            "tune": inspect.getsource(_tune_config),
+            "tuner": _TUNER_VERSION,
         }
     )
 
@@ -198,6 +260,15 @@ def _tune_config(activations, weight, configs):
 
     kernels = []
     for config in configs:
+        if config.algorithm == "mlx":
+            kernels.append(
+                (
+                    config,
+                    lambda: _native_block_scaled_matmul(activations, weight),
+                    0,
+                )
+            )
+            continue
         try:
             kernel = _compile_mlx_block_scaled(
                 activations.size // activations.shape[-1],
@@ -207,23 +278,46 @@ def _tune_config(activations, weight, configs):
                 weight.format,
                 config,
             )
-            kernels.append((config, kernel))
-            mx.eval(kernel(activations, weight))
+            kernels.append(
+                (
+                    config,
+                    lambda kernel=kernel: kernel(activations, weight),
+                    kernel.description_bits,
+                )
+            )
         except (RuntimeError, TypeError, ValueError):
             continue
     if not kernels:
         raise RuntimeError("no MLX block-scaled kernel compiled for this shape")
 
+    native = next((candidate for candidate in kernels if candidate[0].algorithm == "mlx"), None)
+    if native is not None:
+        reference = native[1]()
+        mx.eval(reference)
+        compatible = [native]
+        for candidate in kernels:
+            if candidate is native:
+                continue
+            actual = candidate[1]()
+            mx.eval(actual)
+            if bool(mx.allclose(actual, reference, rtol=5e-3, atol=5e-3).item()):
+                compatible.append(candidate)
+        return _tune_framework_kernels(
+            compatible,
+            lambda dispatch: mx.eval(dispatch()),
+            margin=_SWITCH_MARGIN,
+        )
+
     def measure(active, rounds):
-        samples = {config: [] for config, _ in active}
+        samples = {config: [] for config, _, _ in active}
         for round_index in range(rounds):
             shift = round_index % len(active)
             ordered = active[shift:] + active[:shift]
             if round_index & 1:
                 ordered.reverse()
-            for config, kernel in ordered:
+            for config, dispatch, _ in ordered:
                 start = time.perf_counter_ns()
-                mx.eval(kernel(activations, weight))
+                mx.eval(dispatch())
                 samples[config].append((time.perf_counter_ns() - start) * 1e-9)
         return samples
 
@@ -234,9 +328,22 @@ def _tune_config(activations, weight, configs):
     final = measure(finalists, 21)
     return choose_mdl_tie(
         [
-            (statistics.median(final[config]), kernel.description_bits, config)
-            for config, kernel in finalists
+            (statistics.median(final[config]), description_bits, config)
+            for config, _, description_bits in finalists
         ]
+    )
+
+
+def _native_block_scaled_matmul(activations, weight):
+    import mlx.core as mx
+
+    if weight.native_values is None or weight.native_scales is None:
+        raise ValueError("block-scaled weight has no native MLX representation")
+    return mx.quantized_matmul(
+        activations,
+        weight.native_values,
+        weight.native_scales,
+        mode=weight.format,
     )
 
 
@@ -248,13 +355,26 @@ def mlx_block_scaled_matmul(activations, weight, *, autotune=True):
         raise ValueError("expected activations[..., K] and a KxN block-scaled weight")
     if weight.format not in {"mxfp4", "mxfp8"}:
         raise ValueError("block-scaled weight format must be mxfp4 or mxfp8")
-    _mlx_dtype_to_numpy(activations.dtype)
+    _mlx_compiler_dtype(activations.dtype)
     rows = activations.size // activations.shape[-1]
     reduction, output_features = weight.shape
-    configs = _candidate_configs(rows, output_features, reduction)
+    native_available = weight.native_values is not None and weight.native_scales is not None
+    configs = _candidate_configs(
+        rows,
+        output_features,
+        reduction,
+        native_available,
+    )
     if not configs:
         raise ValueError("no MLX block-scaled schedule supports this shape")
-    schedule_key = (rows, reduction, output_features, str(activations.dtype), weight.format)
+    schedule_key = (
+        rows,
+        reduction,
+        output_features,
+        str(activations.dtype),
+        weight.format,
+        native_available,
+    )
     selected = _schedule_cache.get(schedule_key)
     if selected is None:
         with _cache_lock:
@@ -273,6 +393,8 @@ def mlx_block_scaled_matmul(activations, weight, *, autotune=True):
                 selected = _tune_config(activations, weight, configs) if autotune else configs[0]
                 _write_config(key, selected)
             _schedule_cache[schedule_key] = selected
+    if selected.algorithm == "mlx":
+        return _native_block_scaled_matmul(activations, weight)
     kernel = _compile_mlx_block_scaled(
         rows,
         reduction,
@@ -293,6 +415,7 @@ def mlx_block_scaled_dispatches():
             "output_features": key[2],
             "dtype": key[3],
             "format": key[4],
+            "native_available": key[5],
             **vars(config),
         }
         for key, config in sorted(_schedule_cache.items())
@@ -302,6 +425,7 @@ def mlx_block_scaled_dispatches():
 __all__ = [
     "MLXBlockScaledConfig",
     "MLXBlockScaledWeight",
+    "mlx_block_scaled_backend_signature",
     "mlx_block_scaled_dispatches",
     "mlx_block_scaled_matmul",
 ]

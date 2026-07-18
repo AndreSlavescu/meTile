@@ -248,7 +248,12 @@ self-deoptimizes back to the original MLP class.
 
 The optional MLX primitive backend also accepts MXFP4 and MXFP8 K-major weights. It emits
 register-fragment block-scale decode plus NAX ``matmul2d`` directly into the MLX lazy graph,
-autotunes multiple tile/schedule representations, and keeps MLX arrays as the only storage.
+autotunes linear, grouped, Morton, Hilbert, and occupancy-oriented tile representations, and
+keeps MLX arrays as the only storage. Each prepared weight also retains MLX's native packed
+view, so the same tournament can fall back exactly when the fastest generated kernel does not
+clear a ten-percent framework margin. Run the paired in-graph benchmark with
+``python benchmarks/block_scaled_gemm.py 2048``; the selected algorithm and schedule are
+printed with both synchronized medians.
 
 The committed M5 32 GB suite uses MLX 0.32.0, MLX-LM 0.31.3, a 128-token prompt,
 256 generated tokens, five end-to-end confirmation pairs, and nine continuous measurement

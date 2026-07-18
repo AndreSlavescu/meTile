@@ -122,8 +122,20 @@ Block-Scaled MLX Primitive
    output = mlx_block_scaled_matmul(activations, weight)
 
 The compiler composes E8M0 scale decode, E2M1 or E4M3 value decode, register fragments,
-native ``matmul2d``, ragged-row masks, and a schedule pass. The runtime measures linear,
-grouped, and Hilbert variants and persists the fastest compatible representation.
+native ``matmul2d``, ragged-row masks, and a schedule pass. The runtime measures occupancy-
+oriented 32-, 64-, and 128-row tiles with linear, grouped, Morton, and Hilbert traversals.
+Generated inputs and outputs specialize to native Metal ``half`` or ``bfloat`` so FP16 and BF16
+model graphs use the same guarded schedule family without intermediate casts.
+``MLXBlockScaledWeight`` retains both the compiler's K-major representation and MLX's native
+packed representation. The autotuner verifies numerical compatibility, races both at the MLX
+graph boundary, requires ten-percent headroom before switching away from MLX, and persists the
+winner by device, MLX version, shape, format, source, and policy identity.
+
+The paired benchmark prints the selected representation alongside synchronized medians:
+
+.. code-block:: console
+
+   METILE_DISABLE_DISK_CACHE=1 python benchmarks/block_scaled_gemm.py 2048
 
 Dense BF16 models use native Metal ``bfloat`` inputs and outputs while keeping attention and
 RMSNorm accumulation in FP32. The same primitive and model-level guards retain native MLX when

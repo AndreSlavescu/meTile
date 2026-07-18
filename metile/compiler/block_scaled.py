@@ -29,8 +29,12 @@ def lower_block_scaled_matmul(
         raise ValueError("block-scaled M/N tiles must be multiples of 32 and K must be 32 or 64")
     if fragment_type not in {"float", "bfloat"}:
         raise ValueError("fragment_type must be float or bfloat")
-    if activation_type not in {"f16", "f32"} or output_type not in {"f16", "f32"}:
-        raise ValueError("activation and output types must be f16 or f32")
+    if activation_type not in {"bf16", "f16", "f32"} or output_type not in {
+        "bf16",
+        "f16",
+        "f32",
+    }:
+        raise ValueError("activation and output types must be bf16, f16, or f32")
     if not register_fragments and (activation_type != "f32" or output_type != "f32"):
         raise ValueError("mixed-precision block-scaled matmul requires register fragments")
     if k_unroll not in {1, 2}:
@@ -84,7 +88,7 @@ def lower_block_scaled_matmul(
                 m=m,
                 n=n,
                 k=k,
-                left_type="half" if activation_type == "f16" else "float",
+                left_type={"bf16": "bfloat", "f16": "half", "f32": "float"}[activation_type],
                 right_type=fragment_type,
             )
         )

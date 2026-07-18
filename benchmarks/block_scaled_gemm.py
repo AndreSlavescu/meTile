@@ -10,8 +10,11 @@ import mlx.core as mx
 import numpy as np
 from benchutils import bench_interleaved
 
-import metile
-from metile.runtime.metal_device import MetalDevice
+from metile.backends.mlx_block_scaled import (
+    MLXBlockScaledWeight,
+    mlx_block_scaled_dispatches,
+    mlx_block_scaled_matmul,
+)
 
 
 def main():
@@ -20,40 +23,59 @@ def main():
     rng = np.random.default_rng(17)
     activations = rng.normal(size=(size, size)).astype(np.float32)
     weight = rng.normal(size=(size, size)).astype(np.float32)
-    device = MetalDevice.get()
-
-    print(f"=== Block-scaled GEMM ({size}x{size}x{size}) ===")
+    print(f"=== In-graph block-scaled GEMM ({size}x{size}x{size}) ===")
     for format in formats:
-        activations_buffer = metile.Buffer(data=activations)
-        quantized = metile.BlockScaledWeight.quantize(weight, format=format)
-        output = metile.Buffer.empty((size, size))
-        dispatch = metile.prepare_block_scaled_matmul(activations_buffer, quantized, output)
-        device.sync()
-
         mlx_activations = mx.array(activations)
-        mlx_values, mlx_scales = mx.quantize(mx.array(weight.T), mode=format)
+        quantized = MLXBlockScaledWeight.quantize(weight, format=format)
+
+        def metile_matmul(
+            mlx_activations=mlx_activations,
+            quantized=quantized,
+        ):
+            mx.eval(mlx_block_scaled_matmul(mlx_activations, quantized))
 
         def mlx_matmul(
             mlx_activations=mlx_activations,
-            mlx_values=mlx_values,
-            mlx_scales=mlx_scales,
+            quantized=quantized,
             format=format,
         ):
             mx.eval(
                 mx.quantized_matmul(
                     mlx_activations,
-                    mlx_values,
-                    mlx_scales,
+                    quantized.native_values,
+                    quantized.native_scales,
                     mode=format,
                 )
             )
 
+        metile_matmul()
         mlx_matmul()
         time.sleep(1.0)
-        metile_time, mlx_time = bench_interleaved(dispatch, mlx_matmul, device.sync)
+        metile_time, mlx_time = bench_interleaved(
+            metile_matmul,
+            mlx_matmul,
+            sync=lambda: None,
+        )
+        selected = next(
+            dispatch
+            for dispatch in reversed(mlx_block_scaled_dispatches())
+            if dispatch["rows"] == size
+            and dispatch["reduction"] == size
+            and dispatch["output_features"] == size
+            and dispatch["format"] == format
+        )
+        schedule = (
+            "native MLX"
+            if selected["algorithm"] == "mlx"
+            else (
+                f"{selected['block_m']}x{selected['block_n']} "
+                f"{selected['schedule']} {selected['fragment_type']}"
+            )
+        )
         print(
             f"{format:>6}: meTile {metile_time * 1e3:7.3f} ms | "
-            f"MLX {mlx_time * 1e3:7.3f} ms | {mlx_time / metile_time:5.2f}x"
+            f"MLX {mlx_time * 1e3:7.3f} ms | {mlx_time / metile_time:5.2f}x | "
+            f"{schedule}"
         )
 
 

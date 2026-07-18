@@ -168,7 +168,14 @@ def test_mlx_dense_dispatch_requires_three_percent_headroom():
 
 
 @pytest.mark.parametrize("rows", (33, 127))
-def test_mlx_block_scaled_matmul_matches_ragged_fp16_reference(rows, monkeypatch):
+@pytest.mark.parametrize("dtype_name", ("bfloat16", "float16"))
+def test_mlx_block_scaled_matmul_matches_ragged_low_precision_reference(
+    rows,
+    dtype_name,
+    monkeypatch,
+):
+    from dataclasses import replace
+
     mx = pytest.importorskip("mlx.core")
     from metile.backends import mlx_block_scaled
 
@@ -176,28 +183,76 @@ def test_mlx_block_scaled_matmul_matches_ragged_fp16_reference(rows, monkeypatch
     mlx_block_scaled._kernel_cache.clear()
     mlx_block_scaled._schedule_cache.clear()
     random = np.random.default_rng(52)
-    activations = random.normal(size=(1, rows, 64)).astype(np.float16)
+    activations = random.normal(size=(1, rows, 64)).astype(np.float32)
     dense_weight = random.normal(size=(64, 64)).astype(np.float32)
     weight = mlx_block_scaled.MLXBlockScaledWeight.quantize(
         dense_weight,
         format="mxfp8",
     )
+    weight = replace(weight, native_values=None, native_scales=None)
     reference_weight = metile.BlockScaledWeight.quantize(
         dense_weight,
         format="mxfp8",
     ).dequantize()
 
+    mlx_activations = mx.array(activations).astype(getattr(mx, dtype_name))
     actual = mlx_block_scaled.mlx_block_scaled_matmul(
-        mx.array(activations),
+        mlx_activations,
         weight,
         autotune=False,
     )
     mx.eval(actual)
 
-    expected = activations.astype(np.float32) @ reference_weight
+    expected = np.array(mlx_activations.astype(mx.float32)) @ reference_weight
     assert actual.shape == (1, rows, 64)
-    assert actual.dtype == mx.float16
-    np.testing.assert_allclose(np.array(actual), expected, rtol=5e-2, atol=2e-1)
+    assert actual.dtype == getattr(mx, dtype_name)
+    assert mlx_block_scaled.mlx_block_scaled_dispatches()[-1]["algorithm"] == "metile"
+    np.testing.assert_allclose(
+        np.array(actual.astype(mx.float32)),
+        expected,
+        rtol=5e-2,
+        atol=2e-1,
+    )
+
+
+def test_mlx_block_scaled_native_representation_is_an_exact_fallback(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_block_scaled
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_block_scaled._schedule_cache.clear()
+    random = np.random.default_rng(58)
+    activations = mx.array(random.normal(size=(1, 17, 64)).astype(np.float16))
+    weight = mlx_block_scaled.MLXBlockScaledWeight.quantize(
+        random.normal(size=(64, 64)).astype(np.float32),
+        format="mxfp4",
+    )
+
+    actual = mlx_block_scaled.mlx_block_scaled_matmul(activations, weight, autotune=False)
+    expected = mlx_block_scaled._native_block_scaled_matmul(activations, weight)
+    mx.eval(actual, expected)
+
+    assert mlx_block_scaled.mlx_block_scaled_dispatches()[-1]["algorithm"] == "mlx"
+    np.testing.assert_array_equal(
+        np.array(actual.astype(mx.float32)),
+        np.array(expected.astype(mx.float32)),
+    )
+
+
+def test_mlx_block_scaled_candidates_require_an_available_native_representation():
+    from metile.backends import mlx_block_scaled
+
+    with_native = mlx_block_scaled._candidate_configs(127, 2048, 2048, True)
+    generated_only = mlx_block_scaled._candidate_configs(127, 2048, 2048, False)
+
+    assert with_native[0].algorithm == "mlx"
+    assert all(config.algorithm == "metile" for config in generated_only)
+    assert {config.schedule for config in generated_only} >= {
+        "grouped4",
+        "hilbert",
+        "linear",
+        "morton",
+    }
 
 
 def test_mlx_block_scaled_dispatch_reports_composable_schedule(monkeypatch):
@@ -207,7 +262,7 @@ def test_mlx_block_scaled_dispatch_reports_composable_schedule(monkeypatch):
     monkeypatch.setattr(
         mlx_block_scaled,
         "_schedule_cache",
-        {(127, 2048, 2048, "mlx.core.float16", "mxfp8"): config},
+        {(127, 2048, 2048, "mlx.core.float16", "mxfp8", True): config},
     )
 
     assert mlx_block_scaled.mlx_block_scaled_dispatches() == (
@@ -217,11 +272,13 @@ def test_mlx_block_scaled_dispatch_reports_composable_schedule(monkeypatch):
             "output_features": 2048,
             "dtype": "mlx.core.float16",
             "format": "mxfp8",
+            "native_available": True,
             "block_m": 32,
             "block_n": 64,
             "schedule": "linear",
             "fragment_type": "bfloat",
             "k_unroll": 2,
+            "algorithm": "metile",
         },
     )
 

@@ -1312,11 +1312,13 @@ def _emit_nax_store_fragment(op, lines, indent, func):
     element_type = ScalarType(dtype).to_msl()
     for component_offset, source_offset in ((op.row_offset, 0), (op.row_offset + 8, 4)):
         row = f"tile_row + {component_offset}u + frag_m"
+        components = [f"{op.source}[{source_offset + index}]" for index in range(4)]
+        if dtype == "bf16":
+            components = [f"bfloat({component})" for component in components]
         statement = (
             f"*((device {element_type}4*)(&{ptr_c}[({row}) * N + tile_col "
             f"+ {op.col_offset}u + frag_n])) = {element_type}4("
-            f"{op.source}[{source_offset}], {op.source}[{source_offset + 1}], "
-            f"{op.source}[{source_offset + 2}], {op.source}[{source_offset + 3}]);"
+            f"{', '.join(components)});"
         )
         if op.row_bound:
             lines.append(f"{pad}if (({row}) < {op.row_bound}u) {{ {statement} }}")
