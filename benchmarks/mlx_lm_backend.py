@@ -13,6 +13,7 @@ from pathlib import Path
 
 _DECODE_CONFIRMATION_FLOOR = 0.995
 _PREFILL_ONLY_DECODE_CONFIRMATION_FLOOR = 0.99
+_TTFT_CONFIRMATION_WIN = 1.02
 
 
 def _arguments():
@@ -32,6 +33,7 @@ def _arguments():
     parser.add_argument("--disable-graph-fusion", action="store_true")
     parser.add_argument("--disable-quantized-mlp", action="store_true")
     parser.add_argument("--disable-affine-prefill", action="store_true")
+    parser.add_argument("--disable-dense-mlp", action="store_true")
     parser.add_argument("--disable-model-autotune", action="store_true")
     parser.add_argument("--plan-decode-steps", type=int, default=8)
     parser.add_argument("--plan-trials", type=int, default=7)
@@ -42,7 +44,7 @@ def _arguments():
     return parser.parse_args()
 
 
-def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill):
+def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill, dense_mlp):
     from mlx_lm import stream_generate
 
     from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
@@ -55,6 +57,7 @@ def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill
             graph_fusion=not arguments.disable_graph_fusion,
             quantized_mlp=not arguments.disable_quantized_mlp,
             affine_prefill=affine_prefill,
+            dense_mlp=dense_mlp,
             plan=plan,
         )
         if patched
@@ -82,7 +85,7 @@ def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill
     return response, time.perf_counter() - start, first_token_elapsed
 
 
-def _verify_model(model, prompt, arguments, plan, affine_prefill):
+def _verify_model(model, prompt, arguments, plan, affine_prefill, dense_mlp):
     import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache
 
@@ -107,6 +110,7 @@ def _verify_model(model, prompt, arguments, plan, affine_prefill):
         graph_fusion=not arguments.disable_graph_fusion,
         quantized_mlp=not arguments.disable_quantized_mlp,
         affine_prefill=affine_prefill,
+        dense_mlp=dense_mlp,
         plan=plan,
     ):
         patched_prefix = model(tokens[:, :-1], cache=patched_cache)
@@ -131,7 +135,7 @@ def _verify_model(model, prompt, arguments, plan, affine_prefill):
     return fidelity
 
 
-def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill):
+def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill, dense_mlp):
     if not plan.feature_count:
         return plan, None
     if arguments.confirmation_trials < 1:
@@ -153,21 +157,33 @@ def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill):
                 patched,
                 plan,
                 affine_prefill,
+                dense_mlp,
             )
-            samples[patched] = (float(response.generation_tps), elapsed, ttft)
+            samples[patched] = (
+                float(response.generation_tps),
+                float(response.prompt_tps),
+                elapsed,
+                ttft,
+            )
         native = samples[False]
         generated = samples[True]
         pairs.append(
             {
                 "decode_speedup": generated[0] / native[0],
-                "end_to_end_speedup": native[1] / generated[1],
-                "ttft_speedup": native[2] / generated[2],
+                "prefill_speedup": generated[1] / native[1],
+                "end_to_end_speedup": native[2] / generated[2],
+                "ttft_speedup": native[3] / generated[3],
             }
         )
 
     medians = {
         name: statistics.median(pair[name] for pair in pairs)
-        for name in ("decode_speedup", "end_to_end_speedup", "ttft_speedup")
+        for name in (
+            "decode_speedup",
+            "prefill_speedup",
+            "end_to_end_speedup",
+            "ttft_speedup",
+        )
     }
     required_wins = max(1, (len(pairs) * 2 + 2) // 3)
     decode_sensitive = plan.attention or plan.rms_norm or plan.graph_fusion
@@ -180,7 +196,9 @@ def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill):
         and sum(pair["decode_speedup"] >= 0.98 for pair in pairs) >= required_wins
         and sum(pair["end_to_end_speedup"] >= 0.98 for pair in pairs) >= required_wins
     )
-    meaningful_win = medians["ttft_speedup"] >= 1.03 or medians["end_to_end_speedup"] >= 1.01
+    meaningful_win = (
+        medians["ttft_speedup"] >= _TTFT_CONFIRMATION_WIN or medians["end_to_end_speedup"] >= 1.01
+    )
     accepted = no_regression and meaningful_win
     confirmation = {
         "accepted": accepted,
@@ -191,11 +209,13 @@ def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill):
     print(
         "Confirmation: "
         f"decode={medians['decode_speedup']:.3f}x, "
+        f"prefill={medians['prefill_speedup']:.3f}x, "
         f"TTFT={medians['ttft_speedup']:.3f}x, "
         f"total={medians['end_to_end_speedup']:.3f}x -> "
         f"{'accepted' if accepted else 'native fallback'}"
     )
-    return plan if accepted else type(plan)(False, False, False, False, False), confirmation
+    native_plan = type(plan)(**{name: False for name in plan.as_dict()})
+    return plan if accepted else native_plan, confirmation
 
 
 def _package_version(package):
@@ -255,6 +275,8 @@ def _selected_dispatches():
     )
     from metile.backends.mlx_affine import mlx_affine_matmul_dispatches
     from metile.backends.mlx_block_scaled import mlx_block_scaled_dispatches
+    from metile.backends.mlx_dense import mlx_dense_matmul_dispatches
+    from metile.backends.mlx_dense_swiglu import mlx_dense_swiglu_dispatches
     from metile.backends.mlx_quantized import (
         mlx_affine_residual_qmv_dispatches,
         mlx_affine_swiglu_dispatches,
@@ -270,6 +292,8 @@ def _selected_dispatches():
         "affine_swiglu": [dict(dispatch) for dispatch in mlx_affine_swiglu_dispatches()],
         "affine_matmul": [dict(dispatch) for dispatch in mlx_affine_matmul_dispatches()],
         "block_scaled": [dict(dispatch) for dispatch in mlx_block_scaled_dispatches()],
+        "dense_matmul": [dict(dispatch) for dispatch in mlx_dense_matmul_dispatches()],
+        "dense_swiglu": [dict(dispatch) for dispatch in mlx_dense_swiglu_dispatches()],
     }
 
 
@@ -307,9 +331,10 @@ def _write_json_result(
     plan,
     candidate_plan,
     confirmation,
+    dense_mlp,
 ):
     payload = {
-        "schema_version": 6,
+        "schema_version": 8,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "revision": _git_revision(),
         "model": arguments.model,
@@ -338,10 +363,12 @@ def _write_json_result(
             "graph_fusion": not arguments.disable_graph_fusion,
             "quantized_mlp": not arguments.disable_quantized_mlp,
             "affine_prefill": not arguments.disable_affine_prefill,
+            "dense_mlp": not arguments.disable_dense_mlp,
             "model_autotune": not arguments.disable_model_autotune,
         },
         "selected_plan": plan.as_dict(),
         "candidate_plan": candidate_plan.as_dict(),
+        "dense_mlp_implementation": (dense_mlp.implementation if dense_mlp is not None else None),
         "plan_confirmation": confirmation,
         "comparison_mode": "alternating" if plan.feature_count else "shared_native_fallback",
         "verification": verification,
@@ -373,6 +400,7 @@ def main():
         MLXLMPlan,
         autotune_metile_for_mlx_lm,
         prepare_mlx_lm_affine_prefill,
+        prepare_mlx_lm_dense_mlp,
     )
 
     arguments = _arguments()
@@ -392,12 +420,25 @@ def main():
         except ValueError as error:
             print(f"Affine prefill unavailable: {error}")
 
+    dense_mlp = None
+    if not arguments.disable_dense_mlp:
+        try:
+            print("AOT-repacking dense BF16/FP16 gate/up projections...")
+            dense_mlp = prepare_mlx_lm_dense_mlp(model)
+            print(
+                f"Prepared {dense_mlp.mlp_count} dense SwiGLU blocks "
+                f"({dense_mlp.repack_bytes / 2**30:.2f} GiB repacked)"
+            )
+        except ValueError as error:
+            print(f"Dense MLP unavailable: {error}")
+
     requested_plan = MLXLMPlan(
         attention=not arguments.disable_attention,
         rms_norm=not arguments.disable_rmsnorm,
         graph_fusion=not arguments.disable_graph_fusion,
         quantized_mlp=not arguments.disable_quantized_mlp,
         affine_prefill=affine_prefill is not None,
+        dense_mlp=dense_mlp is not None,
     )
     if arguments.disable_model_autotune:
         candidate_plan = requested_plan
@@ -411,6 +452,7 @@ def main():
             graph_fusion=requested_plan.graph_fusion,
             quantized_mlp=requested_plan.quantized_mlp,
             affine_prefill=affine_prefill,
+            dense_mlp=dense_mlp,
             decode_steps=arguments.plan_decode_steps,
             trials=arguments.plan_trials,
         )
@@ -419,10 +461,19 @@ def main():
         or "native MLX"
     )
     print(f"Candidate model plan: {candidate}")
+    if dense_mlp is not None:
+        print(f"Dense MLP implementation: {dense_mlp.implementation}")
 
     verification = None
     if not arguments.skip_verify:
-        verification = _verify_model(model, prompt, arguments, candidate_plan, affine_prefill)
+        verification = _verify_model(
+            model,
+            prompt,
+            arguments,
+            candidate_plan,
+            affine_prefill,
+            dense_mlp,
+        )
 
     print("Warming MLX baseline...")
     _generate(
@@ -433,6 +484,7 @@ def main():
         patched=False,
         plan=candidate_plan,
         affine_prefill=affine_prefill,
+        dense_mlp=dense_mlp,
     )
     if candidate_plan.feature_count:
         print("Compiling and autotuning meTile MLX kernels...")
@@ -444,6 +496,7 @@ def main():
             patched=True,
             plan=candidate_plan,
             affine_prefill=affine_prefill,
+            dense_mlp=dense_mlp,
         )
     else:
         print("Native fallback selected; sharing each measurement across both labels.")
@@ -455,6 +508,7 @@ def main():
         arguments,
         candidate_plan,
         affine_prefill,
+        dense_mlp,
     )
     enabled = ", ".join(name for name, active in plan.as_dict().items() if active) or "native MLX"
     print(f"Selected model plan: {enabled}")
@@ -472,6 +526,7 @@ def main():
                 patched=False,
                 plan=plan,
                 affine_prefill=affine_prefill,
+                dense_mlp=dense_mlp,
             )
             sample = (
                 float(response.generation_tps),
@@ -500,6 +555,7 @@ def main():
                 patched,
                 plan,
                 affine_prefill,
+                dense_mlp,
             )
             name = "MLX + meTile" if patched else "MLX"
             results[name].append(
@@ -597,6 +653,22 @@ def main():
             f"{dispatch['algorithm']} block={dispatch['block_m']}x{dispatch['block_n']} "
             f"schedule={dispatch['schedule']}"
         )
+    print("Selected dense SwiGLU schedules")
+    for dispatch in dispatches["dense_swiglu"]:
+        print(
+            f"rows={dispatch['rows']} "
+            f"{dispatch['input_features']}->{dispatch['output_features']}: "
+            f"{dispatch['algorithm']} block={dispatch['block_m']}x{dispatch['block_n']} "
+            f"schedule={dispatch['schedule']} k-unroll={dispatch['k_unroll']}"
+        )
+    print("Selected dense projection schedules")
+    for dispatch in dispatches["dense_matmul"]:
+        print(
+            f"rows={dispatch['rows']} "
+            f"{dispatch['input_features']}->{dispatch['output_features']}: "
+            f"{dispatch['algorithm']} block={dispatch['block_m']}x{dispatch['block_n']} "
+            f"schedule={dispatch['schedule']} k-unroll={dispatch['k_unroll']}"
+        )
     if arguments.output_json is not None:
         _write_json_result(
             arguments.output_json,
@@ -609,6 +681,7 @@ def main():
             plan,
             candidate_plan,
             confirmation,
+            dense_mlp,
         )
 
 

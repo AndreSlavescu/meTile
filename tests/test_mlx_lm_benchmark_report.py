@@ -117,6 +117,7 @@ def test_bf16_suite_disables_quantized_only_backends(tmp_path):
         disable_graph_fusion=False,
         disable_quantized_mlp=False,
         disable_affine_prefill=False,
+        disable_dense_mlp=False,
         disable_model_autotune=False,
     )
 
@@ -124,7 +125,36 @@ def test_bf16_suite_disables_quantized_only_backends(tmp_path):
 
     assert "--disable-quantized-mlp" in command
     assert "--disable-affine-prefill" in command
+    assert "--disable-dense-mlp" not in command
     assert "--disable-attention" not in command
+
+
+def test_4bit_suite_disables_dense_only_backend(tmp_path):
+    arguments = SimpleNamespace(
+        suite="4bit",
+        prompt_tokens=128,
+        generation_tokens=64,
+        trials=5,
+        prefill_step_size=2048,
+        delay=0.1,
+        seed=0,
+        plan_decode_steps=8,
+        plan_trials=5,
+        confirmation_trials=3,
+        skip_verify=False,
+        disable_attention=False,
+        disable_rmsnorm=False,
+        disable_graph_fusion=False,
+        disable_quantized_mlp=False,
+        disable_affine_prefill=False,
+        disable_dense_mlp=False,
+        disable_model_autotune=False,
+    )
+
+    command = _backend_command(arguments, "example-4bit", tmp_path / "result.json")
+
+    assert "--disable-dense-mlp" in command
+    assert "--disable-quantized-mlp" not in command
 
 
 def test_suite_context_labels_shared_native_fallback_trials():
@@ -197,7 +227,11 @@ def test_renderer_writes_high_resolution_png(renderer, tmp_path):
 @pytest.mark.parametrize("renderer", (_render_throughput, _render_latency))
 @pytest.mark.parametrize(
     "result_name",
-    ("m5-mlx-lm-models.json", "m5-mlx-lm-bf16-models.json"),
+    (
+        "m5-mlx-lm-models.json",
+        "m5-mlx-lm-bf16-models.json",
+        "m5-mlx-lm-bf16-dense-qwen15.json",
+    ),
 )
 def test_published_suite_renders_without_text_overlap(renderer, result_name, tmp_path):
     pytest.importorskip("matplotlib")

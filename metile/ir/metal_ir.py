@@ -681,6 +681,7 @@ class MNaxGemmRun(MOp):
     ptr_a: MValue = None
     ptr_b: MValue = None
     k_offset: int = 0
+    row_bound: int = 0
 
     def result_type(self):
         return None
@@ -909,6 +910,9 @@ class MNaxBinaryFragment(MOp):
     right: str = "d01"
     destination: str = ""
     operation: str = "multiply"
+    fast_math: bool = True
+    round_inputs: str = ""
+    round_intermediates: str = ""
 
     def result_type(self):
         return None

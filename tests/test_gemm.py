@@ -137,6 +137,36 @@ class TestSimdgroupGemm:
         )
         np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
 
+    def test_ragged_fp16_nax_fragments_compile_and_match(self):
+        if not _TENSOR_OPS:
+            return
+        rows = 63
+        features = 64
+        rng = np.random.default_rng(30)
+        activations = rng.normal(size=(rows, features)).astype(np.float16)
+        weight = rng.normal(size=(features, features)).astype(np.float16)
+        output = np.zeros((rows, features), dtype=np.float16)
+
+        matmul[(1, 1)](
+            activations,
+            weight,
+            output,
+            rows,
+            features,
+            features,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+            NAX_K_UNROLL=2,
+        )
+
+        expected = (activations.astype(np.float32) @ weight.astype(np.float32)).astype(np.float16)
+        np.testing.assert_allclose(output, expected, rtol=8e-2, atol=8e-2)
+
     def test_aligned_nax_outer_k_epoch_compiles_and_matches(self):
         if not _TENSOR_OPS:
             return

@@ -21,9 +21,10 @@ def lower(func: tir.Function) -> mir.MFunction:
         from metile.runtime.metal_device import MetalDevice
 
         dtype, _ = _detect_dtype(func)
-        if MetalDevice.get().supports_tensor_ops and dtype == "f32":
+        constexprs = func.constexprs
+        low_precision_nax = dtype == "f16" and constexprs.get("NAX_FRAGMENTS", False)
+        if MetalDevice.get().supports_tensor_ops and (dtype == "f32" or low_precision_nax):
             # tensor_ops matmul2d requires SM,SN <= 32 for valid descriptor
-            constexprs = func.constexprs
             BM = constexprs.get("BLOCK_M", 128)
             BN = constexprs.get("BLOCK_N", 64)
             WM = constexprs.get("WM", 2)
@@ -1002,10 +1003,12 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     out_type = msl_type
 
     if constexprs.get("NAX_FRAGMENTS", False):
-        if msl_type != "float" or cooperative or SM != 32 or SN != 32 or BK != 16:
-            raise ValueError("NAX fragments require f32, 32x32 per-simdgroup tiles, and BLOCK_K=16")
-        if not all(constexprs.get(f"_ALIGNED_{axis}", False) for axis in ("M", "N", "K")):
-            raise ValueError("NAX fragments currently require aligned M, N, and K")
+        if msl_type not in {"float", "half"} or cooperative or SM != 32 or SN != 32 or BK != 16:
+            raise ValueError(
+                "NAX fragments require f16/f32, 32x32 per-simdgroup tiles, and BLOCK_K=16"
+            )
+        if not all(constexprs.get(f"_ALIGNED_{axis}", False) for axis in ("N", "K")):
+            raise ValueError("NAX fragments currently require aligned N and K")
         outer_k = int(constexprs.get("NAX_OUTER_K", 0))
         nax_k_unroll = int(constexprs.get("NAX_K_UNROLL", 1))
         if nax_k_unroll not in {1, 2}:
@@ -1018,6 +1021,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
             K_val = static_k
         else:
             static_m = static_n = static_k = 0
+        row_bound = static_m if not constexprs.get("_ALIGNED_M", False) else 0
         if outer_k and (
             outer_k % reduction_step or not constexprs.get("_ALIGNED_NAX_OUTER_K", False)
         ):
@@ -1043,6 +1047,8 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                 m=static_m,
                 n=static_n,
                 k=static_k,
+                left_type=msl_type,
+                right_type=msl_type,
             )
         )
         if outer_k:
@@ -1058,7 +1064,12 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                 end=outer_k,
                 step=reduction_step,
                 body=[
-                    mir.MNaxGemmRun(ptr_a=epoch_a, ptr_b=epoch_b, k_offset=offset)
+                    mir.MNaxGemmRun(
+                        ptr_a=epoch_a,
+                        ptr_b=epoch_b,
+                        k_offset=offset,
+                        row_bound=row_bound,
+                    )
                     for offset in range(0, reduction_step, 16)
                 ],
                 index_alias="k",
@@ -1107,14 +1118,19 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                     end=K_val,
                     step=reduction_step,
                     body=[
-                        mir.MNaxGemmRun(ptr_a=ptr_A, ptr_b=ptr_B, k_offset=offset)
+                        mir.MNaxGemmRun(
+                            ptr_a=ptr_A,
+                            ptr_b=ptr_B,
+                            k_offset=offset,
+                            row_bound=row_bound,
+                        )
                         for offset in range(0, reduction_step, 16)
                     ],
                 )
             )
         if epilogue:
             mfunc.add_op(mir.MNaxGemmEpilogue(operations=epilogue))
-        mfunc.add_op(mir.MNaxGemmStore(ptr_c=ptr_C))
+        mfunc.add_op(mir.MNaxGemmStore(ptr_c=ptr_C, row_bound=row_bound))
         return mfunc
 
     # Use separated loads when descriptor dimensions allow cooperative_tensor inputs

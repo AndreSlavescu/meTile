@@ -94,7 +94,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
 - Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; measured short kernels receive an adaptive bounded poll-before-sleep budget while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
-- Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape, including fused affine-quantized SwiGLU and down-projection/residual decode candidates.
+- Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape, including bit-exact BF16 dense gate/up/SwiGLU fusion, fused affine-quantized SwiGLU, and down-projection/residual decode candidates.
 - Discovered FlashAttention regions race native MLX against causal/noncausal row-tiled online kernels and persist only compatible winners that clear the 5% framework boundary.
 
 ## Block-Scaled GEMM
@@ -199,6 +199,7 @@ from mlx_lm import load
 from metile.integrations.mlx_lm import (
     apply_metile_to_mlx_lm,
     prepare_mlx_lm_affine_prefill,
+    prepare_mlx_lm_dense_mlp,
 )
 
 model, tokenizer = load("mlx-community/Llama-3.2-1B-Instruct-4bit")
@@ -207,6 +208,14 @@ patch = apply_metile_to_mlx_lm(model=model, affine_prefill=affine_prefill)
 
 # Restore every patched function or use the handle as a context manager.
 patch.restore()
+```
+
+Dense BF16/FP16 checkpoints use the same reversible structure:
+
+```python
+model, tokenizer = load("mlx-community/Qwen2.5-1.5B-Instruct-bf16")
+dense_mlp = prepare_mlx_lm_dense_mlp(model)
+patch = apply_metile_to_mlx_lm(model=model, dense_mlp=dense_mlp)
 ```
 
 The dispatcher benchmarks native MLX alongside generated blocks. Attention and RMSNorm
@@ -228,6 +237,14 @@ warmed decode executor bypasses repeated compatibility and kernel-construction w
 plans require matching next tokens, bounded KL divergence, bounded mean/max logit error, a
 measured TTFT or end-to-end win, and bounded decode/total behavior. Decode-sensitive plans keep
 the stricter 0.5% confirmation floor; self-deoptimizing prefill-only plans use a 1% noise floor.
+
+Dense preparation retains MLX's output-major weights and creates K-major gate/up views only
+when the projected working set stays below 80% of MLX's recommended limit. The compiler shares
+activation fragments across two NAX GEMMs, keeps both accumulators register-resident, and applies
+SwiGLU before the tile is stored. BF16 sigmoid, SiLU, and multiply boundaries mirror MLX's typed
+Metal functor, so the fused path is bit-exact rather than merely tolerance-compatible. The model
+tuner races this fusion, exact composable projection kernels, and native MLX; one-row decode
+self-deoptimizes back to the original MLP class.
 
 The optional MLX primitive backend also accepts MXFP4 and MXFP8 K-major weights. It emits
 register-fragment block-scale decode plus NAX ``matmul2d`` directly into the MLX lazy graph,
@@ -267,11 +284,24 @@ python benchmarks/render_mlx_lm_results.py \
   benchmarks/results/m5-mlx-lm-models.json
 ```
 
-### Dense BF16 Capacity Baseline
+### Dense BF16 Benchmarks
+
+The focused Qwen 2.5 1.5B run selected the exact fused dense plan. Nine alternating measurement
+pairs improved prefill throughput from 1493.93 to 1555.80 tok/s (1.060x paired) while decode,
+TTFT, and total time remained effectively neutral. The preceding nine-pair confirmation accepted
+the plan with 1.028x prefill, 1.022x TTFT, 1.012x total, and 1.001x decode medians. Logit
+verification was bit-exact (zero KL, mean error, and max error):
+
+| Focused BF16 throughput | Focused BF16 latency |
+|:--:|:--:|
+| ![Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 throughput](docs/_static/mlx-bf16-dense-throughput.png) | ![Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 latency](docs/_static/mlx-bf16-dense-latency.png) |
+
+Raw alternating trials, confirmation pairs, fidelity, memory, and the selected Morton/grouped
+schedules are in `benchmarks/results/m5-mlx-lm-bf16-dense-qwen15.json`.
 
 The BF16 capacity suite covers six dense checkpoints from 0.5B through 7B parameters. It uses
 the same guarded dispatcher with native Metal `bfloat` kernels, a 128-token prompt, 64 generated
-tokens, five model-plan trials, three confirmation trials, five measurement trials, and a
+tokens, five model-plan trials, five confirmation trials, five measurement trials, and a
 0.1-second cooldown. `mx.get_peak_memory()` reports MLX allocator peak memory rather than total
 system memory:
 
@@ -281,18 +311,19 @@ system memory:
 
 | Model | MLX peak | Decode | Prefill | TTFT | End-to-end | Selected model plan |
 |---|---:|---:|---:|---:|---:|---|
-| Qwen 2.5 0.5B BF16 | 1.11 GiB | 112.20 tok/s | 4084.94 tok/s | 208.0 ms | 0.80 s | Native MLX |
-| Llama 3.2 1B BF16 | 2.46 GiB | 41.05 tok/s | 1920.23 tok/s | 177.0 ms | 1.75 s | Native MLX |
-| Qwen 2.5 1.5B BF16 | 3.06 GiB | 31.89 tok/s | 1449.96 tok/s | 248.1 ms | 2.30 s | Native MLX |
-| Qwen 2.5 3B BF16 | 5.92 GiB | 15.27 tok/s | 701.88 tok/s | 342.9 ms | 4.56 s | Native MLX |
-| Llama 3.2 3B BF16 | 6.16 GiB | 14.78 tok/s | 674.91 tok/s | 340.9 ms | 4.70 s | Native MLX |
-| Qwen 2.5 7B BF16 | 14.38 GiB | 6.83 tok/s | 273.49 tok/s | 667.9 ms | 10.07 s | Native MLX |
+| Qwen 2.5 0.5B BF16 | 1.50 GiB | 114.67 tok/s | 4818.96 tok/s | 103.2 ms | 0.67 s | Native MLX |
+| Llama 3.2 1B BF16 | 3.47 GiB | 48.61 tok/s | 2116.26 tok/s | 128.1 ms | 1.46 s | Native MLX |
+| Qwen 2.5 1.5B BF16 | 4.49 GiB | 38.41 tok/s | 1544.66 tok/s | 163.3 ms | 1.84 s | Native MLX |
+| Qwen 2.5 3B BF16 | 8.96 GiB | 19.22 tok/s | 749.46 tok/s | 239.7 ms | 3.60 s | Native MLX |
+| Llama 3.2 3B BF16 | 8.79 GiB | 18.33 tok/s | 715.88 tok/s | 247.9 ms | 3.75 s | Native MLX |
+| Qwen 2.5 7B BF16 | 14.38 GiB | 8.73 tok/s | 331.63 tok/s | 470.9 ms | 7.81 s | Native MLX |
 
 Every full-model plan retained native MLX because no BF16 feature combination cleared the
 model-level TTFT or end-to-end guard. The equal bars are therefore deliberate shared native
 samples, not rounded or noise-derived speedups. Verification produced identical next tokens and
 zero measured logit error for all six selected plans. The 7B checkpoint peaked at 14.38 GiB on
-the 32 GB M5, preserving substantial runtime and operating-system headroom. Raw samples, memory,
+the 32 GB M5; its 7.08 GiB dense repack was rejected before allocation because it would exceed
+the guarded 19.97 GiB working-set budget. Raw samples, memory,
 verification, and primitive dispatches are committed in
 `benchmarks/results/m5-mlx-lm-bf16-models.json`.
 
@@ -300,7 +331,7 @@ verification, and primitive dispatches are committed in
 METILE_DISABLE_DISK_CACHE=1 python benchmarks/mlx_lm_suite.py \
   --suite bf16 --offline \
   --prompt-tokens 128 --generation-tokens 64 \
-  --trials 5 --plan-trials 5 --confirmation-trials 3 --delay 0.1
+  --trials 5 --plan-trials 5 --confirmation-trials 5 --delay 0.1
 
 python benchmarks/render_mlx_lm_results.py \
   benchmarks/results/m5-mlx-lm-bf16-models.json \

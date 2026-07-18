@@ -59,6 +59,7 @@ def _arguments():
     parser.add_argument("--disable-graph-fusion", action="store_true")
     parser.add_argument("--disable-quantized-mlp", action="store_true")
     parser.add_argument("--disable-affine-prefill", action="store_true")
+    parser.add_argument("--disable-dense-mlp", action="store_true")
     parser.add_argument("--disable-model-autotune", action="store_true")
     parser.add_argument("--plan-decode-steps", type=int, default=8)
     parser.add_argument("--plan-trials", type=int, default=7)
@@ -102,12 +103,15 @@ def _backend_command(arguments, model, output):
             "disable_graph_fusion",
             "disable_quantized_mlp",
             "disable_affine_prefill",
+            "disable_dense_mlp",
             "disable_model_autotune",
         )
         if getattr(arguments, name)
     }
     if arguments.suite == "bf16":
         disabled.update(("disable_quantized_mlp", "disable_affine_prefill"))
+    else:
+        disabled.add("disable_dense_mlp")
     for name in (
         "skip_verify",
         "disable_attention",
@@ -115,6 +119,7 @@ def _backend_command(arguments, model, output):
         "disable_graph_fusion",
         "disable_quantized_mlp",
         "disable_affine_prefill",
+        "disable_dense_mlp",
         "disable_model_autotune",
     ):
         if name in disabled:

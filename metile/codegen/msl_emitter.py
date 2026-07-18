@@ -1239,12 +1239,42 @@ def _emit_nax_apply_fragment(op, lines, indent):
 def _emit_nax_binary_fragment(op, lines, indent):
     pad = "    " * indent
     destination = op.destination or op.left
+    raw_left = f"{op.left}[i]"
+    raw_right = f"{op.right}[i]"
+    left = raw_left
+    right = raw_right
+    if op.round_inputs:
+        left = f"float({op.round_inputs}({left}))"
+        right = f"float({op.round_inputs}({right}))"
     if op.operation == "add":
-        expression = f"{op.left}[i] + {op.right}[i]"
+        expression = f"{left} + {right}"
     elif op.operation == "multiply":
-        expression = f"{op.left}[i] * {op.right}[i]"
+        expression = f"{left} * {right}"
     elif op.operation == "swiglu":
-        expression = f"({op.left}[i] / (1.0f + fast::exp(-{op.left}[i]))) * {op.right}[i]"
+        exponential = "fast::exp" if op.fast_math else "exp"
+        if op.round_intermediates:
+            low_type = op.round_intermediates
+            lines.append(f"{pad}#pragma clang loop unroll(full)")
+            lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+            lines.append(f"{pad}    const {low_type} swiglu_left = {low_type}({raw_left});")
+            lines.append(f"{pad}    const {low_type} swiglu_right = {low_type}({raw_right});")
+            lines.append(
+                f"{pad}    const auto swiglu_y = 1 / (1 + {exponential}(abs(swiglu_left)));"
+            )
+            lines.append(
+                f"{pad}    const {low_type} swiglu_sigmoid = "
+                f"(swiglu_left < {low_type}(0)) ? swiglu_y : 1 - swiglu_y;"
+            )
+            lines.append(
+                f"{pad}    const {low_type} swiglu_activation = swiglu_left * swiglu_sigmoid;"
+            )
+            lines.append(
+                f"{pad}    {destination}[i] = float({low_type}(swiglu_activation * swiglu_right));"
+            )
+            lines.append(f"{pad}}}")
+            return
+        activation = f"({left} / (1.0f + {exponential}(-{left})))"
+        expression = f"{activation} * {right}"
     else:
         raise ValueError(f"unknown NAX binary fragment operation: {op.operation}")
     lines.append(f"{pad}#pragma clang loop unroll(full)")

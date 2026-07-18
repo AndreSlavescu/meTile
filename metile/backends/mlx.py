@@ -148,6 +148,16 @@ def _mlx_compiler_dtype(dtype):
 def _specialize_mlx_source(source, dtype):
     if str(dtype) == "mlx.core.bfloat16":
         source = re.sub(r"\bhalf(?=[234]?\b)", "bfloat", source)
+
+        def cast_vector_lanes(match):
+            width = int(match.group(1))
+            lanes = [lane.strip() for lane in match.group(2).split(",")]
+            if len(lanes) != width:
+                return match.group(0)
+            explicit = [lane if lane.startswith("bfloat(") else f"bfloat({lane})" for lane in lanes]
+            return f"bfloat{width}({', '.join(explicit)})"
+
+        source = re.sub(r"\bbfloat([234])\(([^();\n]+)\)", cast_vector_lanes, source)
         output_names = re.findall(r"\bdevice\s+bfloat\s*\*\s*(\w+)", source)
         for name in output_names:
             source = re.sub(

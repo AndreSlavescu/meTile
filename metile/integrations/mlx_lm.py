@@ -23,6 +23,17 @@ from metile.backends.mlx_affine import (
     mlx_affine_matmul,
     mlx_affine_matmul_dispatches,
 )
+from metile.backends.mlx_dense import (
+    MLXDenseWeight,
+    mlx_dense_backend_signature,
+    mlx_dense_matmul_dispatches,
+)
+from metile.backends.mlx_dense_swiglu import (
+    mlx_dense_swiglu,
+    mlx_dense_swiglu_backend_signature,
+    mlx_dense_swiglu_dispatches,
+    mlx_dense_swiglu_projected,
+)
 from metile.backends.mlx_graph import compile_mlx_graph
 from metile.backends.mlx_quantized import (
     mlx_affine_mlp_executor,
@@ -39,12 +50,15 @@ _graph_executable_cache = {}
 _quantized_mlp_executor_cache = {}
 _mlx_lm_plan_cache = {}
 _mlx_lm_plan_lock = threading.RLock()
-_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v10.json"
+_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v13.json"
 _MODEL_SWITCH_MARGIN = 0.01
+_MODEL_TTFT_SWITCH_MARGIN = 0.02
 _MODEL_REGRESSION_MARGIN = 0.005
 _MODEL_KL_LIMIT = 1e-3
 _MODEL_MEAN_LOGIT_ERROR_LIMIT = 0.02
 _MODEL_MAX_LOGIT_ERROR_LIMIT = 0.25
+_MODEL_BF16_MEAN_LOGIT_ERROR_LIMIT = 0.04
+_MODEL_BF16_MAX_LOGIT_ERROR_LIMIT = 0.5
 _QUANTIZED_MLP_MIN_ROWS = 32
 _SUPPORTED_GATED_MLP_MODULES = frozenset(
     {
@@ -63,6 +77,7 @@ class MLXLMPlan:
     graph_fusion: bool = True
     quantized_mlp: bool = True
     affine_prefill: bool = False
+    dense_mlp: bool = False
 
     @property
     def feature_count(self):
@@ -147,6 +162,60 @@ class MLXAffinePrefill:
         return MLXAffinePrefillLinear
 
 
+@dataclass
+class MLXDenseMLP:
+    """AOT K-major gate/up weights for dense MLX-LM SwiGLU blocks."""
+
+    model: object
+    weights: dict[int, tuple[object, MLXDenseWeight, MLXDenseWeight]]
+    min_rows: int = 32
+    repack_bytes: int = 0
+    implementation: str = "projected"
+    patched_classes: dict[int, type] = field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.implementation not in {"fused", "native", "projected"}:
+            raise ValueError("dense MLP implementation must be fused, projected, or native")
+
+    def weights_for(self, module):
+        entry = self.weights.get(id(module))
+        return entry[1:] if entry is not None and entry[0] is module else None
+
+    @property
+    def mlp_count(self):
+        return len(self.weights)
+
+    def patched_class(self, module):
+        key = id(module)
+        patched = self.patched_classes.get(key)
+        if patched is not None:
+            return patched
+        original_class = type(module)
+        original_call = original_class.__call__
+        gate_weight, up_weight = self.weights_for(module)
+        min_rows = self.min_rows
+        prepared = self
+
+        class MLXDenseMLPBlock(original_class):
+            def __call__(self, values):
+                rows = values.size // values.shape[-1]
+                if rows < min_rows:
+                    object.__setattr__(self, "__class__", original_class)
+                    return original_call(self, values)
+                if prepared.implementation == "native":
+                    return original_call(self, values)
+                if prepared.implementation == "fused":
+                    hidden = mlx_dense_swiglu(values, gate_weight, up_weight)
+                else:
+                    hidden = mlx_dense_swiglu_projected(values, gate_weight, up_weight)
+                return self.down_proj(hidden)
+
+        MLXDenseMLPBlock.__name__ = f"MeTile{original_class.__name__}"
+        MLXDenseMLPBlock.__qualname__ = f"MeTile{original_class.__qualname__}"
+        self.patched_classes[key] = MLXDenseMLPBlock
+        return MLXDenseMLPBlock
+
+
 def _mlx_lm_plan_candidates(requested):
     names = tuple(name for name, enabled in requested.as_dict().items() if enabled)
     candidates = []
@@ -159,6 +228,7 @@ def _mlx_lm_plan_candidates(requested):
                 graph_fusion="graph_fusion" in enabled,
                 quantized_mlp="quantized_mlp" in enabled,
                 affine_prefill="affine_prefill" in enabled,
+                dense_mlp="dense_mlp" in enabled,
             )
         )
     return tuple(
@@ -166,7 +236,7 @@ def _mlx_lm_plan_candidates(requested):
     )
 
 
-def _effective_mlx_lm_plan(plan, affine_prefill=None):
+def _effective_mlx_lm_plan(plan, affine_prefill=None, dense_mlp=None):
     return MLXLMPlan(
         attention=plan.attention
         and any(dispatch["algorithm"] == "metile" for dispatch in mlx_attention_dispatches()),
@@ -184,6 +254,22 @@ def _effective_mlx_lm_plan(plan, affine_prefill=None):
         affine_prefill=plan.affine_prefill
         and affine_prefill is not None
         and any(dispatch["algorithm"] == "metile" for dispatch in mlx_affine_matmul_dispatches()),
+        dense_mlp=plan.dense_mlp
+        and dense_mlp is not None
+        and (
+            (
+                dense_mlp.implementation == "fused"
+                and any(
+                    dispatch["algorithm"] == "metile" for dispatch in mlx_dense_swiglu_dispatches()
+                )
+            )
+            or (
+                dense_mlp.implementation == "projected"
+                and any(
+                    dispatch["algorithm"] == "metile" for dispatch in mlx_dense_matmul_dispatches()
+                )
+            )
+        ),
     )
 
 
@@ -209,7 +295,15 @@ def _mlx_lm_model_signature(model):
     }
 
 
-def _mlx_lm_plan_key(model, sample_tokens, requested, affine_prefill, decode_steps, trials):
+def _mlx_lm_plan_key(
+    model,
+    sample_tokens,
+    requested,
+    affine_prefill,
+    dense_mlp,
+    decode_steps,
+    trials,
+):
     import mlx.core as mx
 
     return stable_digest(
@@ -224,6 +318,15 @@ def _mlx_lm_plan_key(model, sample_tokens, requested, affine_prefill, decode_ste
                 else None
             ),
             "decode_steps": decode_steps,
+            "dense_mlp": (
+                {
+                    "min_rows": dense_mlp.min_rows,
+                    "mlps": dense_mlp.mlp_count,
+                    "repack_bytes": dense_mlp.repack_bytes,
+                }
+                if dense_mlp is not None
+                else None
+            ),
             "mlx": mx.__version__,
             "model": _mlx_lm_model_signature(model),
             "prompt_bucket": 1 << max(sample_tokens.shape[1] - 1, 0).bit_length(),
@@ -236,6 +339,11 @@ def _mlx_lm_plan_key(model, sample_tokens, requested, affine_prefill, decode_ste
                     "affine_prefill": inspect.getsource(_patch_affine_prefill),
                     "affine_swiglu_backend": mlx_affine_swiglu_backend_signature(),
                     "choose": inspect.getsource(_choose_mlx_lm_plan),
+                    "dense_backend": mlx_dense_swiglu_backend_signature(),
+                    "dense_matmul_backend": mlx_dense_backend_signature(),
+                    "dense_class": inspect.getsource(MLXDenseMLP.patched_class),
+                    "dense_patch": inspect.getsource(_patch_dense_mlp),
+                    "dense_selection": inspect.getsource(_select_dense_mlp_implementation),
                     "effective": inspect.getsource(_effective_mlx_lm_plan),
                     "fidelity": inspect.getsource(_plan_preserves_logits),
                     "finalists": inspect.getsource(_provisional_mlx_lm_finalists),
@@ -244,10 +352,14 @@ def _mlx_lm_plan_key(model, sample_tokens, requested, affine_prefill, decode_ste
                 }
             ),
             "regression_margin": _MODEL_REGRESSION_MARGIN,
+            "dense_mlp_implementation": (
+                dense_mlp.implementation if dense_mlp is not None else None
+            ),
             "quantized_mlp_min_rows": _QUANTIZED_MLP_MIN_ROWS,
             "switch_margin": _MODEL_SWITCH_MARGIN,
+            "ttft_switch_margin": _MODEL_TTFT_SWITCH_MARGIN,
             "trials": trials,
-            "tuner": 10,
+            "tuner": 13,
         }
     )
 
@@ -276,13 +388,18 @@ def _write_mlx_lm_plan(key, plan):
     atomic_write_json(_mlx_lm_plan_cache_path, payload)
 
 
-def _time_mlx_lm_plan(model, sample_tokens, plan, affine_prefill, decode_steps):
+def _time_mlx_lm_plan(model, sample_tokens, plan, affine_prefill, dense_mlp, decode_steps):
     import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache
 
     cache = make_prompt_cache(model)
     decode_token = sample_tokens[:, -1:]
-    with apply_metile_to_mlx_lm(model=model, plan=plan, affine_prefill=affine_prefill):
+    with apply_metile_to_mlx_lm(
+        model=model,
+        plan=plan,
+        affine_prefill=affine_prefill,
+        dense_mlp=dense_mlp,
+    ):
         total_start = time.perf_counter_ns()
         logits = model(sample_tokens, cache=cache)
         mx.eval(logits)
@@ -300,6 +417,7 @@ def _time_mlx_lm_plan(model, sample_tokens, plan, affine_prefill, decode_steps):
 def _logit_fidelity(reference, actual):
     import mlx.core as mx
 
+    reference_dtype = str(reference.dtype)
     reference = reference[:, -1].astype(mx.float32)
     actual = actual[:, -1].astype(mx.float32)
     difference = mx.abs(reference - actual)
@@ -311,6 +429,7 @@ def _logit_fidelity(reference, actual):
     )
     mx.eval(difference, divergence)
     return {
+        "reference_dtype": reference_dtype,
         "next_token": int(mx.argmax(reference, axis=-1).item()),
         "actual_next_token": int(mx.argmax(actual, axis=-1).item()),
         "kl_divergence": max(0.0, float(mx.max(divergence).item())),
@@ -320,18 +439,105 @@ def _logit_fidelity(reference, actual):
 
 
 def _fidelity_compatible(fidelity):
+    is_bfloat16 = fidelity.get("reference_dtype") == "mlx.core.bfloat16"
+    mean_limit = (
+        _MODEL_BF16_MEAN_LOGIT_ERROR_LIMIT if is_bfloat16 else _MODEL_MEAN_LOGIT_ERROR_LIMIT
+    )
+    maximum_limit = (
+        _MODEL_BF16_MAX_LOGIT_ERROR_LIMIT if is_bfloat16 else _MODEL_MAX_LOGIT_ERROR_LIMIT
+    )
     return (
         fidelity["next_token"] == fidelity["actual_next_token"]
         and fidelity["kl_divergence"] <= _MODEL_KL_LIMIT
-        and fidelity["mean_logit_error"] <= _MODEL_MEAN_LOGIT_ERROR_LIMIT
-        and fidelity["max_logit_error"] <= _MODEL_MAX_LOGIT_ERROR_LIMIT
+        and fidelity["mean_logit_error"] <= mean_limit
+        and fidelity["max_logit_error"] <= maximum_limit
     )
 
 
-def _plan_preserves_logits(model, sample_tokens, plan, affine_prefill, reference):
+def _cache_aware_dense_fidelity(model, sample_tokens, dense_mlp, implementation):
+    import mlx.core as mx
+    from mlx_lm.models.cache import make_prompt_cache
+
+    dense_mlp.implementation = implementation
+    reference_cache = make_prompt_cache(model)
+    actual_cache = make_prompt_cache(model)
+    reference_prefix = model(sample_tokens[:, :-1], cache=reference_cache)
+    mx.eval(reference_prefix)
+    reference = model(sample_tokens[:, -1:], cache=reference_cache)
+    mx.eval(reference)
+    dense_plan = MLXLMPlan(False, False, False, False, False, True)
+    with apply_metile_to_mlx_lm(model=model, plan=dense_plan, dense_mlp=dense_mlp):
+        actual_prefix = model(sample_tokens[:, :-1], cache=actual_cache)
+        mx.eval(actual_prefix)
+        actual = model(sample_tokens[:, -1:], cache=actual_cache)
+        mx.eval(actual)
+    return _logit_fidelity(reference, actual)
+
+
+def _time_dense_mlp_implementation(model, sample_tokens, dense_mlp, implementation):
     import mlx.core as mx
 
-    with apply_metile_to_mlx_lm(model=model, plan=plan, affine_prefill=affine_prefill):
+    dense_mlp.implementation = implementation
+    dense_plan = MLXLMPlan(False, False, False, False, False, True)
+    start = time.perf_counter_ns()
+    with apply_metile_to_mlx_lm(model=model, plan=dense_plan, dense_mlp=dense_mlp):
+        output = model(sample_tokens)
+        mx.eval(output)
+    return (time.perf_counter_ns() - start) * 1e-9
+
+
+def _select_dense_mlp_implementation(model, sample_tokens, dense_mlp, trials):
+    compatible = []
+    for implementation in ("fused", "projected"):
+        try:
+            fidelity = _cache_aware_dense_fidelity(
+                model,
+                sample_tokens,
+                dense_mlp,
+                implementation,
+            )
+        except (RuntimeError, TypeError, ValueError):
+            continue
+        exact_fusion = implementation != "fused" or (
+            fidelity["kl_divergence"] == 0.0
+            and fidelity["mean_logit_error"] == 0.0
+            and fidelity["max_logit_error"] == 0.0
+        )
+        if _fidelity_compatible(fidelity) and exact_fusion:
+            compatible.append(implementation)
+    if not compatible:
+        dense_mlp.implementation = "native"
+        return
+
+    for implementation in compatible:
+        _time_dense_mlp_implementation(model, sample_tokens, dense_mlp, implementation)
+    samples = {implementation: [] for implementation in compatible}
+    for round_index in range(max(3, min(trials, 7))):
+        ordered = compatible if round_index % 2 == 0 else tuple(reversed(compatible))
+        for implementation in ordered:
+            samples[implementation].append(
+                _time_dense_mlp_implementation(
+                    model,
+                    sample_tokens,
+                    dense_mlp,
+                    implementation,
+                )
+            )
+    dense_mlp.implementation = min(
+        compatible,
+        key=lambda implementation: statistics.median(samples[implementation]),
+    )
+
+
+def _plan_preserves_logits(model, sample_tokens, plan, affine_prefill, dense_mlp, reference):
+    import mlx.core as mx
+
+    with apply_metile_to_mlx_lm(
+        model=model,
+        plan=plan,
+        affine_prefill=affine_prefill,
+        dense_mlp=dense_mlp,
+    ):
         actual = model(sample_tokens)
         mx.eval(actual)
     fidelity = _logit_fidelity(reference, actual)
@@ -343,6 +549,7 @@ def _measure_mlx_lm_plans(
     sample_tokens,
     candidates,
     affine_prefill,
+    dense_mlp,
     decode_steps,
     rounds,
 ):
@@ -357,7 +564,14 @@ def _measure_mlx_lm_plans(
         if not plan.feature_count:
             continue
         try:
-            if not _plan_preserves_logits(model, sample_tokens, plan, affine_prefill, reference):
+            if not _plan_preserves_logits(
+                model,
+                sample_tokens,
+                plan,
+                affine_prefill,
+                dense_mlp,
+                reference,
+            ):
                 compatible.remove(plan)
         except (RuntimeError, TypeError, ValueError):
             compatible.remove(plan)
@@ -375,6 +589,7 @@ def _measure_mlx_lm_plans(
                     sample_tokens,
                     plan,
                     affine_prefill,
+                    dense_mlp,
                     decode_steps,
                 )
             except (RuntimeError, TypeError, ValueError):
@@ -406,7 +621,7 @@ def _choose_mlx_lm_plan(samples):
         decode_median = statistics.median(decode_ratios)
         total_median = statistics.median(total_ratios)
         improves_total = total_median < 1.0 - _MODEL_SWITCH_MARGIN
-        improves_ttft = ttft_median < 0.97
+        improves_ttft = ttft_median < 1.0 - _MODEL_TTFT_SWITCH_MARGIN
         decode_sensitive = any(
             (plan.attention, plan.rms_norm, plan.graph_fusion, plan.quantized_mlp)
         )
@@ -477,6 +692,7 @@ def autotune_metile_for_mlx_lm(
     graph_fusion=True,
     quantized_mlp=True,
     affine_prefill=None,
+    dense_mlp=None,
     decode_steps=8,
     trials=5,
 ):
@@ -491,18 +707,26 @@ def autotune_metile_for_mlx_lm(
         raise TypeError("affine_prefill must be an MLXAffinePrefill")
     if affine_prefill is not None and affine_prefill.model is not model:
         raise ValueError("affine_prefill was prepared for a different model")
+    if dense_mlp is not None and not isinstance(dense_mlp, MLXDenseMLP):
+        raise TypeError("dense_mlp must be an MLXDenseMLP")
+    if dense_mlp is not None and dense_mlp.model is not model:
+        raise ValueError("dense_mlp was prepared for a different model")
+    if dense_mlp is not None and sample_tokens.shape[1] >= dense_mlp.min_rows:
+        _select_dense_mlp_implementation(model, sample_tokens, dense_mlp, trials)
     requested = MLXLMPlan(
-        attention,
-        rms_norm,
-        graph_fusion,
-        quantized_mlp,
-        affine_prefill is not None,
+        attention=attention,
+        rms_norm=rms_norm,
+        graph_fusion=graph_fusion,
+        quantized_mlp=quantized_mlp,
+        affine_prefill=affine_prefill is not None,
+        dense_mlp=dense_mlp is not None,
     )
     key = _mlx_lm_plan_key(
         model,
         sample_tokens,
         requested,
         affine_prefill,
+        dense_mlp,
         decode_steps,
         trials,
     )
@@ -517,17 +741,21 @@ def autotune_metile_for_mlx_lm(
             sample_tokens,
             candidates,
             affine_prefill,
+            dense_mlp,
             decode_steps,
             1,
         )
         candidates = tuple(
-            dict.fromkeys(_effective_mlx_lm_plan(plan, affine_prefill) for plan in candidates)
+            dict.fromkeys(
+                _effective_mlx_lm_plan(plan, affine_prefill, dense_mlp) for plan in candidates
+            )
         )
         provisional = _measure_mlx_lm_plans(
             model,
             sample_tokens,
             candidates,
             affine_prefill,
+            dense_mlp,
             decode_steps,
             3,
         )
@@ -537,6 +765,7 @@ def autotune_metile_for_mlx_lm(
             sample_tokens,
             finalists,
             affine_prefill,
+            dense_mlp,
             decode_steps,
             trials,
         )
@@ -865,6 +1094,18 @@ def _patch_affine_prefill(affine_prefill, replacements):
         object.__setattr__(module, "__class__", affine_prefill.patched_class(module))
 
 
+def _patch_dense_mlp(dense_mlp, replacements):
+    if dense_mlp is None:
+        return
+    for module, _, _ in dense_mlp.weights.values():
+        patched_class = dense_mlp.patched_classes.get(id(module))
+        original_class = type(module)
+        if original_class is patched_class:
+            continue
+        replacements.append((module, "__class__", original_class))
+        object.__setattr__(module, "__class__", dense_mlp.patched_class(module))
+
+
 def prepare_mlx_lm_affine_prefill(
     model,
     *,
@@ -912,6 +1153,72 @@ def prepare_mlx_lm_affine_prefill(
     return MLXAffinePrefill(model, weights, min_rows)
 
 
+def prepare_mlx_lm_dense_mlp(
+    model,
+    *,
+    min_rows=32,
+    max_working_set_fraction=0.8,
+):
+    """AOT-prepare K-major dense gate/up weights for generated SwiGLU prefill."""
+    if not callable(model):
+        raise TypeError("model must be an MLX-LM callable")
+    if min_rows < 1:
+        raise ValueError("min_rows must be positive")
+    if not 0.0 < max_working_set_fraction <= 1.0:
+        raise ValueError("max_working_set_fraction must be in (0, 1]")
+    try:
+        import mlx.core as mx
+        import mlx.nn as nn
+    except ImportError as error:
+        raise ImportError("Dense MLP preparation requires the optional 'mlx' package") from error
+
+    supported = []
+    for layer in _model_layers(model):
+        module = getattr(layer, "mlp", None)
+        gate = getattr(module, "gate_proj", None)
+        up = getattr(module, "up_proj", None)
+        if (
+            not isinstance(gate, nn.Linear)
+            or not isinstance(up, nn.Linear)
+            or "bias" in gate
+            or "bias" in up
+            or gate.weight.shape != up.weight.shape
+            or gate.weight.shape[0] % 64
+            or gate.weight.shape[1] % 32
+            or str(gate.weight.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16")
+            or gate.weight.dtype != up.weight.dtype
+        ):
+            continue
+        supported.append((module, gate.weight, up.weight))
+    if not supported:
+        raise ValueError("model contains no supported dense SwiGLU blocks")
+    repack_bytes = sum(gate.nbytes + up.nbytes for _, gate, up in supported)
+    recommended = int(mx.device_info().get("max_recommended_working_set_size", 0))
+    budget = int(recommended * max_working_set_fraction)
+    active = int(mx.get_active_memory())
+    if recommended and active + repack_bytes > budget:
+        raise ValueError(
+            f"dense AOT repack needs {repack_bytes / 2**30:.2f} GiB with "
+            f"{active / 2**30:.2f} GiB active, exceeding the "
+            f"{budget / 2**30:.2f} GiB working-set budget"
+        )
+
+    weights = {
+        id(module): (
+            module,
+            MLXDenseWeight.from_mlx(gate),
+            MLXDenseWeight.from_mlx(up),
+        )
+        for module, gate, up in supported
+    }
+    return MLXDenseMLP(
+        model,
+        weights,
+        min_rows,
+        repack_bytes=repack_bytes,
+    )
+
+
 def apply_metile_to_mlx_lm(
     model=None,
     *,
@@ -920,11 +1227,12 @@ def apply_metile_to_mlx_lm(
     graph_fusion=True,
     quantized_mlp=True,
     affine_prefill=None,
+    dense_mlp=None,
     plan=None,
 ):
     """Patch MLX-LM with zero-copy, autotuned meTile primitives.
 
-    Decode attention, RMSNorm, quantized SwiGLU, and compute-graph fusion are independently
+    Decode attention, RMSNorm, dense/quantized SwiGLU, and compute-graph fusion are independently
     selectable. Unsupported calls preserve MLX-LM's original implementation.
     The returned handle can restore every changed module or be used as a context
     manager.
@@ -940,17 +1248,25 @@ def apply_metile_to_mlx_lm(
         quantized_mlp = quantized_mlp and plan.quantized_mlp
         if not plan.affine_prefill:
             affine_prefill = None
+        if not plan.dense_mlp:
+            dense_mlp = None
     if affine_prefill is not None:
         if not isinstance(affine_prefill, MLXAffinePrefill):
             raise TypeError("affine_prefill must be an MLXAffinePrefill")
         if model is not affine_prefill.model:
             raise ValueError("affine_prefill was prepared for a different model")
+    if dense_mlp is not None:
+        if not isinstance(dense_mlp, MLXDenseMLP):
+            raise TypeError("dense_mlp must be an MLXDenseMLP")
+        if model is not dense_mlp.model:
+            raise ValueError("dense_mlp was prepared for a different model")
     if (
         not attention
         and not rms_norm
         and not graph_fusion
         and not quantized_mlp
         and affine_prefill is None
+        and dense_mlp is None
     ):
         return MLXPatch([])
     try:
@@ -1041,15 +1357,18 @@ def apply_metile_to_mlx_lm(
             max_rows=quantized_mlp_prefill_max_rows,
         )
     _patch_affine_prefill(affine_prefill, replacements)
+    _patch_dense_mlp(dense_mlp, replacements)
 
     return MLXPatch(replacements, attention_replacement, attention_original)
 
 
 __all__ = [
     "MLXAffinePrefill",
+    "MLXDenseMLP",
     "MLXLMPlan",
     "MLXPatch",
     "apply_metile_to_mlx_lm",
     "autotune_metile_for_mlx_lm",
     "prepare_mlx_lm_affine_prefill",
+    "prepare_mlx_lm_dense_mlp",
 ]

@@ -77,6 +77,7 @@ def test_mlx_bfloat16_source_specialization_uses_native_metal_types_and_stores()
 device const half4* X;
 device half* Out;
 Out[thread_index_in_threadgroup] = float(X[0].x);
+*((device half4*)(&Out[4])) = half4(values[0], values[1], values[2], values[3]);
 """
 
     specialized = mlx_backend._specialize_mlx_source(source, "mlx.core.bfloat16")
@@ -84,6 +85,10 @@ Out[thread_index_in_threadgroup] = float(X[0].x);
     assert "device const bfloat4* X" in specialized
     assert "device bfloat* Out" in specialized
     assert "Out[thread_index_in_threadgroup] = bfloat(float(X[0].x));" in specialized
+    assert (
+        "bfloat4(bfloat(values[0]), bfloat(values[1]), bfloat(values[2]), bfloat(values[3]))"
+        in specialized
+    )
     assert "half" not in specialized
 
 
@@ -91,6 +96,75 @@ def test_mlx_source_specialization_preserves_non_bfloat16_source():
     source = "device half* Out;"
 
     assert mlx_backend._specialize_mlx_source(source, "mlx.core.float16") == source
+
+
+def test_mlx_dense_matmul_matches_ragged_bfloat16_reference(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_dense
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_dense._kernel_cache.clear()
+    mlx_dense._schedule_cache.clear()
+    random = np.random.default_rng(2030)
+    activations = mx.array(random.normal(size=(1, 33, 128)).astype(np.float32)).astype(mx.bfloat16)
+    native_weight = mx.array(random.normal(size=(128, 128)).astype(np.float32)).astype(mx.bfloat16)
+    weight = mlx_dense.MLXDenseWeight.from_mlx(native_weight)
+
+    actual = mlx_dense.mlx_dense_matmul(activations, weight, autotune=False)
+    expected = activations @ native_weight.T
+    mx.eval(actual, expected)
+
+    assert actual.shape == expected.shape == (1, 33, 128)
+    np.testing.assert_allclose(
+        np.array(actual.astype(mx.float32)),
+        np.array(expected.astype(mx.float32)),
+        rtol=4e-2,
+        atol=4e-2,
+    )
+
+
+def test_mlx_dense_swiglu_matches_bfloat16_reference(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    import mlx.nn as nn
+
+    from metile.backends import mlx_dense, mlx_dense_swiglu
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_dense_swiglu._kernel_cache.clear()
+    mlx_dense_swiglu._schedule_cache.clear()
+    random = np.random.default_rng(2031)
+    activations = mx.array(random.normal(size=(1, 33, 64)).astype(np.float32)).astype(mx.bfloat16)
+    gate_native = mx.array(random.normal(size=(64, 64)).astype(np.float32)).astype(mx.bfloat16)
+    up_native = mx.array(random.normal(size=(64, 64)).astype(np.float32)).astype(mx.bfloat16)
+    gate_weight = mlx_dense.MLXDenseWeight.from_mlx(gate_native)
+    up_weight = mlx_dense.MLXDenseWeight.from_mlx(up_native)
+
+    actual = mlx_dense_swiglu.mlx_dense_swiglu(
+        activations,
+        gate_weight,
+        up_weight,
+        autotune=False,
+    )
+    expected = nn.silu(activations @ gate_native.T) * (activations @ up_native.T)
+    mx.eval(actual, expected)
+
+    np.testing.assert_array_equal(
+        np.array(actual.astype(mx.float32)),
+        np.array(expected.astype(mx.float32)),
+    )
+
+
+def test_mlx_dense_dispatch_requires_three_percent_headroom():
+    from metile.backends import mlx_dense_swiglu
+
+    native = mlx_dense_swiglu.MLXDenseSwiGLUConfig("mlx")
+    generated = mlx_dense_swiglu.MLXDenseSwiGLUConfig("metile", 64, 64, "grouped8", 2)
+
+    close = mlx_dense_swiglu._choose_config([(1.0, 0, native), (0.98, 100, generated)])
+    faster = mlx_dense_swiglu._choose_config([(1.0, 0, native), (0.90, 100, generated)])
+
+    assert close == native
+    assert faster == generated
 
 
 @pytest.mark.parametrize("rows", (33, 127))
@@ -783,9 +857,9 @@ def test_mlx_lm_plan_key_tracks_affine_backend(monkeypatch):
     tokens = mx.zeros((1, 8), dtype=mx.int32)
     requested = mlx_lm.MLXLMPlan(False, False, False, False, True)
     monkeypatch.setattr(mlx_lm, "mlx_affine_backend_signature", lambda: "backend-a")
-    first = mlx_lm._mlx_lm_plan_key(Model(), tokens, requested, None, 8, 5)
+    first = mlx_lm._mlx_lm_plan_key(Model(), tokens, requested, None, None, 8, 5)
     monkeypatch.setattr(mlx_lm, "mlx_affine_backend_signature", lambda: "backend-b")
-    second = mlx_lm._mlx_lm_plan_key(Model(), tokens, requested, None, 8, 5)
+    second = mlx_lm._mlx_lm_plan_key(Model(), tokens, requested, None, None, 8, 5)
 
     assert first != second
 
@@ -923,6 +997,29 @@ def test_mlx_lm_plan_accepts_strong_ttft_win_without_total_regression():
             {
                 native: [(0.100, 0.0100, 0.180)] * 5,
                 prefill: [(0.090, 0.0100, 0.1795)] * 5,
+            }
+        )
+        == prefill
+    )
+
+
+def test_mlx_lm_plan_accepts_two_percent_ttft_win_without_total_regression():
+    from metile.integrations.mlx_lm import MLXLMPlan, _choose_mlx_lm_plan
+
+    native = MLXLMPlan(False, False, False, False)
+    prefill = MLXLMPlan(
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=False,
+        dense_mlp=True,
+    )
+
+    assert (
+        _choose_mlx_lm_plan(
+            {
+                native: [(0.100, 0.0100, 0.1800)] * 5,
+                prefill: [(0.0975, 0.0100, 0.1795)] * 5,
             }
         )
         == prefill
@@ -1517,6 +1614,214 @@ def test_prepare_mlx_lm_affine_prefill_repacks_supported_down_projection():
     assert prepared.weight_for(down_proj).shape == (64, 64)
 
 
+def test_prepare_mlx_lm_dense_mlp_repacks_supported_bfloat16_blocks():
+    mx = pytest.importorskip("mlx.core")
+    import mlx.nn as nn
+
+    from metile.integrations.mlx_lm import prepare_mlx_lm_dense_mlp
+
+    gate_proj = nn.Linear(64, 64, bias=False)
+    up_proj = nn.Linear(64, 64, bias=False)
+    gate_proj.weight = gate_proj.weight.astype(mx.bfloat16)
+    up_proj.weight = up_proj.weight.astype(mx.bfloat16)
+
+    class Model:
+        def __init__(self):
+            self.layers = [
+                SimpleNamespace(mlp=SimpleNamespace(gate_proj=gate_proj, up_proj=up_proj))
+            ]
+
+        def __call__(self):
+            pass
+
+    model = Model()
+    prepared = prepare_mlx_lm_dense_mlp(model)
+    gate_weight, up_weight = prepared.weights_for(model.layers[0].mlp)
+    mx.eval(gate_weight.k_major, up_weight.k_major)
+
+    assert prepared.model is model
+    assert prepared.mlp_count == 1
+    assert prepared.repack_bytes == gate_proj.weight.nbytes + up_proj.weight.nbytes
+    assert gate_weight.shape == up_weight.shape == (64, 64)
+    np.testing.assert_array_equal(
+        np.array(gate_weight.k_major.astype(mx.float32)),
+        np.array(gate_proj.weight.T.astype(mx.float32)),
+    )
+    np.testing.assert_array_equal(
+        np.array(up_weight.k_major.astype(mx.float32)),
+        np.array(up_proj.weight.T.astype(mx.float32)),
+    )
+
+
+def test_prepare_mlx_lm_dense_mlp_respects_working_set_budget(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    import mlx.nn as nn
+
+    from metile.integrations.mlx_lm import prepare_mlx_lm_dense_mlp
+
+    gate_proj = nn.Linear(64, 64, bias=False)
+    up_proj = nn.Linear(64, 64, bias=False)
+    gate_proj.weight = gate_proj.weight.astype(mx.bfloat16)
+    up_proj.weight = up_proj.weight.astype(mx.bfloat16)
+
+    class Model:
+        layers = (SimpleNamespace(mlp=SimpleNamespace(gate_proj=gate_proj, up_proj=up_proj)),)
+
+        def __call__(self):
+            pass
+
+    monkeypatch.setattr(
+        mx,
+        "device_info",
+        lambda: {"max_recommended_working_set_size": 10_000},
+    )
+    monkeypatch.setattr(mx, "get_active_memory", lambda: 9_000)
+
+    with pytest.raises(ValueError, match=r"exceeding the .* working-set budget"):
+        prepare_mlx_lm_dense_mlp(Model())
+
+
+def test_mlx_lm_dense_mlp_patch_is_reversible_and_skips_decode(monkeypatch):
+    pytest.importorskip("mlx_lm")
+    from metile.integrations import mlx_lm
+
+    calls = []
+
+    class DenseBlock:
+        def __call__(self, values):
+            calls.append(("native", values))
+            return "native"
+
+        def down_proj(self, hidden):
+            calls.append(("down", hidden))
+            return "generated"
+
+    module = DenseBlock()
+
+    class Model:
+        layers = (SimpleNamespace(mlp=module),)
+
+        def __call__(self):
+            pass
+
+    model = Model()
+    gate_weight = object()
+    up_weight = object()
+    prepared = mlx_lm.MLXDenseMLP(
+        model,
+        {id(module): (module, gate_weight, up_weight)},
+        min_rows=32,
+        implementation="fused",
+    )
+
+    def generated(values, gate, up):
+        calls.append(("metile", values, gate, up))
+        return "hidden"
+
+    monkeypatch.setattr(mlx_lm, "mlx_dense_swiglu", generated)
+    patch = mlx_lm.apply_metile_to_mlx_lm(
+        model,
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=False,
+        dense_mlp=prepared,
+    )
+    prefill_values = SimpleNamespace(size=33 * 64, shape=(1, 33, 64))
+    decode_values = SimpleNamespace(size=64, shape=(1, 1, 64))
+
+    assert module(prefill_values) == "generated"
+    assert module(decode_values) == "native"
+    assert type(module) is DenseBlock
+    patch.restore()
+    assert module(prefill_values) == "native"
+    assert [call[0] for call in calls] == ["metile", "down", "native", "native"]
+
+
+def test_mlx_lm_bfloat16_fidelity_uses_precision_aware_limits():
+    from metile.integrations import mlx_lm
+
+    fidelity = {
+        "reference_dtype": "mlx.core.bfloat16",
+        "next_token": 42,
+        "actual_next_token": 42,
+        "kl_divergence": 7e-4,
+        "mean_logit_error": 0.03,
+        "max_logit_error": 0.4,
+    }
+
+    assert mlx_lm._fidelity_compatible(fidelity)
+    assert not mlx_lm._fidelity_compatible({**fidelity, "reference_dtype": "mlx.core.float16"})
+
+
+def test_mlx_lm_dense_selector_rejects_inexact_fusion(monkeypatch):
+    from metile.integrations import mlx_lm
+
+    dense_mlp = SimpleNamespace(implementation="projected")
+    exact = {
+        "reference_dtype": "mlx.core.bfloat16",
+        "next_token": 42,
+        "actual_next_token": 42,
+        "kl_divergence": 0.0,
+        "mean_logit_error": 0.0,
+        "max_logit_error": 0.0,
+    }
+
+    def fidelity(_model, _tokens, _dense_mlp, implementation):
+        if implementation == "projected":
+            return exact
+        return {
+            **exact,
+            "kl_divergence": 5e-4,
+            "mean_logit_error": 0.01,
+            "max_logit_error": 0.1,
+        }
+
+    monkeypatch.setattr(mlx_lm, "_cache_aware_dense_fidelity", fidelity)
+    monkeypatch.setattr(
+        mlx_lm,
+        "_time_dense_mlp_implementation",
+        lambda _model, _tokens, _dense_mlp, implementation: (
+            0.8 if implementation == "fused" else 1.0
+        ),
+    )
+
+    mlx_lm._select_dense_mlp_implementation(object(), object(), dense_mlp, 3)
+
+    assert dense_mlp.implementation == "projected"
+
+
+def test_mlx_lm_dense_selector_chooses_faster_exact_fusion(monkeypatch):
+    from metile.integrations import mlx_lm
+
+    dense_mlp = SimpleNamespace(implementation="projected")
+    exact = {
+        "reference_dtype": "mlx.core.bfloat16",
+        "next_token": 42,
+        "actual_next_token": 42,
+        "kl_divergence": 0.0,
+        "mean_logit_error": 0.0,
+        "max_logit_error": 0.0,
+    }
+
+    monkeypatch.setattr(
+        mlx_lm,
+        "_cache_aware_dense_fidelity",
+        lambda _model, _tokens, _dense_mlp, _implementation: exact,
+    )
+    monkeypatch.setattr(
+        mlx_lm,
+        "_time_dense_mlp_implementation",
+        lambda _model, _tokens, _dense_mlp, implementation: (
+            0.8 if implementation == "fused" else 1.0
+        ),
+    )
+
+    mlx_lm._select_dense_mlp_implementation(object(), object(), dense_mlp, 3)
+
+    assert dense_mlp.implementation == "fused"
+
+
 @pytest.mark.parametrize(
     ("generated_elapsed", "expected_accepted"),
     ((0.95, True), (1.05, False)),
@@ -1534,8 +1839,17 @@ def test_mlx_lm_generation_confirmation_requires_end_to_end_safety(
     arguments = SimpleNamespace(confirmation_trials=3, delay=0)
     candidate = MLXLMPlan(False, False, False, False, True)
 
-    def generate(_model, _tokenizer, _prompt, _arguments, patched, _plan, _affine_prefill):
-        response = SimpleNamespace(generation_tps=100.0)
+    def generate(
+        _model,
+        _tokenizer,
+        _prompt,
+        _arguments,
+        patched,
+        _plan,
+        _affine_prefill,
+        _dense_mlp,
+    ):
+        response = SimpleNamespace(generation_tps=100.0, prompt_tps=1000.0)
         return response, generated_elapsed if patched else 1.0, 0.08 if patched else 0.1
 
     monkeypatch.setattr(mlx_lm_backend, "_generate", generate)
@@ -1546,6 +1860,7 @@ def test_mlx_lm_generation_confirmation_requires_end_to_end_safety(
         [1, 2, 3],
         arguments,
         candidate,
+        None,
         None,
     )
 
@@ -1577,14 +1892,26 @@ def test_mlx_lm_generation_confirmation_uses_prefill_noise_floor(
         else MLXLMPlan(True, False, False, False, False)
     )
 
-    def generate(_model, _tokenizer, _prompt, _arguments, patched, _plan, _affine_prefill):
-        response = SimpleNamespace(generation_tps=99.2 if patched else 100.0)
+    def generate(
+        _model,
+        _tokenizer,
+        _prompt,
+        _arguments,
+        patched,
+        _plan,
+        _affine_prefill,
+        _dense_mlp,
+    ):
+        response = SimpleNamespace(
+            generation_tps=99.2 if patched else 100.0,
+            prompt_tps=1100.0 if patched else 1000.0,
+        )
         return response, 0.98 if patched else 1.0, 0.08 if patched else 0.1
 
     monkeypatch.setattr(mlx_lm_backend, "_generate", generate)
 
     selected, confirmation = mlx_lm_backend._confirm_plan(
-        object(), object(), [1, 2, 3], arguments, plan, None
+        object(), object(), [1, 2, 3], arguments, plan, None, None
     )
 
     assert confirmation["accepted"] is expected_accepted

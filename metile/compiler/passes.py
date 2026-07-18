@@ -437,6 +437,7 @@ def _dense_nax_steps(runs: list[mir.MNaxGemmRun]) -> list[mir.MOp]:
                     name=a0,
                     operand="left",
                     k_offset=run.k_offset,
+                    row_bound=run.row_bound,
                 ),
                 mir.MNaxLoadFragment(
                     ptr=run.ptr_a,
@@ -444,6 +445,7 @@ def _dense_nax_steps(runs: list[mir.MNaxGemmRun]) -> list[mir.MOp]:
                     operand="left",
                     row_offset=16,
                     k_offset=run.k_offset,
+                    row_bound=run.row_bound,
                 ),
             )
         )
