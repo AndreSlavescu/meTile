@@ -251,15 +251,10 @@ blocking; reproducible performance claims use the interleaved M5 harnesses.
 
 ## Architecture
 
-```
-@metile.kernel (Python eDSL)
-    - Tile IR (hardware-agnostic ops: program_id, tile_load, dot, ...)
-    - Metal IR (decomposed primitives: simdgroup load/MMA/store, cooperative_tensor ops)
-    - Optimization passes (serpentine reordering, preload, pad/swizzle, split-K, ...)
-    - MSL codegen (op-by-op emission)
-    - xcrun metal -O2 (precompiled metallib)
-    - dispatch via ctypes Metal bridge
-```
+![meTile compiler and runtime architecture](docs/_static/compilation-pipeline.svg)
+
+The [compiler architecture guide](docs/guide/architecture.rst) expands the graph-planning,
+proof-carrying discovery, kernel-lowering, and guarded-runtime stages.
 
 | Layer | File | Role |
 |-------|------|------|

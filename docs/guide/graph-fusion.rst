@@ -5,6 +5,9 @@ meTile separates high-level graph partitioning from kernel-local Tile IR. A
 ``GraphBuilder`` records tensor operations without choosing kernel boundaries, and
 ``plan_graph_fusion`` selects legal multi-output regions before backend lowering:
 
+The full graph-to-runtime flow, including proof-carrying attention discovery, is
+shown in :doc:`architecture`.
+
 .. code-block:: python
 
    import metile

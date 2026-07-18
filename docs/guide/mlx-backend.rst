@@ -28,6 +28,10 @@ independently.
 Dispatch Policy
 ---------------
 
+.. image:: /_static/runtime-dispatch.svg
+   :alt: Guarded native and generated kernel selection in the meTile MLX runtime
+   :width: 100%
+
 Native MLX is an explicit autotune candidate. Generated kernels must beat it by at least
 5% in isolated primitive timing before the integration crosses the framework boundary.
 This guard band accounts for command-graph composition effects that a standalone kernel

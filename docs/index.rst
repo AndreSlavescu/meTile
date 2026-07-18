@@ -37,6 +37,7 @@ Programming Guide
 .. toctree::
    :maxdepth: 2
 
+   guide/architecture
    guide/language
    guide/memory
    guide/tile-ops
