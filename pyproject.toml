@@ -13,6 +13,9 @@ dev = [
     "ruff>=0.4",
     "vulture>=2.11",
 ]
+benchmarks = [
+    "matplotlib>=3.8",
+]
 docs = [
     "sphinx>=7.0",
     "furo>=2024.1",

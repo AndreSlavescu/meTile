@@ -201,7 +201,9 @@ The committed M5 32 GB suite uses MLX 0.32.0, MLX-LM 0.31.3, a 128-token prompt,
 the next token for every checkpoint and retains the neutral or losing rows rather than
 reporting only wins:
 
-![meTile speedup relative to native MLX across four models](docs/_static/mlx-model-speedups.svg)
+| Decode throughput | Performance change vs MLX |
+|:--:|:--:|
+| ![Native MLX and MLX with meTile decode throughput across four models](docs/_static/mlx-model-throughput.png) | ![meTile performance change relative to native MLX across four models](docs/_static/mlx-model-speedups.png) |
 
 | Model | MLX decode | MLX + meTile | Decode | End-to-end |
 |---|---:|---:|---:|---:|
@@ -213,7 +215,7 @@ reporting only wins:
 The Llama 3B row is a model-level win; the other rows show parity or a small miss in at
 least one metric. Raw trials, environment metadata, verification results, and selected
 dispatches are in `benchmarks/results/m5-mlx-lm-models.json`. Reproduce the suite and
-regenerate the SVG reports:
+regenerate the PNG bar charts:
 
 ```bash
 python benchmarks/mlx_lm_suite.py \
@@ -231,6 +233,9 @@ pip install -e ".[dev]"
 
 # Optional framework backend
 pip install -e ".[mlx-lm]"
+
+# Optional benchmark chart renderer
+pip install -e ".[benchmarks]"
 ```
 
 ## Run Tests

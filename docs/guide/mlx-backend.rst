@@ -65,12 +65,12 @@ total time, environment metadata, raw samples, and every selected dispatch.
 The committed M5 32 GB suite uses a 128-token prompt, 256 generated tokens, five
 alternating trials, and two-second cooldowns:
 
-.. image:: /_static/mlx-model-throughput.svg
+.. image:: /_static/mlx-model-throughput.png
    :alt: Native MLX and MLX with meTile median decode throughput across four 4-bit language models
    :width: 100%
 
-.. image:: /_static/mlx-model-speedups.svg
-   :alt: Decode and end-to-end speedup relative to native MLX across four 4-bit language models
+.. image:: /_static/mlx-model-speedups.png
+   :alt: Decode and end-to-end percentage change relative to native MLX across four 4-bit language models
    :width: 100%
 
 .. list-table:: M5 model-level medians
@@ -111,6 +111,8 @@ not as a universal framework win. The raw result is committed at
 Reproduce the complete suite and regenerate both figures:
 
 .. code-block:: bash
+
+   pip install -e ".[benchmarks]"
 
    python benchmarks/mlx_lm_suite.py \
      --prompt-tokens 128 \
