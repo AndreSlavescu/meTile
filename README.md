@@ -238,7 +238,14 @@ python benchmarks/gemm.py
 
 # or run `make bench` for running all the benchmarks
 make bench
+
+# compare a checkout against this tree on the same Apple runner
+python benchmarks/paired_regression.py --baseline-root /path/to/baseline
 ```
+
+Pull-request CI reports an ABBA-ordered, launch-to-completion comparison against
+the checked-out base revision. Shared-host measurements remain diagnostic rather
+than blocking; reproducible performance claims use the interleaved M5 harnesses.
 
 ## Architecture
 
@@ -262,6 +269,8 @@ make bench
 | Lowering | `compiler/lowering.py` | Tile IR &rarr; Metal IR (GEMM detection, simdgroup/tensor_ops paths) |
 | Passes | `compiler/passes.py` | IR &rarr; IR transforms (serpentine, preload, pad, swizzle, split-K, vectorize) |
 | Schedule search | `compiler/schedule_search.py` | Permutation-group canonicalization and MDL/locality schedule selection |
+| Reduction algebra | `compiler/reduction_algebra.py` | Restricted proof obligations for composable streaming reductions |
+| Attention discovery | `compiler/attention_discovery.py` | Certified graph recognition and FlashAttention replacement |
 | Block scaling | `compiler/block_scaled.py` | Composes MXFP decode, tensor views, MPP MMA, and store Metal IR |
 | Codegen | `codegen/msl_emitter.py` | Metal IR &rarr; MSL (uniform op walker, no per-kernel templates) |
 | Runtime | `runtime/metal_device.py` | Metal API via ctypes (compile, capability-gated batching, dispatch, sync) |
@@ -269,6 +278,7 @@ make bench
 | Runtime | `runtime/block_scaled.py` | MXFP quantization and shape-specific tile-family dispatch |
 | Attention | `kernels/attention.py` | Composable online-softmax decode kernel and schedule family |
 | MLX backend | `backends/mlx.py` | Zero-copy MLX primitives and native/generated guarded dispatch |
+| MLX graph backend | `backends/mlx_graph.py` | High-level graph execution, discovery, fusion, and guarded fallback |
 | MLX-LM integration | `integrations/mlx_lm.py` | Reversible Liger-style model patching with exact fallbacks |
 
 ## Citations

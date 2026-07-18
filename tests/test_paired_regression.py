@@ -1,0 +1,21 @@
+import pytest
+
+from benchmarks.paired_regression import aggregate_results, regression_rows
+
+
+def test_aggregate_results_uses_geometric_mean():
+    assert aggregate_results([{"kernel": 1.0}, {"kernel": 4.0}]) == {"kernel": 2.0}
+
+
+def test_aggregate_results_rejects_different_kernel_sets():
+    with pytest.raises(ValueError, match="same kernels"):
+        aggregate_results([{"first": 1.0}, {"second": 1.0}])
+
+
+def test_regression_rows_apply_relative_threshold():
+    rows, regressions = regression_rows(
+        {"fast": 1.1, "slow": 1.2}, {"fast": 1.0, "slow": 1.0}, threshold=0.15
+    )
+
+    assert [row[0] for row in rows] == ["fast", "slow"]
+    assert regressions == ["slow"]
