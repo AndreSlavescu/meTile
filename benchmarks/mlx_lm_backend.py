@@ -1,8 +1,15 @@
 """Benchmark meTile as an opt-in MLX-LM decode backend on a real model."""
 
 import argparse
+import json
+import platform
 import statistics
+import subprocess
+import sys
 import time
+from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 import mlx.core as mx
 from mlx_lm import load, stream_generate
@@ -34,6 +41,8 @@ def _arguments():
     parser.add_argument("--disable-graph-fusion", action="store_true")
     parser.add_argument("--disable-quantized-mlp", action="store_true")
     parser.add_argument("--skip-verify", action="store_true")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--output-json", type=Path)
     return parser.parse_args()
 
 
@@ -97,6 +106,133 @@ def _verify_model(model, prompt, arguments):
             f"patched next token {patched_token} differs from baseline {baseline_token}"
         )
     print(f"Verified next token {baseline_token}; max logit difference={max_error:.6f}")
+    return {"next_token": baseline_token, "max_logit_error": max_error}
+
+
+def _package_version(package):
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _hardware_metadata():
+    metadata = {
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+    }
+    if sys.platform != "darwin":
+        return metadata
+    try:
+        completed = subprocess.run(
+            ["system_profiler", "SPHardwareDataType", "-json"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        hardware = json.loads(completed.stdout)["SPHardwareDataType"][0]
+    except (KeyError, OSError, subprocess.CalledProcessError, json.JSONDecodeError):
+        return metadata
+    metadata.update(
+        {
+            "chip": hardware.get("chip_type", "unknown"),
+            "memory": hardware.get("physical_memory", "unknown"),
+            "model_name": hardware.get("machine_model", "unknown"),
+        }
+    )
+    return metadata
+
+
+def _git_revision():
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return completed.stdout.strip()
+
+
+def _selected_dispatches():
+    return {
+        "attention": [dict(dispatch) for dispatch in mlx_attention_dispatches()],
+        "rms_norm": [dict(dispatch) for dispatch in mlx_rms_norm_dispatches()],
+        "add_rms_norm": [dict(dispatch) for dispatch in mlx_add_rms_norm_dispatches()],
+        "affine_swiglu": [dict(dispatch) for dispatch in mlx_affine_swiglu_dispatches()],
+    }
+
+
+def _model_metadata(config):
+    text_config = config.get("text_config", config)
+    keys = (
+        "model_type",
+        "hidden_size",
+        "num_hidden_layers",
+        "num_attention_heads",
+        "num_key_value_heads",
+        "vocab_size",
+    )
+    return {key: text_config[key] for key in keys if key in text_config}
+
+
+def _write_json_result(
+    path,
+    arguments,
+    config,
+    verification,
+    results,
+    medians,
+    dispatches,
+):
+    payload = {
+        "schema_version": 1,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "revision": _git_revision(),
+        "model": arguments.model,
+        "model_config": _model_metadata(config),
+        "hardware": _hardware_metadata(),
+        "software": {
+            "python": platform.python_version(),
+            "mlx": _package_version("mlx"),
+            "mlx_lm": _package_version("mlx-lm"),
+        },
+        "workload": {
+            "prompt_tokens": arguments.prompt_tokens,
+            "generation_tokens": arguments.generation_tokens,
+            "trials": arguments.trials,
+            "prefill_step_size": arguments.prefill_step_size,
+            "delay_seconds": arguments.delay,
+            "seed": arguments.seed,
+        },
+        "features": {
+            "attention": not arguments.disable_attention,
+            "rms_norm": not arguments.disable_rmsnorm,
+            "graph_fusion": not arguments.disable_graph_fusion,
+            "quantized_mlp": not arguments.disable_quantized_mlp,
+        },
+        "verification": verification,
+        "samples": {
+            name: [
+                {
+                    "decode_tokens_per_second": decode,
+                    "prefill_tokens_per_second": prefill,
+                    "elapsed_seconds": elapsed,
+                }
+                for decode, prefill, elapsed in samples
+            ]
+            for name, samples in results.items()
+        },
+        "medians": medians,
+        "selected_dispatches": dispatches,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    print(f"Wrote benchmark result to {path}")
 
 
 def main():
@@ -104,10 +240,12 @@ def main():
     model, tokenizer, config = load(arguments.model, return_config=True)
     tokenizer._eos_token_ids = {}
     vocab_size = config.get("vocab_size") or config["text_config"]["vocab_size"]
+    mx.random.seed(arguments.seed)
     prompt = mx.random.randint(0, vocab_size, (arguments.prompt_tokens,)).tolist()
 
+    verification = None
     if not arguments.skip_verify:
-        _verify_model(model, prompt, arguments)
+        verification = _verify_model(model, prompt, arguments)
 
     print("Warming MLX baseline...")
     _generate(model, tokenizer, prompt, arguments, patched=False)
@@ -122,7 +260,13 @@ def main():
                 time.sleep(arguments.delay)
             response, elapsed = _generate(model, tokenizer, prompt, arguments, patched)
             name = "MLX + meTile" if patched else "MLX"
-            results[name].append((response.generation_tps, response.prompt_tps, elapsed))
+            results[name].append(
+                (
+                    float(response.generation_tps),
+                    float(response.prompt_tps),
+                    float(elapsed),
+                )
+            )
             print(
                 f"Trial {trial + 1} {name:12s}: "
                 f"decode={response.generation_tps:.2f} tok/s, "
@@ -133,34 +277,53 @@ def main():
     metile_decode = statistics.median(sample[0] for sample in results["MLX + meTile"])
     baseline_total = statistics.median(sample[2] for sample in results["MLX"])
     metile_total = statistics.median(sample[2] for sample in results["MLX + meTile"])
+    medians = {
+        "mlx_decode_tokens_per_second": baseline,
+        "metile_decode_tokens_per_second": metile_decode,
+        "decode_speedup": metile_decode / baseline,
+        "mlx_elapsed_seconds": baseline_total,
+        "metile_elapsed_seconds": metile_total,
+        "end_to_end_speedup": baseline_total / metile_total,
+    }
+    dispatches = _selected_dispatches()
     print("\nMedian results")
     print(f"MLX decode:          {baseline:.2f} tok/s")
     print(f"MLX + meTile decode: {metile_decode:.2f} tok/s ({metile_decode / baseline:.3f}x)")
     print(f"End-to-end speedup:  {baseline_total / metile_total:.3f}x")
     print("\nSelected attention schedules")
-    for dispatch in mlx_attention_dispatches():
+    for dispatch in dispatches["attention"]:
         print(
             f"tokens<={dispatch['token_bucket']}: {dispatch['algorithm']} block={dispatch['block']}"
         )
     print("Selected RMSNorm schedules")
-    for dispatch in mlx_rms_norm_dispatches():
+    for dispatch in dispatches["rms_norm"]:
         print(
             f"rows<={dispatch['row_bucket']} hidden={dispatch['hidden']}: "
             f"{dispatch['algorithm']} block={dispatch['block']}"
         )
     print("Selected graph-fused residual/RMSNorm schedules")
-    for dispatch in mlx_add_rms_norm_dispatches():
+    for dispatch in dispatches["add_rms_norm"]:
         print(
             f"rows<={dispatch['row_bucket']} hidden={dispatch['hidden']}: "
             f"{dispatch['algorithm']} block={dispatch['block']}"
         )
     print("Selected quantized SwiGLU schedules")
-    for dispatch in mlx_affine_swiglu_dispatches():
+    for dispatch in dispatches["affine_swiglu"]:
         print(
             f"{dispatch['input_features']}->{dispatch['output_features']}: "
             f"{dispatch['algorithm']} {dispatch['implementation']} block={dispatch['block']} "
             f"outputs/simdgroup={dispatch['outputs_per_simdgroup']} "
             f"decode={dispatch['decode_dtype']}"
+        )
+    if arguments.output_json is not None:
+        _write_json_result(
+            arguments.output_json,
+            arguments,
+            config,
+            verification,
+            results,
+            medians,
+            dispatches,
         )
 
 
