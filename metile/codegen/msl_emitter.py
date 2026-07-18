@@ -459,6 +459,9 @@ def _emit_gemm_op(
     elif isinstance(op, mir.MNaxAccumulatorInit):
         _emit_nax_accumulator_init(op, lines, indent)
 
+    elif isinstance(op, mir.MNaxAccumulatorReset):
+        _emit_nax_accumulator_reset(op, lines, indent)
+
     elif isinstance(op, mir.MNaxMatmul2dDecl):
         _emit_nax_matmul2d_decl(op, lines, indent)
 
@@ -488,6 +491,12 @@ def _emit_gemm_op(
 
     elif isinstance(op, mir.MNaxBinaryFragment):
         _emit_nax_binary_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxSpillFragment):
+        _emit_nax_spill_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxReloadFragment):
+        _emit_nax_reload_fragment(op, lines, indent)
 
     elif isinstance(op, mir.MNaxStoreFragment):
         _emit_nax_store_fragment(op, lines, indent, func)
@@ -1024,6 +1033,12 @@ def _emit_nax_accumulator_init(op, lines, indent):
         lines.append(f"{pad}metal::vec<float, 8> {name} = metal::vec<float, 8>(0.0f);")
 
 
+def _emit_nax_accumulator_reset(op, lines, indent):
+    pad = "    " * indent
+    for name in op.names:
+        lines.append(f"{pad}{name} = metal::vec<float, 8>(0.0f);")
+
+
 def _emit_nax_matmul2d_decl(op, lines, indent):
     pad = "    " * indent
     lines.append(f"{pad}constexpr auto nax_desc = matmul2d_descriptor(")
@@ -1235,6 +1250,28 @@ def _emit_nax_binary_fragment(op, lines, indent):
     lines.append(f"{pad}#pragma clang loop unroll(full)")
     lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
     lines.append(f"{pad}    {destination}[i] = {expression};")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_scratch_index(op):
+    return f"((sgid * {op.slots_per_simdgroup}u + {op.slot}u) * 256u + uint(i) * 32u + slid)"
+
+
+def _emit_nax_spill_fragment(op, lines, indent):
+    pad = "    " * indent
+    index = _emit_nax_scratch_index(op)
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    {op.scratch_name}[{index}] = {op.source}[i];")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_reload_fragment(op, lines, indent):
+    pad = "    " * indent
+    index = _emit_nax_scratch_index(op)
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    {op.destination}[i] = {op.scratch_name}[{index}];")
     lines.append(f"{pad}}}")
 
 

@@ -188,3 +188,10 @@ cooperative-tensor inputs, and masked left loads/stores specialize the one-row d
 ``MNaxBinaryFragment`` composes gate and up accumulators with SwiGLU while they remain in
 registers. The MLX backend can therefore compare scalar output-major execution, native MLX,
 and this NAX representation without changing fusion legality or the frontend model graph.
+
+One-row gated projections can instead select a sequential fragment lifetime. The lowering
+uses ``MNaxSpillFragment`` and ``MNaxReloadFragment`` around
+``MNaxAccumulatorReset`` rather than owning a second kernel template. Per-lane fragments are
+transposed in threadgroup scratch as ``element * 32 + lane`` so every SIMDgroup memory
+instruction reaches all 32 banks without conflict. Only the two live output fragments are
+computed; the masked rows that cannot contribute to a one-token result never receive an MMA.

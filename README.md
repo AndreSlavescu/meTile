@@ -175,8 +175,10 @@ then lets each backend choose its own lowering rather than instantiating a whole
 For affine 4-bit weights, the Metal runtime now tunes a scratch-spilled schedule alongside
 native MLX, compiled MLX, and register-fused meTile. Gate accumulators are reduced into
 threadgroup memory before up accumulators become live; after a barrier, SwiGLU consumes the
-on-chip values. This directly addresses register pressure while preserving automatic fallback.
-L2 reuse for the immediately following down projection is a scheduling opportunity, not a
+on-chip values. The native M5 path uses the same lifetime split between `matmul2d` fragment
+reductions, reuses two accumulator vectors, and transposes lane/element scratch indices to avoid
+32-bank conflicts. Both schedules remain guarded autotune candidates, so losing shapes preserve
+MLX. L2 reuse for the immediately following down projection is a scheduling opportunity, not a
 cache-pinning guarantee on Metal.
 
 ## MLX-LM Backend

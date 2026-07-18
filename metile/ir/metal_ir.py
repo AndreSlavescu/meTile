@@ -766,6 +766,16 @@ class MNaxAccumulatorInit(MOp):
 
 
 @dataclass
+class MNaxAccumulatorReset(MOp):
+    """Reset existing register fragments for a new reduction lifetime."""
+
+    names: tuple[str, ...] = ("d00", "d01", "d10", "d11")
+
+    def result_type(self):
+        return None
+
+
+@dataclass
 class MNaxMatmul2dDecl(MOp):
     """Declare the native MPP matmul2d operator and cooperative tensors."""
 
@@ -899,6 +909,32 @@ class MNaxBinaryFragment(MOp):
     right: str = "d01"
     destination: str = ""
     operation: str = "multiply"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxSpillFragment(MOp):
+    """Spill one per-lane NAX fragment to threadgroup scratch."""
+
+    source: str = "d00"
+    scratch_name: str = "nax_scratch"
+    slot: int = 0
+    slots_per_simdgroup: int = 1
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxReloadFragment(MOp):
+    """Reload one per-lane NAX fragment from threadgroup scratch."""
+
+    destination: str = "d00"
+    scratch_name: str = "nax_scratch"
+    slot: int = 0
+    slots_per_simdgroup: int = 1
 
     def result_type(self):
         return None

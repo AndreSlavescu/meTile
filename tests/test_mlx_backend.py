@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -175,6 +176,52 @@ def test_mlx_native_affine_swiglu_matches_quantized_matmul(monkeypatch):
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
 
 
+@pytest.mark.parametrize("lifetime_schedule", ("parallel", "scratch"))
+def test_mlx_nax_affine_swiglu_matches_quantized_matmul(lifetime_schedule, monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    random = np.random.default_rng(50)
+    input_features = output_features = 64
+    values = mx.array(random.normal(size=(1, 1, input_features)).astype(np.float16))
+    gate = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    up = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    gate_weight, gate_scales, gate_biases = mx.quantize(gate, group_size=64, bits=4)
+    up_weight, up_scales, up_biases = mx.quantize(up, group_size=64, bits=4)
+    repacked = mlx_quantized._repacked_affine_pair(
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+    )
+    kernel = mlx_quantized._compile_nax_affine_swiglu_qmv(
+        input_features,
+        output_features,
+        values.dtype,
+        block=64,
+        lifetime_schedule=lifetime_schedule,
+    )
+
+    actual = kernel(values, *repacked)
+    expected = mlx_quantized._native_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-1)
+
+
 @pytest.mark.parametrize(
     ("compiled_latency", "generated_latency", "expected_algorithm"),
     (
@@ -284,6 +331,28 @@ def test_mlx_affine_swiglu_dispatches_report_row_bucket(monkeypatch):
             "outputs_per_simdgroup": 1,
         },
     )
+
+
+def test_mlx_affine_swiglu_skips_decode_only_nax_for_multiple_rows():
+    from metile.backends import mlx_quantized
+
+    config = mlx_quantized.MLXAffineSwiGLUConfig("metile", "nax_scratch", 64)
+    values = SimpleNamespace(shape=(1, 2, 64), size=128)
+    weight = SimpleNamespace(shape=(64, 32))
+
+    with pytest.raises(ValueError, match="one decode row"):
+        mlx_quantized._affine_swiglu_dispatch(
+            config,
+            values,
+            weight,
+            None,
+            None,
+            weight,
+            None,
+            None,
+            64,
+            4,
+        )
 
 
 @pytest.mark.parametrize(

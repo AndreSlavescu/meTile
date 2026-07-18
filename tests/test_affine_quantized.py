@@ -56,9 +56,49 @@ def test_affine_swiglu_is_composed_from_binary_fragment_ir():
     combines = [
         operation for operation in operations if isinstance(operation, mir.MNaxBinaryFragment)
     ]
-    assert len(combines) == 4
+    assert len(combines) == 2
     assert all(operation.operation == "swiglu" for operation in combines)
-    assert sum(isinstance(operation, mir.MNaxLoadFragment) for operation in operations) == 8
+    assert sum(isinstance(operation, mir.MNaxLoadFragment) for operation in operations) == 4
+    assert sum(isinstance(operation, mir.MNaxFmaFragment) for operation in operations) == 8
+
+
+def test_affine_swiglu_scratch_reuses_two_accumulator_fragments():
+    function = lower_affine_swiglu_qmv(
+        "affine_swiglu_scratch_ir",
+        64,
+        64,
+        lifetime_schedule="scratch",
+    )
+    operations = tuple(_walk(function.ops))
+
+    initialization = next(
+        operation for operation in operations if isinstance(operation, mir.MNaxAccumulatorInit)
+    )
+    allocation = next(
+        operation for operation in operations if isinstance(operation, mir.MThreadgroupAlloc)
+    )
+    assert initialization.names == ("gate00", "gate01")
+    assert allocation.size == 2 * 2 * 32 * 8
+    assert sum(isinstance(operation, mir.MNaxSpillFragment) for operation in operations) == 2
+    assert sum(isinstance(operation, mir.MNaxReloadFragment) for operation in operations) == 2
+    assert sum(isinstance(operation, mir.MNaxAccumulatorReset) for operation in operations) == 1
+    assert sum(isinstance(operation, mir.MNaxFmaFragment) for operation in operations) == 8
+
+
+def test_affine_swiglu_scratch_emits_per_simdgroup_spills():
+    source = emit(
+        lower_affine_swiglu_qmv(
+            "affine_swiglu_scratch_source",
+            64,
+            64,
+            lifetime_schedule="scratch",
+        )
+    )
+
+    assert "threadgroup float nax_gate_scratch[1024];" in source
+    assert "(sgid * 2u + 0u) * 256u + uint(i) * 32u + slid" in source
+    assert "simdgroup_barrier(mem_flags::mem_threadgroup);" in source
+    assert "gate00 = metal::vec<float, 8>(0.0f);" in source
 
 
 def test_affine_qmv_native_tensor_ops_match_reference():

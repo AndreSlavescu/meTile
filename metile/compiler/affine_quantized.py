@@ -124,12 +124,15 @@ def lower_affine_swiglu_qmv(
     block_n: int = 64,
     group_size: int = 64,
     schedule: str = "linear",
+    lifetime_schedule: str = "parallel",
 ) -> mir.MFunction:
     """Build fused gate/up affine QMV from composable NAX primitives."""
     if output_features % block_n or block_n % 32:
         raise ValueError("affine QMV output and block sizes must align to 32")
     if input_features % group_size or group_size != 64:
         raise ValueError("native affine QMV currently requires group size 64")
+    if lifetime_schedule not in {"parallel", "scratch"}:
+        raise ValueError("affine SwiGLU lifetime schedule must be parallel or scratch")
 
     block_m = 32
     simdgroups = block_n // 32
@@ -177,13 +180,23 @@ def lower_affine_swiglu_qmv(
             k=input_features,
         )
     )
-    gate_accumulators = ("gate00", "gate01", "gate10", "gate11")
-    up_accumulators = ("up00", "up01", "up10", "up11")
-    function.add_op(mir.MNaxAccumulatorInit(names=gate_accumulators + up_accumulators))
+    gate_accumulators = ("gate00", "gate01")
+    up_accumulators = ("up00", "up01")
+    if lifetime_schedule == "parallel":
+        function.add_op(mir.MNaxAccumulatorInit(names=gate_accumulators + up_accumulators))
+    else:
+        scratch_slots = len(gate_accumulators)
+        function.add_op(
+            mir.MThreadgroupAlloc(
+                alloc_name="nax_gate_scratch",
+                elem_type="float",
+                size=simdgroups * scratch_slots * 32 * 8,
+            )
+        )
+        function.add_op(mir.MNaxAccumulatorInit(names=gate_accumulators))
     function.add_op(mir.MNaxMatmul2dDecl(left_type="half", right_type="half"))
 
-    body = []
-    for prefix in ("gate", "up"):
+    def append_projection_parameters(body, prefix):
         for half_name, col_offset in (("low", 0), ("high", 16)):
             body.append(
                 mir.MNaxLoadAffineParameters(
@@ -196,86 +209,154 @@ def lower_affine_swiglu_qmv(
                 )
             )
 
-    for k_offset in range(0, group_size, 16):
-        suffix = str(k_offset // 16)
-        activation_low = f"activation_low_{suffix}"
-        activation_high = f"activation_high_{suffix}"
-        for prefix, accumulators in (
-            ("gate", gate_accumulators),
-            ("up", up_accumulators),
-        ):
-            right_low = f"{prefix}_right_low_{suffix}"
-            right_high = f"{prefix}_right_high_{suffix}"
-            body.extend(
-                (
-                    mir.MNaxLoadAffineFragment(
-                        ptr_values=values[f"{prefix}_packed"],
-                        name=right_low,
-                        scale=f"{prefix}_low_scale",
-                        bias=f"{prefix}_low_bias",
-                        k_offset=k_offset,
-                    ),
-                    mir.MNaxLoadAffineFragment(
-                        ptr_values=values[f"{prefix}_packed"],
-                        name=right_high,
-                        scale=f"{prefix}_high_scale",
-                        bias=f"{prefix}_high_bias",
-                        col_offset=16,
-                        k_offset=k_offset,
-                    ),
-                    mir.MNaxPackRight(low=right_low, high=right_high),
-                )
-            )
-            if prefix == "gate":
-                body.extend(
-                    (
-                        mir.MNaxLoadFragment(
-                            ptr=values["activations"],
-                            name=activation_low,
-                            operand="left",
-                            k_offset=k_offset,
-                            row_bound=1,
-                        ),
-                        mir.MNaxLoadFragment(
-                            ptr=values["activations"],
-                            name=activation_high,
-                            operand="left",
-                            row_offset=16,
-                            k_offset=k_offset,
-                            row_bound=1,
-                        ),
-                    )
-                )
-            body.extend(
-                (
-                    mir.MNaxFmaFragment(
-                        left=activation_low,
-                        destination_low=accumulators[0],
-                        destination_high=accumulators[1],
-                    ),
-                    mir.MNaxFmaFragment(
-                        left=activation_high,
-                        destination_low=accumulators[2],
-                        destination_high=accumulators[3],
-                    ),
-                )
-            )
-    function.add_op(
-        mir.MForLoop(iv_name="k", start=0, end=input_features, step=group_size, body=body)
-    )
-    for gate, up in zip(gate_accumulators, up_accumulators, strict=True):
-        function.add_op(mir.MNaxBinaryFragment(left=gate, right=up, operation="swiglu"))
-    for source, row_offset, col_offset in (
-        ("gate00", 0, 0),
-        ("gate01", 0, 16),
-        ("gate10", 16, 0),
-        ("gate11", 16, 16),
+    def append_projection_step(
+        body,
+        prefix,
+        accumulators,
+        *,
+        k_offset,
+        activation,
+        load_activation,
     ):
+        suffix = str(k_offset // 16)
+        right_low = f"{prefix}_right_low_{suffix}"
+        right_high = f"{prefix}_right_high_{suffix}"
+        body.extend(
+            (
+                mir.MNaxLoadAffineFragment(
+                    ptr_values=values[f"{prefix}_packed"],
+                    name=right_low,
+                    scale=f"{prefix}_low_scale",
+                    bias=f"{prefix}_low_bias",
+                    k_offset=k_offset,
+                ),
+                mir.MNaxLoadAffineFragment(
+                    ptr_values=values[f"{prefix}_packed"],
+                    name=right_high,
+                    scale=f"{prefix}_high_scale",
+                    bias=f"{prefix}_high_bias",
+                    col_offset=16,
+                    k_offset=k_offset,
+                ),
+                mir.MNaxPackRight(low=right_low, high=right_high),
+            )
+        )
+        if load_activation:
+            body.append(
+                mir.MNaxLoadFragment(
+                    ptr=values["activations"],
+                    name=activation,
+                    operand="left",
+                    k_offset=k_offset,
+                    row_bound=1,
+                )
+            )
+        body.append(
+            mir.MNaxFmaFragment(
+                left=activation,
+                destination_low=accumulators[0],
+                destination_high=accumulators[1],
+            )
+        )
+
+    def projection_body(prefix, accumulators):
+        body = []
+        append_projection_parameters(body, prefix)
+        for k_offset in range(0, group_size, 16):
+            suffix = str(k_offset // 16)
+            activation = f"activation_{suffix}"
+            append_projection_step(
+                body,
+                prefix,
+                accumulators,
+                k_offset=k_offset,
+                activation=activation,
+                load_activation=True,
+            )
+        return body
+
+    if lifetime_schedule == "parallel":
+        body = []
+        append_projection_parameters(body, "gate")
+        append_projection_parameters(body, "up")
+        for k_offset in range(0, group_size, 16):
+            activation = f"activation_{k_offset // 16}"
+            append_projection_step(
+                body,
+                "gate",
+                gate_accumulators,
+                k_offset=k_offset,
+                activation=activation,
+                load_activation=True,
+            )
+            append_projection_step(
+                body,
+                "up",
+                up_accumulators,
+                k_offset=k_offset,
+                activation=activation,
+                load_activation=False,
+            )
+        function.add_op(
+            mir.MForLoop(iv_name="k", start=0, end=input_features, step=group_size, body=body)
+        )
+        for gate, up in zip(gate_accumulators, up_accumulators, strict=True):
+            function.add_op(mir.MNaxBinaryFragment(left=gate, right=up, operation="swiglu"))
+        output_sources = gate_accumulators
+    else:
+        function.add_op(
+            mir.MForLoop(
+                iv_name="k",
+                start=0,
+                end=input_features,
+                step=group_size,
+                body=projection_body("gate", gate_accumulators),
+            )
+        )
+        for slot, source in enumerate(gate_accumulators):
+            function.add_op(
+                mir.MNaxSpillFragment(
+                    source=source,
+                    scratch_name="nax_gate_scratch",
+                    slot=slot,
+                    slots_per_simdgroup=scratch_slots,
+                )
+            )
+        function.add_op(mir.MBarrier(kind="simdgroup", flags="mem_threadgroup"))
+        function.add_op(mir.MNaxAccumulatorReset(names=gate_accumulators))
+        function.add_op(
+            mir.MForLoop(
+                iv_name="k",
+                start=0,
+                end=input_features,
+                step=group_size,
+                body=projection_body("up", gate_accumulators),
+            )
+        )
+        for slot, source in enumerate(gate_accumulators):
+            function.add_op(
+                mir.MNaxReloadFragment(
+                    destination="nax_c",
+                    scratch_name="nax_gate_scratch",
+                    slot=slot,
+                    slots_per_simdgroup=scratch_slots,
+                )
+            )
+            function.add_op(
+                mir.MNaxBinaryFragment(
+                    left="nax_c",
+                    right=source,
+                    destination=source,
+                    operation="swiglu",
+                )
+            )
+        output_sources = gate_accumulators
+
+    for source, col_offset in zip(output_sources, (0, 16), strict=True):
         function.add_op(
             mir.MNaxStoreFragment(
                 ptr_c=values["output"],
                 source=source,
-                row_offset=row_offset,
                 col_offset=col_offset,
                 row_bound=1,
             )

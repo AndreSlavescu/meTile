@@ -35,10 +35,10 @@ _affine_swiglu_schedule_cache = {}
 _affine_weight_cache = {}
 _compiled_affine_swiglu = None
 _affine_cache_lock = threading.RLock()
-_affine_cache_path = cache_root() / "mlx-affine-swiglu-autotune-v4.json"
+_affine_cache_path = cache_root() / "mlx-affine-swiglu-autotune-v5.json"
 _SWITCH_MARGIN = 0.03
 _COMPILED_SWITCH_MARGIN = 0.005
-_AFFINE_SWIGLU_TUNER_VERSION = 4
+_AFFINE_SWIGLU_TUNER_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -82,6 +82,7 @@ _AFFINE_SWIGLU_CONFIGS = tuple(
         )
     ]
     + [MLXAffineSwiGLUConfig("metile", "nax", block) for block in (32, 64, 128)]
+    + [MLXAffineSwiGLUConfig("metile", "nax_scratch", block) for block in (32, 64, 128)]
     + [
         MLXAffineSwiGLUConfig("metile", "scratch", block, outputs_per_simdgroup, decode_dtype)
         for block, outputs_per_simdgroup, decode_dtype in (
@@ -282,6 +283,7 @@ def _compile_nax_affine_swiglu_qmv(
     group_size=64,
     bits=4,
     block=32,
+    lifetime_schedule="parallel",
 ):
     import mlx.core as mx
 
@@ -290,7 +292,17 @@ def _compile_nax_affine_swiglu_qmv(
     numpy_dtype = _mlx_dtype_to_numpy(dtype)
     if numpy_dtype != np.dtype(np.float16):
         raise TypeError("native affine SwiGLU requires float16 activations")
-    kernel_key = (input_features, output_features, numpy_dtype.str, group_size, bits, block)
+    if lifetime_schedule not in {"parallel", "scratch"}:
+        raise ValueError("native affine SwiGLU schedule must be parallel or scratch")
+    kernel_key = (
+        input_features,
+        output_features,
+        numpy_dtype.str,
+        group_size,
+        bits,
+        block,
+        lifetime_schedule,
+    )
     cached = _nax_affine_swiglu_kernel_cache.get(kernel_key)
     if cached is not None:
         return cached
@@ -303,6 +315,7 @@ def _compile_nax_affine_swiglu_qmv(
             input_features,
             block_n=block,
             group_size=group_size,
+            lifetime_schedule=lifetime_schedule,
         )
     )
     source = emit(metal_ir)
@@ -896,7 +909,9 @@ def _affine_swiglu_dispatch(
             ),
             kernel.description_bits,
         )
-    if config.implementation == "nax":
+    if config.implementation in {"nax", "nax_scratch"}:
+        if values.size != values.shape[-1]:
+            raise ValueError("native affine SwiGLU schedules require one decode row")
         repacked = _repacked_affine_pair(
             gate_weight,
             gate_scales,
@@ -912,6 +927,7 @@ def _affine_swiglu_dispatch(
             group_size,
             bits,
             config.block,
+            "scratch" if config.implementation == "nax_scratch" else "parallel",
         )
         return (
             lambda: kernel(values, *repacked),

@@ -250,6 +250,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}nax_tile_layout(block={op.block_m}x{op.block_n}, wn={op.wn})")
     elif isinstance(op, mir.MNaxAccumulatorInit):
         lines.append(f"{pad}nax_accumulator_init({', '.join(op.names)})")
+    elif isinstance(op, mir.MNaxAccumulatorReset):
+        lines.append(f"{pad}nax_accumulator_reset({', '.join(op.names)})")
     elif isinstance(op, mir.MNaxMatmul2dDecl):
         lines.append(
             f"{pad}nax_matmul2d_decl({op.m}x{op.n}x{op.k}, inputs={op.left_type}x{op.right_type})"
@@ -289,6 +291,16 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         destination = op.destination or op.left
         lines.append(
             f"{pad}nax_binary_fragment({op.operation}, {op.left}, {op.right} -> {destination})"
+        )
+    elif isinstance(op, mir.MNaxSpillFragment):
+        lines.append(
+            f"{pad}nax_spill_fragment({op.source}, {op.scratch_name}, slot={op.slot}, "
+            f"slots={op.slots_per_simdgroup})"
+        )
+    elif isinstance(op, mir.MNaxReloadFragment):
+        lines.append(
+            f"{pad}nax_reload_fragment({op.destination}, {op.scratch_name}, slot={op.slot}, "
+            f"slots={op.slots_per_simdgroup})"
         )
     elif isinstance(op, mir.MNaxStoreFragment):
         lines.append(

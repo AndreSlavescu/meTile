@@ -61,8 +61,12 @@ class, and the first row below the configured threshold restores the original cl
 decode therefore does not traverse a wrapper. Exact compiled-MLX SwiGLU candidates use a 0.5
 percent switch margin, while generated kernels retain the stricter 3 percent margin. Quantized
 decode also evaluates a scratch-spilled SwiGLU schedule that shortens gate/up accumulator
-lifetimes before the elementwise epilogue. Quantized-only plans keep this decode tournament;
-combined affine-prefill plans restore native MLP dispatch at the first decode row.
+lifetimes before the elementwise epilogue. The M5-native variant removes the dead second
+16-row ``matmul2d`` FMA for one-token decode, spills gate fragments through a bank-transposed
+threadgroup layout, resets and reuses the same two accumulators for up, then reloads one gate
+fragment at a time. Quantized-only plans keep this decode tournament; combined affine-prefill
+plans restore native MLP dispatch at the first decode row. Row buckets above one skip native
+decode-only compilation entirely.
 
 Model-level tuning rejects plans that change the next token or exceed KL-divergence,
 mean-logit-error, or max-logit-error bounds. Surviving plans need a paired TTFT or total-latency
