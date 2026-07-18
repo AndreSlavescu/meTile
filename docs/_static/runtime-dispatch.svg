@@ -34,11 +34,11 @@
   <line x1="36" y1="78" x2="1464" y2="78" stroke="#aeb6c2" stroke-width="1"/>
 
   <!-- Selection key -->
-  <rect x="205" y="101" width="430" height="76" rx="3" fill="#fff4cf" class="box"/>
+  <rect x="205" y="96" width="430" height="72" rx="3" fill="#fff4cf" class="box"/>
   <text x="222" y="123" class="caps">PERSISTENT SELECTION KEY</text>
   <text x="222" y="144" class="mono">device / architecture · MLX + Metal toolchain · source digest</text>
   <text x="222" y="162" class="mono">shape + dtype · grid · scale / mask · candidate family</text>
-  <path d="M305 177V219" class="edge-muted"/>
+  <path d="M305 168V219" class="edge-muted"/>
 
   <!-- Primary flow: request and cache -->
   <rect x="36" y="220" width="145" height="72" rx="3" fill="#e7effa" class="box"/>
@@ -89,7 +89,8 @@
   <text x="942" y="339" class="tiny">wall latency for short work · GPU time when sustained</text>
 
   <path d="M1147 254V281" class="edge"/>
-  <text x="1158" y="271" class="arrow-label">benchmark</text>
+  <rect x="1068" y="258" width="70" height="17" rx="2" fill="#ffffff"/>
+  <text x="1103" y="270" text-anchor="middle" class="arrow-label">benchmark</text>
   <path d="M946 283V266H916V196H923" class="edge-muted"/>
   <text x="908" y="244" text-anchor="end" class="arrow-label">feedback</text>
 

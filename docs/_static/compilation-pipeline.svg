@@ -119,7 +119,7 @@
     <rect x="520" y="484" width="170" height="66" rx="3" class="subbox"/>
     <text x="532" y="503" class="mono tiny">tile_load · dot · reduce</text>
     <text x="532" y="521" class="mono tiny">tile_store · address_space</text>
-    <text x="532" y="539" class="mono tiny">loops · masks · mixed precision</text>
+    <text x="532" y="539" class="mono tiny">loops · masks · mixed types</text>
   </g>
 
   <!-- Merge the graph and kernel lanes into composable candidate construction. -->
