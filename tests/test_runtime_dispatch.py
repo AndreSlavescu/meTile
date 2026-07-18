@@ -181,8 +181,14 @@ def test_autotune_persists_measured_completion_budget(tmp_path, monkeypatch):
     autotune_module._autotune_cache.clear()
     autotune_module._autotune_latency_cache.clear()
     try:
+        config = metile.Config(BLOCK=256)
+        monkeypatch.setattr(
+            autotune_module.AutotunedLauncher,
+            "_benchmark_candidates",
+            lambda *_: [(config, 0.0005, 1, None, 0.0001)],
+        )
         tuned = metile.autotune(
-            configs=[metile.Config(BLOCK=256)],
+            configs=[config],
             key=["size"],
             verbose=False,
         )(_add_one)
