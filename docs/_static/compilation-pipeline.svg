@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 900" role="img" aria-labelledby="title description">
   <title id="title">meTile compiler and guarded runtime architecture</title>
-  <desc id="description">A left-to-right compiler diagram. High-level compute graphs pass through proof-carrying FlashAttention discovery and exact max-flow fusion, while Python kernel programs trace into Tile IR. Both paths enter composable optimization and schedule search, lower through Metal IR to MSL and the Metal toolchain, then race generated candidates against native MLX under guarded runtime dispatch.</desc>
+  <desc id="description">A left-to-right compiler diagram. High-level compute graphs pass through proof-carrying FlashAttention discovery and exact max-flow fusion, while Python kernel programs trace into Tile IR. Both paths enter composable optimization and linear, Morton, or Hilbert schedule search, lower through M5-aware Metal IR to MSL and the Metal toolchain, then race generated candidates against a preserved native MLX candidate under guarded runtime dispatch. A dedicated bottom gutter carries measured tuning feedback without crossing the compiler flow.</desc>
   <defs>
     <style>
       text {
@@ -9,7 +9,7 @@
       }
       .heading { font-size: 27px; font-weight: 700; letter-spacing: -0.3px; }
       .subheading { font-size: 13px; fill: #505866; }
-      .stage { font-size: 11px; font-weight: 700; letter-spacing: 1.25px; fill: #505866; }
+      .stage { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; fill: #505866; }
       .title { font-size: 15px; font-weight: 700; }
       .label { font-size: 12px; }
       .small { font-size: 10.5px; fill: #4b5563; }
@@ -19,7 +19,6 @@
       .subbox { fill: #ffffff; stroke: #596171; stroke-width: 1; }
       .arrow { fill: none; stroke: #303640; stroke-width: 1.5; marker-end: url(#arrow); }
       .arrow-soft { fill: none; stroke: #687180; stroke-width: 1.25; marker-end: url(#arrow-soft); }
-      .fallback { fill: none; stroke: #735792; stroke-width: 1.35; stroke-dasharray: 5 4; marker-end: url(#arrow-purple); }
       .feedback { fill: none; stroke: #39734c; stroke-width: 1.35; stroke-dasharray: 3 4; marker-end: url(#arrow-green); }
     </style>
     <marker id="arrow" viewBox="0 0 10 10" refX="8.3" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -27,9 +26,6 @@
     </marker>
     <marker id="arrow-soft" viewBox="0 0 10 10" refX="8.3" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M0 1L8 5L0 9Z" fill="#687180"/>
-    </marker>
-    <marker id="arrow-purple" viewBox="0 0 10 10" refX="8.3" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M0 1L8 5L0 9Z" fill="#735792"/>
     </marker>
     <marker id="arrow-green" viewBox="0 0 10 10" refX="8.3" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M0 1L8 5L0 9Z" fill="#39734c"/>
@@ -43,208 +39,203 @@
   <text x="42" y="70" class="subheading">Proof-carrying rewrites and composable Apple GPU lowering with measured native fallback</text>
   <line x1="42" y1="88" x2="1658" y2="88" stroke="#b9bec7" stroke-width="1"/>
 
-  <!-- Column labels -->
+  <!-- Column labels use the same left inset as the boxes below them. -->
   <text x="42" y="124" class="stage">PROGRAMS</text>
-  <text x="250" y="124" class="stage">DISCOVERY</text>
-  <text x="505" y="124" class="stage">REPRESENTATION</text>
-  <text x="744" y="124" class="stage">OPTIMIZE + SEARCH</text>
-  <text x="1038" y="124" class="stage">APPLE GPU IR</text>
+  <text x="246" y="124" class="stage">DISCOVERY</text>
+  <text x="504" y="124" class="stage">REPRESENTATION</text>
+  <text x="752" y="124" class="stage">OPTIMIZE + SEARCH</text>
+  <text x="1034" y="124" class="stage">APPLE GPU IR</text>
   <text x="1264" y="124" class="stage">METAL TOOLCHAIN</text>
-  <text x="1496" y="124" class="stage">GUARDED RUNTIME</text>
+  <text x="1490" y="124" class="stage">GUARDED RUNTIME</text>
 
   <!-- High-level graph lane -->
   <g id="graph-input">
     <rect x="42" y="156" width="174" height="128" rx="5" fill="#e9ddf5" class="box"/>
-    <text x="58" y="181" class="title">Compute DAG</text>
-    <text x="58" y="201" class="small">MLX / imported graph</text>
-    <rect x="58" y="218" width="142" height="48" rx="3" class="subbox"/>
-    <text x="70" y="237" class="mono tiny">QKᵀ → scale → mask</text>
-    <text x="70" y="255" class="mono tiny">→ softmax → PV</text>
+    <text x="56" y="181" class="title">Compute DAG</text>
+    <text x="56" y="201" class="small">MLX / imported graph</text>
+    <rect x="56" y="218" width="146" height="48" rx="3" class="subbox"/>
+    <text x="68" y="237" class="mono tiny">QKᵀ → scale → mask</text>
+    <text x="68" y="255" class="mono tiny">→ softmax → PV</text>
   </g>
 
   <path d="M216 220H238" class="arrow"/>
 
   <g id="formal-discovery">
     <rect x="246" y="146" width="232" height="148" rx="5" fill="#dcefdc" class="box"/>
-    <text x="262" y="172" class="title">Formal attention discovery</text>
-    <text x="262" y="194" class="small">Exact private subgraph recognition</text>
-    <text x="262" y="214" class="mono tiny">state = (max, normalizer, numerator)</text>
-    <rect x="262" y="230" width="48" height="24" rx="3" class="subbox"/>
-    <text x="286" y="246" text-anchor="middle" class="tiny">identity</text>
-    <rect x="315" y="230" width="69" height="24" rx="3" class="subbox"/>
-    <text x="349" y="246" text-anchor="middle" class="tiny">associativity</text>
-    <rect x="389" y="230" width="73" height="24" rx="3" class="subbox"/>
-    <text x="425" y="246" text-anchor="middle" class="tiny">homomorphism</text>
-    <text x="262" y="276" class="small">verified → proof-carrying flash_attention</text>
+    <text x="260" y="172" class="title">Formal attention discovery</text>
+    <text x="260" y="194" class="small">Exact private subgraph recognition</text>
+    <text x="260" y="214" class="mono tiny">state = (max, normalizer, numerator)</text>
+    <rect x="260" y="230" width="46" height="24" rx="3" class="subbox"/>
+    <text x="283" y="246" text-anchor="middle" class="tiny">identity</text>
+    <rect x="310" y="230" width="67" height="24" rx="3" class="subbox"/>
+    <text x="343.5" y="246" text-anchor="middle" class="tiny">associativity</text>
+    <rect x="381" y="230" width="83" height="24" rx="3" class="subbox"/>
+    <text x="422.5" y="246" text-anchor="middle" class="tiny">homomorphism</text>
+    <text x="260" y="276" class="small">verified → proof-carrying flash_attention</text>
   </g>
 
   <path d="M478 220H496" class="arrow"/>
 
   <g id="graph-fusion">
     <rect x="504" y="156" width="202" height="128" rx="5" fill="#f6e1e6" class="box"/>
-    <text x="520" y="181" class="title">Exact graph fusion</text>
-    <text x="520" y="204" class="small">max-flow / min-cut selection</text>
-    <text x="520" y="224" class="small">legality + resource limits</text>
-    <text x="520" y="244" class="small">profitable disjoint regions</text>
-    <text x="520" y="266" class="mono tiny">flash_attn · add+rms_norm</text>
+    <text x="518" y="181" class="title">Exact graph fusion</text>
+    <text x="518" y="204" class="small">max-flow / min-cut selection</text>
+    <text x="518" y="224" class="small">legality + resource limits</text>
+    <text x="518" y="244" class="small">profitable disjoint regions</text>
+    <text x="518" y="266" class="mono tiny">flash_attn · add+rms_norm</text>
   </g>
 
   <!-- Python eDSL lane -->
   <g id="edsl-input">
     <rect x="42" y="432" width="174" height="128" rx="5" fill="#d9e8f7" class="box"/>
-    <text x="58" y="457" class="title">Python kernel eDSL</text>
-    <text x="58" y="478" class="mono tiny">@metile.kernel</text>
-    <rect x="58" y="494" width="142" height="48" rx="3" class="subbox"/>
-    <text x="70" y="513" class="mono tiny">for k in tile_range:</text>
-    <text x="70" y="531" class="mono tiny">  acc = dot(a,b,acc)</text>
+    <text x="56" y="457" class="title">Python kernel eDSL</text>
+    <text x="56" y="478" class="mono tiny">@metile.kernel</text>
+    <rect x="56" y="494" width="146" height="48" rx="3" class="subbox"/>
+    <text x="68" y="513" class="mono tiny">for k in tile_range:</text>
+    <text x="68" y="531" class="mono tiny">  acc = dot(a,b,acc)</text>
   </g>
 
   <path d="M216 496H238" class="arrow"/>
 
   <g id="frontend">
     <rect x="246" y="432" width="232" height="128" rx="5" fill="#d9e8f7" class="box"/>
-    <text x="262" y="457" class="title">Trace and specialize</text>
-    <text x="262" y="480" class="small">constexpr resolution</text>
-    <text x="262" y="500" class="small">shape / dtype validation</text>
-    <text x="262" y="520" class="small">explicit loops, masks, layouts</text>
-    <text x="262" y="542" class="small">no whole-kernel templates</text>
+    <text x="260" y="457" class="title">Trace and specialize</text>
+    <text x="260" y="480" class="small">constexpr resolution</text>
+    <text x="260" y="500" class="small">shape / dtype validation</text>
+    <text x="260" y="520" class="small">explicit loops, masks, layouts</text>
+    <text x="260" y="542" class="small">no whole-kernel templates</text>
   </g>
 
   <path d="M478 496H496" class="arrow"/>
 
   <g id="tile-ir">
     <rect x="504" y="420" width="202" height="152" rx="5" fill="#d9e8f7" class="box"/>
-    <text x="520" y="447" class="title">Tile IR</text>
-    <text x="520" y="468" class="small">hardware-independent operations</text>
-    <rect x="520" y="484" width="170" height="66" rx="3" class="subbox"/>
-    <text x="532" y="503" class="mono tiny">tile_load · dot · reduce</text>
-    <text x="532" y="521" class="mono tiny">tile_store · address_space</text>
-    <text x="532" y="539" class="mono tiny">loops · masks · mixed types</text>
+    <text x="518" y="447" class="title">Tile IR</text>
+    <text x="518" y="468" class="small">hardware-independent operations</text>
+    <rect x="518" y="484" width="174" height="66" rx="3" class="subbox"/>
+    <text x="530" y="503" class="mono tiny">tile_load · dot · reduce</text>
+    <text x="530" y="521" class="mono tiny">tile_store · address_space</text>
+    <text x="530" y="539" class="mono tiny">loops · masks · precision</text>
   </g>
 
-  <!-- Merge the graph and kernel lanes into composable candidate construction. -->
-  <path d="M706 220H724V280H744" class="arrow"/>
-  <path d="M706 496H724V440H744" class="arrow"/>
+  <!-- Solid orthogonal merge into the shared backend. -->
+  <path d="M706 220H726V280H744" class="arrow"/>
+  <path d="M706 496H726V440H744" class="arrow"/>
 
   <g id="candidate-search">
     <rect x="752" y="174" width="252" height="398" rx="5" fill="#f7efc5" class="box"/>
-    <text x="768" y="201" class="title">Composable candidates</text>
-    <text x="768" y="222" class="small">Regions and Tile IR share the backend</text>
+    <text x="766" y="201" class="title">Composable candidates</text>
+    <text x="766" y="222" class="small">Regions and Tile IR share the backend</text>
 
-    <rect x="768" y="240" width="220" height="82" rx="3" class="subbox"/>
-    <text x="780" y="260" class="label" font-weight="700">IR optimization</text>
-    <text x="780" y="280" class="tiny">fold · CSE · DCE · vectorize</text>
-    <text x="780" y="298" class="tiny">pipeline · split-K · reduction epochs</text>
+    <rect x="766" y="240" width="224" height="82" rx="3" class="subbox"/>
+    <text x="778" y="260" class="label" font-weight="700">IR optimization</text>
+    <text x="778" y="280" class="tiny">fold · CSE · DCE · vectorize</text>
+    <text x="778" y="298" class="tiny">pipeline · split-K · reduction epochs</text>
 
-    <rect x="768" y="336" width="220" height="104" rx="3" class="subbox"/>
-    <text x="780" y="356" class="label" font-weight="700">Schedule search</text>
-    <rect x="780" y="370" width="54" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
-    <text x="807" y="385" text-anchor="middle" class="tiny">linear</text>
-    <rect x="842" y="370" width="60" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
-    <text x="872" y="385" text-anchor="middle" class="tiny">Morton</text>
-    <rect x="910" y="370" width="61" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
-    <text x="940" y="385" text-anchor="middle" class="tiny">Hilbert</text>
-    <text x="780" y="411" class="tiny">tile shape · SIMDgroups · staging</text>
-    <text x="780" y="428" class="tiny">unroll · register / memory pressure</text>
+    <rect x="766" y="336" width="224" height="104" rx="3" class="subbox"/>
+    <text x="778" y="356" class="label" font-weight="700">Schedule search</text>
+    <rect x="778" y="370" width="54" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
+    <text x="805" y="385" text-anchor="middle" class="tiny">linear</text>
+    <rect x="840" y="370" width="60" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
+    <text x="870" y="385" text-anchor="middle" class="tiny">Morton</text>
+    <rect x="908" y="370" width="61" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
+    <text x="938" y="385" text-anchor="middle" class="tiny">Hilbert</text>
+    <text x="778" y="411" class="tiny">tile shape · SIMDgroups · staging</text>
+    <text x="778" y="428" class="tiny">unroll · register / memory pressure</text>
 
-    <rect x="768" y="454" width="220" height="98" rx="3" class="subbox"/>
-    <text x="780" y="474" class="label" font-weight="700">Kernel families</text>
-    <text x="780" y="494" class="tiny">online / FlashAttention · GEMM</text>
-    <text x="780" y="512" class="tiny">normalization · quantized MLP</text>
-    <text x="780" y="536" class="tiny" font-weight="700">M5 NAX / MPP  ·  MXFP4 / MXFP8</text>
+    <rect x="766" y="454" width="224" height="98" rx="3" class="subbox"/>
+    <text x="778" y="474" class="label" font-weight="700">Kernel families</text>
+    <text x="778" y="494" class="tiny">online / FlashAttention · GEMM</text>
+    <text x="778" y="512" class="tiny">normalization · quantized MLP</text>
+    <text x="778" y="536" class="tiny" font-weight="700">M5 NAX / MPP · MXFP4 / MXFP8</text>
   </g>
 
   <path d="M1004 373H1026" class="arrow"/>
 
   <g id="metal-ir">
     <rect x="1034" y="214" width="202" height="318" rx="5" fill="#dcefdc" class="box"/>
-    <text x="1050" y="241" class="title">Metal IR</text>
-    <text x="1050" y="262" class="small">Apple GPU decomposition</text>
-    <rect x="1050" y="280" width="170" height="40" rx="3" class="subbox"/>
-    <text x="1135" y="305" text-anchor="middle" class="tiny">cooperative loads + layouts</text>
-    <rect x="1050" y="332" width="170" height="40" rx="3" class="subbox"/>
-    <text x="1135" y="357" text-anchor="middle" class="tiny">SIMDgroup / tensor MMA</text>
-    <rect x="1050" y="384" width="170" height="40" rx="3" class="subbox"/>
-    <text x="1135" y="409" text-anchor="middle" class="tiny">online reductions + barriers</text>
-    <rect x="1050" y="436" width="170" height="40" rx="3" class="subbox"/>
-    <text x="1135" y="461" text-anchor="middle" class="tiny">NAX epilogue + fragment stores</text>
-    <text x="1050" y="507" class="small">explicit resources and synchronization</text>
+    <text x="1048" y="241" class="title">Metal IR</text>
+    <text x="1048" y="262" class="small">Apple GPU decomposition</text>
+    <rect x="1048" y="280" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="305" class="tiny">cooperative loads + layouts</text>
+    <rect x="1048" y="332" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="357" class="tiny">SIMDgroup / tensor MMA</text>
+    <rect x="1048" y="384" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="409" class="tiny">online reductions + barriers</text>
+    <rect x="1048" y="436" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="461" class="tiny">NAX epilogue + fragment stores</text>
+    <text x="1048" y="507" class="small">explicit resources + synchronization</text>
   </g>
 
   <path d="M1236 373H1256" class="arrow"/>
 
   <g id="metal-toolchain">
     <rect x="1264" y="214" width="198" height="318" rx="5" fill="#e9ddf5" class="box"/>
-    <text x="1280" y="241" class="title">MSL + Metal</text>
-    <text x="1280" y="262" class="small">uniform operation emitter</text>
-    <rect x="1280" y="280" width="166" height="44" rx="3" class="subbox"/>
-    <text x="1363" y="299" text-anchor="middle" class="label" font-weight="700">MSL source</text>
-    <text x="1363" y="315" text-anchor="middle" class="mono tiny">Metal IR → kernel</text>
+    <text x="1278" y="241" class="title">MSL + Metal</text>
+    <text x="1278" y="262" class="small">uniform operation emitter</text>
+    <rect x="1278" y="280" width="170" height="44" rx="3" class="subbox"/>
+    <text x="1290" y="299" class="label" font-weight="700">MSL source</text>
+    <text x="1290" y="315" class="mono tiny">Metal IR → kernel</text>
     <path d="M1363 324V342" class="arrow-soft"/>
-    <rect x="1280" y="350" width="166" height="62" rx="3" class="subbox"/>
-    <text x="1363" y="370" text-anchor="middle" class="label" font-weight="700">Metal compiler</text>
-    <text x="1363" y="388" text-anchor="middle" class="mono tiny">xcrun metal -O2</text>
-    <text x="1363" y="404" text-anchor="middle" class="mono tiny">or newLibraryWithSource</text>
+    <rect x="1278" y="350" width="170" height="62" rx="3" class="subbox"/>
+    <text x="1290" y="370" class="label" font-weight="700">Metal compiler</text>
+    <text x="1290" y="388" class="mono tiny">xcrun metal -O2</text>
+    <text x="1290" y="404" class="mono tiny">or newLibraryWithSource</text>
     <path d="M1363 412V430" class="arrow-soft"/>
-    <rect x="1280" y="438" width="166" height="54" rx="3" class="subbox"/>
-    <text x="1363" y="459" text-anchor="middle" class="label" font-weight="700">Generated candidate</text>
-    <text x="1363" y="478" text-anchor="middle" class="mono tiny">MTLLibrary · cached PSO</text>
-    <text x="1280" y="516" class="small">AOT with guarded JIT fallback</text>
+    <rect x="1278" y="438" width="170" height="54" rx="3" class="subbox"/>
+    <text x="1290" y="459" class="label" font-weight="700">Generated candidate</text>
+    <text x="1290" y="478" class="mono tiny">MTLLibrary · cached PSO</text>
+    <text x="1278" y="516" class="small">AOT with guarded JIT fallback</text>
   </g>
 
   <path d="M1462 373H1482" class="arrow"/>
 
   <g id="runtime">
     <rect x="1490" y="174" width="170" height="398" rx="5" fill="#dcefdc" class="box"/>
-    <text x="1506" y="201" class="title">Runtime selection</text>
-    <text x="1506" y="222" class="small">per device / version / shape</text>
+    <text x="1504" y="201" class="title">Runtime selection</text>
+    <text x="1504" y="222" class="small">per device / version / shape</text>
 
-    <rect x="1506" y="240" width="138" height="62" rx="3" class="subbox"/>
-    <text x="1575" y="261" text-anchor="middle" class="label" font-weight="700">Guard</text>
-    <text x="1575" y="279" text-anchor="middle" class="tiny">capability + numerical</text>
-    <text x="1575" y="294" text-anchor="middle" class="tiny">compile / execution success</text>
+    <rect x="1504" y="240" width="142" height="62" rx="3" class="subbox"/>
+    <text x="1516" y="261" class="label" font-weight="700">Guard</text>
+    <text x="1516" y="279" class="tiny">capability + numerical</text>
+    <text x="1516" y="294" class="tiny">compile / execution success</text>
     <path d="M1575 302V320" class="arrow-soft"/>
-    <rect x="1506" y="328" width="138" height="66" rx="3" class="subbox"/>
-    <text x="1575" y="349" text-anchor="middle" class="label" font-weight="700">Interleaved race</text>
-    <text x="1575" y="368" text-anchor="middle" class="tiny">generated PSO</text>
-    <text x="1575" y="384" text-anchor="middle" class="tiny">vs native MLX</text>
+    <rect x="1504" y="328" width="142" height="66" rx="3" class="subbox"/>
+    <text x="1516" y="349" class="label" font-weight="700">Interleaved race</text>
+    <text x="1516" y="368" class="tiny">generated PSO</text>
+    <text x="1516" y="384" class="tiny">vs native MLX</text>
     <path d="M1575 394V412" class="arrow-soft"/>
-    <rect x="1506" y="420" width="138" height="50" rx="3" class="subbox"/>
-    <text x="1575" y="441" text-anchor="middle" class="label" font-weight="700">Persist winner</text>
-    <text x="1575" y="458" text-anchor="middle" class="tiny">measured dispatch cache</text>
+    <rect x="1504" y="420" width="142" height="50" rx="3" class="subbox"/>
+    <text x="1516" y="441" class="label" font-weight="700">Persist winner</text>
+    <text x="1516" y="458" class="tiny">measured dispatch cache</text>
     <path d="M1575 470V488" class="arrow-soft"/>
-    <rect x="1506" y="496" width="138" height="52" rx="3" fill="#bfe3c8" stroke="#282d35" stroke-width="1"/>
-    <text x="1575" y="518" text-anchor="middle" class="label" font-weight="700">Dispatch fastest</text>
-    <text x="1575" y="536" text-anchor="middle" class="tiny">zero-copy or exact fallback</text>
+    <rect x="1504" y="496" width="142" height="52" rx="3" fill="#bfe3c8" stroke="#282d35" stroke-width="1"/>
+    <text x="1516" y="518" class="label" font-weight="700">Dispatch fastest</text>
+    <text x="1516" y="536" class="tiny">zero-copy or exact fallback</text>
   </g>
 
-  <!-- Native MLX remains available as an exact side lane. -->
-  <path d="M605 156V104H1426V590H1482" class="fallback"/>
-  <rect x="1264" y="562" width="198" height="58" rx="5" fill="#eee6f7" class="box"/>
-  <text x="1280" y="586" class="title">Native MLX candidate</text>
-  <text x="1280" y="606" class="small">original graph remains executable</text>
-  <path d="M1462 591H1575V394" class="fallback"/>
+  <!-- Native MLX remains available beside the guarded runtime. -->
+  <rect x="1490" y="700" width="170" height="56" rx="5" fill="#eee6f7" class="box"/>
+  <text x="1504" y="724" class="title">Native MLX</text>
+  <text x="1504" y="744" class="small">preserved graph candidate</text>
+  <path d="M1660 728H1675V361H1654" class="arrow-soft"/>
 
-  <!-- Measured results feed the schedule cache. -->
-  <path d="M1575 572V670H878V580" class="feedback"/>
-  <text x="1212" y="690" text-anchor="middle" class="small" fill="#39734c">measured shape-specific feedback</text>
+  <!-- Dedicated bottom gutter: measured winner back to schedule search. -->
+  <path d="M1490 522H1474V630H878V580" class="feedback"/>
+  <text x="1060" y="650" class="small" fill="#39734c">measured device / version / shape feedback</text>
 
-  <!-- Compact legend / invariants -->
+  <!-- Compact legend below both routing gutters. -->
   <g id="legend">
-    <line x1="42" y1="732" x2="1658" y2="732" stroke="#d1d5db"/>
-    <text x="42" y="766" class="stage">COMPILER INVARIANTS</text>
-    <rect x="42" y="788" width="12" height="12" fill="#dcefdc" stroke="#282d35"/>
-    <text x="64" y="798" class="small">proof / target lowering</text>
-    <rect x="224" y="788" width="12" height="12" fill="#d9e8f7" stroke="#282d35"/>
-    <text x="246" y="798" class="small">program representation</text>
-    <rect x="434" y="788" width="12" height="12" fill="#f7efc5" stroke="#282d35"/>
-    <text x="456" y="798" class="small">optimization search</text>
-    <rect x="625" y="788" width="12" height="12" fill="#e9ddf5" stroke="#282d35"/>
-    <text x="647" y="798" class="small">framework / toolchain</text>
-    <line x1="838" y1="794" x2="884" y2="794" class="fallback"/>
-    <text x="896" y="798" class="small">exact native fallback</text>
-    <line x1="1060" y1="794" x2="1106" y2="794" class="feedback"/>
-    <text x="1118" y="798" class="small">measurement feedback</text>
-    <text x="42" y="844" class="subheading">Every speculative rewrite or generated kernel has a semantic proof, numerical gate, or preserved reference path.</text>
+    <line x1="42" y1="820" x2="1658" y2="820" stroke="#d1d5db"/>
+    <text x="42" y="850" class="stage">COMPILER INVARIANTS</text>
+    <rect x="224" y="840" width="12" height="12" fill="#dcefdc" stroke="#282d35"/>
+    <text x="246" y="850" class="small">proof / target lowering</text>
+    <rect x="420" y="840" width="12" height="12" fill="#d9e8f7" stroke="#282d35"/>
+    <text x="442" y="850" class="small">program representation</text>
+    <rect x="625" y="840" width="12" height="12" fill="#f7efc5" stroke="#282d35"/>
+    <text x="647" y="850" class="small">optimization search</text>
+    <rect x="807" y="840" width="12" height="12" fill="#e9ddf5" stroke="#282d35"/>
+    <text x="829" y="850" class="small">framework / toolchain</text>
+    <text x="42" y="880" class="subheading">Every speculative rewrite or generated kernel retains a proof, numerical gate, or exact reference path.</text>
   </g>
 </svg>

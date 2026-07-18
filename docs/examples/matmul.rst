@@ -48,6 +48,10 @@ The grid is 2D, one program instance per output tile:
 How It Works
 ------------
 
+.. image:: /_static/gemm-tiling.svg
+   :alt: GEMM matrices partitioned into program-owned output tiles with a register-resident K reduction loop
+   :width: 100%
+
 1. Each program instance owns a ``BLOCK_M x BLOCK_N`` tile of the output matrix C.
 2. It initializes a register-resident accumulator with ``metile.zeros``.
 3. The K-loop iterates in steps of ``BLOCK_K``, loading a tile of A and B each step.
