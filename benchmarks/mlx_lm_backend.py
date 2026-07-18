@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+_DECODE_CONFIRMATION_FLOOR = 0.995
+_PREFILL_ONLY_DECODE_CONFIRMATION_FLOOR = 0.99
+
 
 def _arguments():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -31,7 +34,7 @@ def _arguments():
     parser.add_argument("--disable-affine-prefill", action="store_true")
     parser.add_argument("--disable-model-autotune", action="store_true")
     parser.add_argument("--plan-decode-steps", type=int, default=8)
-    parser.add_argument("--plan-trials", type=int, default=5)
+    parser.add_argument("--plan-trials", type=int, default=7)
     parser.add_argument("--confirmation-trials", type=int, default=3)
     parser.add_argument("--skip-verify", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
@@ -167,15 +170,24 @@ def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill):
         for name in ("decode_speedup", "end_to_end_speedup", "ttft_speedup")
     }
     required_wins = max(1, (len(pairs) * 2 + 2) // 3)
+    decode_sensitive = plan.attention or plan.rms_norm or plan.graph_fusion
+    decode_floor = (
+        _DECODE_CONFIRMATION_FLOOR if decode_sensitive else _PREFILL_ONLY_DECODE_CONFIRMATION_FLOOR
+    )
     no_regression = (
-        medians["decode_speedup"] >= 0.995
+        medians["decode_speedup"] >= decode_floor
         and medians["end_to_end_speedup"] >= 0.995
         and sum(pair["decode_speedup"] >= 0.98 for pair in pairs) >= required_wins
         and sum(pair["end_to_end_speedup"] >= 0.98 for pair in pairs) >= required_wins
     )
     meaningful_win = medians["ttft_speedup"] >= 1.03 or medians["end_to_end_speedup"] >= 1.01
     accepted = no_regression and meaningful_win
-    confirmation = {"accepted": accepted, "medians": medians, "pairs": pairs}
+    confirmation = {
+        "accepted": accepted,
+        "decode_speedup_floor": decode_floor,
+        "medians": medians,
+        "pairs": pairs,
+    }
     print(
         "Confirmation: "
         f"decode={medians['decode_speedup']:.3f}x, "

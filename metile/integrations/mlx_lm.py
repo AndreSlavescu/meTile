@@ -18,11 +18,16 @@ from metile.backends.mlx import (
 )
 from metile.backends.mlx_affine import (
     MLXAffineWeight,
+    mlx_affine_backend_signature,
     mlx_affine_matmul,
     mlx_affine_matmul_dispatches,
 )
 from metile.backends.mlx_graph import compile_mlx_graph
-from metile.backends.mlx_quantized import mlx_affine_swiglu, mlx_affine_swiglu_dispatches
+from metile.backends.mlx_quantized import (
+    mlx_affine_swiglu,
+    mlx_affine_swiglu_backend_signature,
+    mlx_affine_swiglu_dispatches,
+)
 from metile.compiler.schedule_search import choose_mdl_tie
 from metile.ir.graph_ir import GraphBuilder, TensorSpec
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
@@ -30,12 +35,13 @@ from metile.runtime.cache import atomic_write_json, cache_root, read_json, stabl
 _graph_executable_cache = {}
 _mlx_lm_plan_cache = {}
 _mlx_lm_plan_lock = threading.RLock()
-_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v5.json"
+_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v10.json"
 _MODEL_SWITCH_MARGIN = 0.01
 _MODEL_REGRESSION_MARGIN = 0.005
 _MODEL_KL_LIMIT = 1e-3
 _MODEL_MEAN_LOGIT_ERROR_LIMIT = 0.02
 _MODEL_MAX_LOGIT_ERROR_LIMIT = 0.25
+_QUANTIZED_MLP_MIN_ROWS = 32
 
 
 @dataclass(frozen=True)
@@ -110,6 +116,7 @@ class MLXAffinePrefill:
         if patched is not None:
             return patched
         original_class = type(module)
+        original_call = original_class.__call__
         weight = self.weight_for(module)
         min_rows = self.min_rows
 
@@ -117,7 +124,8 @@ class MLXAffinePrefill:
             def __call__(self, values):
                 rows = values.size // values.shape[-1]
                 if rows < min_rows:
-                    return super().__call__(values)
+                    object.__setattr__(self, "__class__", original_class)
+                    return original_call(self, values)
                 output = mlx_affine_matmul(values, weight)
                 if "bias" in self:
                     output = output + self["bias"]
@@ -208,16 +216,23 @@ def _mlx_lm_plan_key(model, sample_tokens, requested, affine_prefill, decode_ste
             "source": stable_digest(
                 {
                     "apply": inspect.getsource(apply_metile_to_mlx_lm),
+                    "affine_backend": mlx_affine_backend_signature(),
+                    "affine_prefill_class": inspect.getsource(MLXAffinePrefill.patched_class),
                     "affine_prefill": inspect.getsource(_patch_affine_prefill),
+                    "affine_swiglu_backend": mlx_affine_swiglu_backend_signature(),
                     "choose": inspect.getsource(_choose_mlx_lm_plan),
+                    "effective": inspect.getsource(_effective_mlx_lm_plan),
                     "fidelity": inspect.getsource(_plan_preserves_logits),
+                    "finalists": inspect.getsource(_provisional_mlx_lm_finalists),
+                    "quantized_mlp_patch": inspect.getsource(_patch_quantized_mlp),
                     "timing": inspect.getsource(_time_mlx_lm_plan),
                 }
             ),
             "regression_margin": _MODEL_REGRESSION_MARGIN,
+            "quantized_mlp_min_rows": _QUANTIZED_MLP_MIN_ROWS,
             "switch_margin": _MODEL_SWITCH_MARGIN,
             "trials": trials,
-            "tuner": 5,
+            "tuner": 10,
         }
     )
 
@@ -410,6 +425,34 @@ def _paired_plan_ratios(measurements, native_measurements, metric):
     )
 
 
+def _provisional_mlx_lm_finalists(provisional, candidates):
+    native = MLXLMPlan(False, False, False, False)
+    native_measurements = provisional[native]
+    total_ratios = {
+        plan: statistics.median(_paired_plan_ratios(samples, native_measurements, 2))
+        for plan, samples in provisional.items()
+    }
+    ttft_ratios = {
+        plan: statistics.median(_paired_plan_ratios(samples, native_measurements, 0))
+        for plan, samples in provisional.items()
+    }
+    best_total = min(total_ratios.values())
+    best_ttft = min(ttft_ratios.values())
+    fastest_total = min(total_ratios, key=total_ratios.__getitem__)
+    fastest_ttft = min(ttft_ratios, key=ttft_ratios.__getitem__)
+    required = {native, fastest_total, fastest_ttft}
+    return tuple(
+        plan
+        for plan in candidates
+        if plan in total_ratios
+        and (
+            total_ratios[plan] <= best_total * 1.03
+            or ttft_ratios[plan] <= best_ttft * 1.03
+            or plan in required
+        )
+    )
+
+
 def autotune_metile_for_mlx_lm(
     model,
     sample_tokens,
@@ -473,19 +516,7 @@ def autotune_metile_for_mlx_lm(
             decode_steps,
             3,
         )
-        native = MLXLMPlan(False, False, False, False)
-        provisional_totals = {
-            plan: statistics.median(_paired_plan_ratios(samples, provisional[native], 2))
-            for plan, samples in provisional.items()
-        }
-        best = min(provisional_totals.values())
-        fastest = min(provisional_totals, key=provisional_totals.__getitem__)
-        finalists = tuple(
-            plan
-            for plan in candidates
-            if plan in provisional_totals
-            and (provisional_totals[plan] <= best * 1.03 or plan in {native, fastest})
-        )
+        finalists = _provisional_mlx_lm_finalists(provisional, candidates)
         measured = _measure_mlx_lm_plans(
             model,
             sample_tokens,
@@ -636,7 +667,9 @@ def _supports_quantized_mlp(module, values, quantized_linear):
     )
 
 
-def _patch_quantized_mlp(model, replacements, quantized_linear):
+def _patch_quantized_mlp(model, replacements, quantized_linear, *, min_rows=1):
+    if min_rows < 1:
+        raise ValueError("quantized MLP minimum rows must be positive")
     classes = [type(layer.mlp) for layer in _model_layers(model) if hasattr(layer, "mlp")]
     if model is None:
         from mlx_lm.models import llama
@@ -652,6 +685,10 @@ def _patch_quantized_mlp(model, replacements, quantized_linear):
 
         def make_replacement(original_call):
             def replacement(self, values):
+                rows = values.size // values.shape[-1]
+                if rows < min_rows:
+                    type(self).__call__ = original_call
+                    return original_call(self, values)
                 if not _supports_quantized_mlp(self, values, quantized_linear):
                     return original_call(self, values)
                 gate = self.gate_proj
@@ -848,7 +885,8 @@ def apply_metile_to_mlx_lm(
     if graph_fusion:
         _patch_graph_fusion(model, replacements)
     if quantized_mlp:
-        _patch_quantized_mlp(model, replacements, nn.QuantizedLinear)
+        min_rows = _QUANTIZED_MLP_MIN_ROWS if affine_prefill is not None else 1
+        _patch_quantized_mlp(model, replacements, nn.QuantizedLinear, min_rows=min_rows)
     _patch_affine_prefill(affine_prefill, replacements)
 
     return MLXPatch(replacements, attention_replacement, attention_original)

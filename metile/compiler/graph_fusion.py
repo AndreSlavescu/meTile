@@ -30,10 +30,24 @@ class ProducerConsumerRule:
 
 
 @dataclass(frozen=True)
+class ParallelEpilogueRule:
+    """A parallel pair of producers joined by an elementwise epilogue."""
+
+    name: str
+    producer_op: str
+    activation_op: str
+    combine_op: str
+    consumer_op: str
+    register_values: int
+    threadgroup_bytes: int
+    kernel_count: int = 2
+
+
+@dataclass(frozen=True)
 class FusionRegion:
     """A legal, selected graph region that may lower as one kernel."""
 
-    rule: ProducerConsumerRule
+    rule: ProducerConsumerRule | ParallelEpilogueRule
     nodes: tuple[GraphNode, ...]
     inputs: tuple[GraphValue, ...]
     outputs: tuple[GraphValue, ...]
@@ -58,6 +72,15 @@ DEFAULT_FUSION_RULES = (
         register_values=8,
         materialize_producer=True,
     ),
+    ParallelEpilogueRule(
+        name="parallel_matmul_swiglu_down",
+        producer_op="matmul",
+        activation_op="silu",
+        combine_op="multiply",
+        consumer_op="matmul",
+        register_values=16,
+        threadgroup_bytes=4 * 1024,
+    ),
 )
 
 
@@ -65,7 +88,7 @@ def plan_graph_fusion(
     graph: ComputeGraph,
     *,
     target: FusionTarget | None = None,
-    rules: tuple[ProducerConsumerRule, ...] = DEFAULT_FUSION_RULES,
+    rules: tuple[ProducerConsumerRule | ParallelEpilogueRule, ...] = DEFAULT_FUSION_RULES,
 ) -> FusionPlan:
     """Select non-overlapping profitable fusion regions from a compute DAG.
 
@@ -99,6 +122,15 @@ def plan_graph_fusion(
 
 
 def _match_rule(graph, consumer, rule, consumers, graph_outputs, target):
+    if isinstance(rule, ParallelEpilogueRule):
+        return _match_parallel_epilogue(
+            graph,
+            consumer,
+            rule,
+            consumers,
+            graph_outputs,
+            target,
+        )
     if consumer.op != rule.consumer_op or consumer.side_effect:
         return None
     if rule.consumer_input >= len(consumer.inputs):
@@ -160,11 +192,94 @@ def _match_rule(graph, consumer, rule, consumers, graph_outputs, target):
     return FusionRegion(rule, nodes, inputs, outputs, benefit)
 
 
+def _match_parallel_epilogue(graph, consumer, rule, consumers, graph_outputs, target):
+    if consumer.op != rule.consumer_op or consumer.side_effect or not consumer.inputs:
+        return None
+    combined = consumer.inputs[0]
+    combine = combined.producer
+    if combine is None or combine.op != rule.combine_op or combine.side_effect:
+        return None
+    if len(combine.inputs) != 2 or len(combine.outputs) != 1:
+        return None
+
+    activated = None
+    parallel = None
+    activation = None
+    for candidate, other in (combine.inputs, reversed(combine.inputs)):
+        candidate_producer = candidate.producer
+        if candidate_producer is not None and candidate_producer.op == rule.activation_op:
+            activated = candidate
+            parallel = other
+            activation = candidate_producer
+            break
+    if activation is None or parallel is None or len(activation.inputs) != 1:
+        return None
+
+    primary = activation.inputs[0]
+    primary_producer = primary.producer
+    parallel_producer = parallel.producer
+    if (
+        primary_producer is None
+        or parallel_producer is None
+        or primary_producer.op != rule.producer_op
+        or parallel_producer.op != rule.producer_op
+        or primary_producer.side_effect
+        or parallel_producer.side_effect
+        or primary_producer is parallel_producer
+        or len(primary_producer.inputs) < 2
+        or len(parallel_producer.inputs) < 2
+        or primary_producer.inputs[0] is not parallel_producer.inputs[0]
+        or primary.spec != parallel.spec
+        or activated.spec != parallel.spec
+        or combined.spec != parallel.spec
+    ):
+        return None
+
+    nodes = (primary_producer, parallel_producer, activation, combine, consumer)
+    node_set = set(nodes)
+    intermediates = (primary, parallel, activated, combined)
+    if any(
+        value in graph_outputs or any(user not in node_set for user in consumers.get(value, ()))
+        for value in intermediates
+    ):
+        return None
+    if (
+        rule.register_values > target.max_register_values
+        or rule.threadgroup_bytes > target.max_threadgroup_bytes
+    ):
+        return None
+
+    inputs = tuple(
+        dict.fromkeys(
+            value for node in nodes for value in node.inputs if value.producer not in node_set
+        )
+    )
+    outputs = tuple(
+        output
+        for node in nodes
+        for output in node.outputs
+        if output in graph_outputs
+        or any(user not in node_set for user in consumers.get(output, ()))
+    )
+    if not outputs:
+        outputs = consumer.outputs
+
+    saved_launches = max(0, len(nodes) - rule.kernel_count)
+    elided_values = (primary, parallel, activated)
+    saved_bytes = sum(value.spec.nbytes * 2 for value in elided_values)
+    benefit = saved_launches * target.launch_overhead_ns + saved_bytes / max(
+        target.memory_bandwidth_bytes_per_ns,
+        1e-9,
+    )
+    return FusionRegion(rule, nodes, inputs, outputs, benefit)
+
+
 __all__ = [
     "DEFAULT_FUSION_RULES",
     "FusionPlan",
     "FusionRegion",
     "FusionTarget",
+    "ParallelEpilogueRule",
     "ProducerConsumerRule",
     "plan_graph_fusion",
 ]

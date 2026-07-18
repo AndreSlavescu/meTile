@@ -171,7 +171,13 @@ def _validate_text_layout(figure):
         for artist in figure.findobj(Text)
         if artist.get_visible() and artist.get_text().strip()
     ]
-    bounds = [(artist, artist.get_window_extent(renderer).padded(2)) for artist in texts]
+    bounds = [
+        (
+            artist,
+            artist.get_window_extent(renderer).padded(6 if artist.get_gid() == "bar-value" else 2),
+        )
+        for artist in texts
+    ]
     canvas = figure.bbox
     for artist, box in bounds:
         if box.x0 < canvas.x0 or box.y0 < canvas.y0 or box.x1 > canvas.x1 or box.y1 > canvas.y1:
@@ -179,6 +185,29 @@ def _validate_text_layout(figure):
     for (left, left_box), (right, right_box) in combinations(bounds, 2):
         if left_box.overlaps(right_box):
             raise RuntimeError(f"chart text overlaps: {left.get_text()!r} and {right.get_text()!r}")
+
+
+def _label_paired_bars(axis, mlx_bars, metile_bars, label_format):
+    maximum = max(bar.get_height() for bar in (*mlx_bars, *metile_bars))
+    labels = []
+    for mlx_bar, metile_bar in zip(mlx_bars, metile_bars, strict=True):
+        mlx_height = mlx_bar.get_height()
+        metile_height = metile_bar.get_height()
+        near_equal = abs(mlx_height - metile_height) <= maximum * 0.02
+        for bar, padding in ((mlx_bar, 3), (metile_bar, 12 if near_equal else 3)):
+            label = axis.annotate(
+                label_format % bar.get_height(),
+                (bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                xytext=(0, padding),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=7,
+                color="#444444",
+            )
+            label.set_gid("bar-value")
+            labels.append(label)
+    return tuple(labels)
 
 
 def _render_throughput(suite, output):
@@ -210,14 +239,7 @@ def _render_throughput(suite, output):
             label="MLX + meTile",
             color=METILE_COLOR,
         )
-        axis.bar_label(mlx_bars, fmt=label_format, padding=3, fontsize=7, color="#444444")
-        axis.bar_label(
-            metile_bars,
-            fmt=label_format,
-            padding=3,
-            fontsize=7,
-            color="#444444",
-        )
+        _label_paired_bars(axis, mlx_bars, metile_bars, label_format)
         axis.set_title(title, loc="left", fontsize=12, pad=10)
         axis.set_ylabel("Tokens / second")
         axis.set_xticks(positions, data["labels"], fontsize=8)
@@ -284,8 +306,7 @@ def _render_latency(suite, output):
             label="MLX + meTile",
             color=METILE_COLOR,
         )
-        axis.bar_label(mlx_bars, fmt=label_format, padding=3, fontsize=7, color="#444444")
-        axis.bar_label(metile_bars, fmt=label_format, padding=3, fontsize=7, color="#444444")
+        _label_paired_bars(axis, mlx_bars, metile_bars, label_format)
         axis.set_title(title, loc="left", fontsize=12, pad=10)
         axis.set_ylabel(ylabel)
         axis.set_xticks(positions, data["labels"], fontsize=8)

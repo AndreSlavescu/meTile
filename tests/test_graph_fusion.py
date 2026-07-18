@@ -16,6 +16,20 @@ def _residual_rms_graph(*, return_residual=True):
     return builder.build(outputs)
 
 
+def _swiglu_mlp_graph(*, return_gate=False):
+    builder = GraphBuilder()
+    values = builder.input("values", TensorSpec((2, 32, 64), "f16"))
+    gate_weight = builder.input("gate_weight", TensorSpec((2, 64, 128), "f16"))
+    up_weight = builder.input("up_weight", TensorSpec((2, 64, 128), "f16"))
+    down_weight = builder.input("down_weight", TensorSpec((2, 128, 64), "f16"))
+    gate = builder.matmul(values, gate_weight, name="gate")
+    up = builder.matmul(values, up_weight, name="up")
+    activated = builder.silu(gate, name="silu")
+    hidden = builder.multiply(activated, up, name="gated")
+    output = builder.matmul(hidden, down_weight, name="down")
+    return builder.build((gate, output) if return_gate else output)
+
+
 def test_graph_fusion_discovers_multi_output_residual_rms_norm():
     graph = _residual_rms_graph()
     plan = plan_graph_fusion(graph)
@@ -40,6 +54,37 @@ def test_graph_fusion_counts_dead_intermediate_memory_savings():
 def test_graph_fusion_respects_resource_limits():
     graph = _residual_rms_graph()
     plan = plan_graph_fusion(graph, target=FusionTarget(max_register_values=4))
+
+    assert plan.regions == ()
+
+
+def test_graph_fusion_discovers_parallel_swiglu_epilogue_pipeline():
+    graph = _swiglu_mlp_graph()
+    plan = plan_graph_fusion(graph)
+
+    assert len(plan.regions) == 1
+    region = plan.regions[0]
+    assert region.rule.name == "parallel_matmul_swiglu_down"
+    assert [node.op for node in region.nodes] == [
+        "matmul",
+        "matmul",
+        "silu",
+        "multiply",
+        "matmul",
+    ]
+    assert region.outputs == graph.outputs
+    assert region.benefit_ns > 0
+
+
+def test_parallel_swiglu_pipeline_rejects_escaping_intermediate():
+    graph = _swiglu_mlp_graph(return_gate=True)
+
+    assert plan_graph_fusion(graph).regions == ()
+
+
+def test_parallel_swiglu_pipeline_respects_threadgroup_memory():
+    graph = _swiglu_mlp_graph()
+    plan = plan_graph_fusion(graph, target=FusionTarget(max_threadgroup_bytes=2048))
 
     assert plan.regions == ()
 

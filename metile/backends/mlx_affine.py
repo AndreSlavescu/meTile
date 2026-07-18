@@ -24,8 +24,9 @@ from metile.runtime.cache import atomic_write_json, cache_root, read_json, stabl
 _kernel_cache = {}
 _schedule_cache = {}
 _cache_lock = threading.RLock()
-_cache_path = cache_root() / "mlx-affine-matmul-autotune-v1.json"
+_cache_path = cache_root() / "mlx-affine-matmul-autotune-v2.json"
 _SWITCH_MARGIN = 0.03
+_TUNER_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,24 @@ def _compile_mlx_affine(rows, input_features, output_features, dtype, config):
     return kernel
 
 
+def mlx_affine_backend_signature():
+    """Return the code/config identity that can change affine dispatch decisions."""
+    return stable_digest(
+        {
+            "accuracy": inspect.getsource(_accuracy_compatible),
+            "candidates": inspect.getsource(_candidate_configs),
+            "compile": inspect.getsource(_compile_mlx_affine),
+            "configs": [vars(config) for config in _CONFIGS],
+            "dispatch": inspect.getsource(mlx_affine_matmul),
+            "lowering": inspect.getsource(lower_affine_matmul),
+            "selection": inspect.getsource(_choose_config),
+            "switch_margin": _SWITCH_MARGIN,
+            "tune": inspect.getsource(_tune_config),
+            "tuner": _TUNER_VERSION,
+        }
+    )
+
+
 def _persistent_key(rows, weight, dtype, configs):
     import mlx.core as mx
 
@@ -187,14 +206,9 @@ def _persistent_key(rows, weight, dtype, configs):
             "mlx": mx.__version__,
             "output_features": weight.shape[1],
             "rows": rows,
-            "source": stable_digest(
-                {
-                    "backend": inspect.getsource(_compile_mlx_affine),
-                    "lowering": inspect.getsource(lower_affine_matmul),
-                }
-            ),
+            "source": mlx_affine_backend_signature(),
             "switch_margin": _SWITCH_MARGIN,
-            "tuner": 1,
+            "tuner": _TUNER_VERSION,
         }
     )
 
@@ -362,6 +376,7 @@ def mlx_affine_matmul_dispatches():
 __all__ = [
     "MLXAffineMatmulConfig",
     "MLXAffineWeight",
+    "mlx_affine_backend_signature",
     "mlx_affine_matmul",
     "mlx_affine_matmul_dispatches",
 ]

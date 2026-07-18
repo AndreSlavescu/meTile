@@ -6,6 +6,7 @@ import pytest
 
 from benchmarks.render_mlx_lm_results import (
     _chart_data,
+    _label_paired_bars,
     _model_label,
     _render_latency,
     _render_throughput,
@@ -125,6 +126,19 @@ def test_layout_validator_rejects_overlapping_text():
 
     with pytest.raises(RuntimeError, match="chart text overlaps"):
         _validate_text_layout(figure)
+    pyplot.close(figure)
+
+
+def test_paired_bar_labels_stagger_near_equal_values():
+    pyplot = pytest.importorskip("matplotlib.pyplot")
+    figure, axis = pyplot.subplots()
+    mlx_bars = axis.bar([-0.17], [4.34], 0.34)
+    metile_bars = axis.bar([0.17], [4.34], 0.34)
+
+    labels = _label_paired_bars(axis, mlx_bars, metile_bars, "%.2f")
+
+    assert labels[0].get_position()[1] == 3
+    assert labels[1].get_position()[1] == 12
     pyplot.close(figure)
 
 

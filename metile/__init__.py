@@ -1,4 +1,4 @@
-from metile.compiler.graph_fusion import FusionTarget, plan_graph_fusion
+from metile.compiler.graph_fusion import FusionTarget, ParallelEpilogueRule, plan_graph_fusion
 from metile.frontend.autotune import Config, autotune
 from metile.frontend.kernel import kernel
 from metile.frontend.tracing import (
@@ -75,6 +75,7 @@ __all__ = [
     "GraphBuilder",
     "KernelPipeline",
     "Layout",
+    "ParallelEpilogueRule",
     "TensorDescriptor",
     "TensorSpec",
     "TensorView",

@@ -45,7 +45,7 @@ def _arguments():
     parser.add_argument("--disable-affine-prefill", action="store_true")
     parser.add_argument("--disable-model-autotune", action="store_true")
     parser.add_argument("--plan-decode-steps", type=int, default=8)
-    parser.add_argument("--plan-trials", type=int, default=5)
+    parser.add_argument("--plan-trials", type=int, default=7)
     parser.add_argument("--confirmation-trials", type=int, default=5)
     return parser.parse_args()
 

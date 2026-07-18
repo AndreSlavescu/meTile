@@ -107,6 +107,20 @@ class GraphBuilder:
             raise ValueError("add inputs must have identical tensor specifications")
         return self._node("add", (left, right), {}, (left.spec,), name)[0]
 
+    def multiply(
+        self,
+        left: GraphValue,
+        right: GraphValue,
+        *,
+        name: str | None = None,
+    ) -> GraphValue:
+        if left.spec != right.spec:
+            raise ValueError("multiply inputs must have identical tensor specifications")
+        return self._node("multiply", (left, right), {}, (left.spec,), name)[0]
+
+    def silu(self, values: GraphValue, *, name: str | None = None) -> GraphValue:
+        return self._node("silu", (values,), {}, (values.spec,), name)[0]
+
     def rms_norm(
         self,
         values: GraphValue,

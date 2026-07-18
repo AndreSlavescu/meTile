@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 from metile.backends.mlx import mlx_add_rms_norm, mlx_attention_decode
 from metile.backends.mlx_attention import mlx_flash_attention
@@ -13,8 +14,10 @@ _SUPPORTED_OPS = {
     "causal_mask",
     "flash_attention",
     "matmul",
+    "multiply",
     "rms_norm",
     "scale",
+    "silu",
     "softmax",
 }
 
@@ -62,6 +65,8 @@ def compile_mlx_graph(graph: ComputeGraph, *, autotune: bool = True) -> MLXGraph
 def _execute_node(node: GraphNode, environment, *, autotune):
     if node.op == "add":
         environment[node.outputs[0]] = environment[node.inputs[0]] + environment[node.inputs[1]]
+    elif node.op == "multiply":
+        environment[node.outputs[0]] = environment[node.inputs[0]] * environment[node.inputs[1]]
     elif node.op == "matmul":
         import mlx.core as mx
 
@@ -71,6 +76,10 @@ def _execute_node(node: GraphNode, environment, *, autotune):
         environment[node.outputs[0]] = mx.matmul(environment[node.inputs[0]], right)
     elif node.op == "scale":
         environment[node.outputs[0]] = environment[node.inputs[0]] * node.attrs["factor"]
+    elif node.op == "silu":
+        import mlx.nn as nn
+
+        environment[node.outputs[0]] = nn.silu(environment[node.inputs[0]])
     elif node.op == "causal_mask":
         environment[node.outputs[0]] = _causal_mask(environment[node.inputs[0]])
     elif node.op == "softmax":
@@ -126,18 +135,56 @@ def _causal_mask(values):
 
 
 def _execute_region(region: FusionRegion, environment, *, autotune):
-    if region.rule.name != "residual_add_rms_norm":
-        raise ValueError(f"unsupported MLX fusion rule: {region.rule.name}")
-    add_node, rms_node = region.nodes
-    summed, normalized = mlx_add_rms_norm(
-        environment[add_node.inputs[0]],
-        environment[add_node.inputs[1]],
-        environment[rms_node.inputs[1]],
-        rms_node.attrs["eps"],
-        autotune=autotune,
-    )
-    environment[add_node.outputs[0]] = summed
-    environment[rms_node.outputs[0]] = normalized
+    if region.rule.name == "residual_add_rms_norm":
+        add_node, rms_node = region.nodes
+        summed, normalized = mlx_add_rms_norm(
+            environment[add_node.inputs[0]],
+            environment[add_node.inputs[1]],
+            environment[rms_node.inputs[1]],
+            rms_node.attrs["eps"],
+            autotune=autotune,
+        )
+        environment[add_node.outputs[0]] = summed
+        environment[rms_node.outputs[0]] = normalized
+        return
+    if region.rule.name == "parallel_matmul_swiglu_down":
+        gate_node, up_node, activation_node, combine_node, down_node = region.nodes
+        transpose = tuple(
+            bool(node.attrs.get("transpose_right", False))
+            for node in (gate_node, up_node, down_node)
+        )
+        operation = _compiled_swiglu_mlp(transpose)
+        result = operation(
+            environment[gate_node.inputs[0]],
+            environment[gate_node.inputs[1]],
+            environment[up_node.inputs[1]],
+            environment[down_node.inputs[1]],
+        )
+        environment[gate_node.outputs[0]] = None
+        environment[up_node.outputs[0]] = None
+        environment[activation_node.outputs[0]] = None
+        environment[combine_node.outputs[0]] = None
+        environment[down_node.outputs[0]] = result
+        return
+    raise ValueError(f"unsupported MLX fusion rule: {region.rule.name}")
+
+
+@lru_cache(maxsize=8)
+def _compiled_swiglu_mlp(transpose: tuple[bool, bool, bool]):
+    import mlx.core as mx
+    import mlx.nn as nn
+
+    def operation(values, gate_weight, up_weight, down_weight):
+        weights = (gate_weight, up_weight, down_weight)
+        right = tuple(
+            mx.swapaxes(weight, -1, -2) if transpose_right else weight
+            for weight, transpose_right in zip(weights, transpose, strict=True)
+        )
+        gate = mx.matmul(values, right[0])
+        up = mx.matmul(values, right[1])
+        return mx.matmul(nn.silu(gate) * up, right[2])
+
+    return mx.compile(operation)
 
 
 def _validate_runtime_value(value: GraphValue, runtime_value):

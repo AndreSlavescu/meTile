@@ -25,6 +25,30 @@ shown in :doc:`architecture`.
 The residual value remains a graph output, so the selected lowering is a multi-output
 kernel rather than a rewrite that changes program semantics.
 
+Automatic Gated Epilogues
+-------------------------
+
+``GraphBuilder.silu`` and ``GraphBuilder.multiply`` let the same graph IR express a
+SwiGLU feed-forward block without prescribing a kernel template. The default
+``ParallelEpilogueRule`` recognizes two matmuls with a shared activation input, the
+``silu(gate) * up`` epilogue, and its consuming down projection. The matcher accepts
+either multiply-input order, rejects escaping intermediates, enforces register and
+threadgroup-memory limits, and presents the complete region to backend lowering.
+
+The affine-quantized Metal backend includes a low-register schedule for this region.
+It completes the gate reduction, spills the SIMD-group result to threadgroup scratch,
+reuses the accumulator lifetime for the up reduction, synchronizes, and applies SwiGLU
+on-chip. Native MLX, compiled MLX, register-fused meTile, and scratch-spilled meTile remain
+independent autotune candidates. Scale-normalized primitive error gates generated
+reductions before model-level next-token, KL-divergence, and logit checks.
+
+This combines the modular epilogue idea used by `SonicMoE
+<https://arxiv.org/abs/2512.14080>`_ with the parallel-operator co-optimization studied by
+`Magneto <https://doi.org/10.1145/3744906>`_. On Apple silicon, threadgroup memory is an
+explicit on-chip scratchpad. Dispatch order can encourage the resulting hidden tensor to
+remain cache-hot for the down projection, but Metal does not expose L2 cache pinning; unified
+memory removes a CPU/device copy rather than turning global storage into scratchpad memory.
+
 Max-Flow Selection
 ------------------
 

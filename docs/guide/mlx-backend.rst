@@ -56,14 +56,21 @@ the original MLX graph. Graph fusion requires 10 percent isolated headroom befor
 Affine 4-bit models add eager MLX and an M5-native ``matmul2d`` kernel over an AOT K-major
 repack to the same policy. The repack preserves the original affine nibbles, scales, and
 biases; it does not requantize model weights. Ragged prefill rows tune Morton, grouped, and
-Hilbert schedules against native MLX. Only the prepared projection instances use the stable
-specialized class, and rows below the configured threshold call the original implementation,
-so decode does not traverse a global monkeypatch.
+Hilbert schedules against native MLX. Only prepared projection instances use the specialized
+class, and the first row below the configured threshold restores the original class. Steady-state
+decode therefore does not traverse a wrapper. Exact compiled-MLX SwiGLU candidates use a 0.5
+percent switch margin, while generated kernels retain the stricter 3 percent margin. Quantized
+decode also evaluates a scratch-spilled SwiGLU schedule that shortens gate/up accumulator
+lifetimes before the elementwise epilogue. Quantized-only plans keep this decode tournament;
+combined affine-prefill plans restore native MLP dispatch at the first decode row.
 
 Model-level tuning rejects plans that change the next token or exceed KL-divergence,
 mean-logit-error, or max-logit-error bounds. Surviving plans need a paired TTFT or total-latency
-win while preserving median decode and total latency. The selected feature plan and primitive
-schedules persist with device, MLX version, shape, source, and tuner-policy identities.
+win while preserving bounded decode and total latency. Decode-sensitive plans use a 0.5 percent
+confirmation floor; self-deoptimizing prefill-only plans use a 1 percent noise floor. Explicit
+backend signatures invalidate model plans whenever primitive candidates, source, or selection
+policy changes. The selected feature plan and primitive schedules persist with device, MLX
+version, shape, source, and tuner-policy identities.
 
 Block-Scaled MLX Primitive
 --------------------------
@@ -116,37 +123,37 @@ end-to-end confirmation pairs, and nine continuous measurement pairs:
      - TTFT speedup
      - End-to-end
    * - Llama 3.2 1B 4-bit
-     - 145.95 tok/s
-     - 146.00 tok/s
-     - 104.1 ms
-     - 1.012x
-     - 1.330x
-     - 1.143x
-     - 1.010x
+     - 151.36 tok/s
+     - 150.98 tok/s
+     - 102.0 ms
+     - 0.998x
+     - 1.339x
+     - 1.135x
+     - 1.004x
    * - Llama 3.2 3B 4-bit
-     - 58.04 tok/s
-     - 58.04 tok/s
-     - 174.1 ms
+     - 61.35 tok/s
+     - 61.35 tok/s
+     - 153.9 ms
      - 1.000x
      - 1.000x
      - 1.000x
      - 1.000x
    * - Qwen 2.5 0.5B 4-bit
-     - 294.83 tok/s
-     - 291.21 tok/s
-     - 115.6 ms
-     - 0.988x
-     - 1.202x
-     - 1.122x
-     - 0.998x
+     - 309.19 tok/s
+     - 304.62 tok/s
+     - 70.8 ms
+     - 0.994x
+     - 1.275x
+     - 1.072x
+     - 1.001x
    * - Qwen 2.5 1.5B 4-bit
-     - 117.09 tok/s
-     - 117.74 tok/s
-     - 130.1 ms
-     - 1.006x
-     - 1.336x
-     - 1.161x
-     - 1.012x
+     - 118.54 tok/s
+     - 119.65 tok/s
+     - 130.6 ms
+     - 1.001x
+     - 1.331x
+     - 1.170x
+     - 1.013x
 
 Three workloads selected generated affine prefill; Llama 3.2 3B retained native MLX. Table
 speedups are medians of paired ratios, while chart bars are absolute medians. The raw result is committed at
@@ -163,6 +170,7 @@ Reproduce the complete suite and regenerate both figures:
      --generation-tokens 256 \
      --trials 9 \
      --delay 0 \
+     --plan-trials 7 \
      --confirmation-trials 5 \
      --output benchmarks/results/m5-mlx-lm-models.json
 

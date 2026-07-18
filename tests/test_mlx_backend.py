@@ -175,6 +175,49 @@ def test_mlx_native_affine_swiglu_matches_quantized_matmul(monkeypatch):
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
 
 
+@pytest.mark.parametrize(
+    ("compiled_latency", "generated_latency", "expected_algorithm"),
+    (
+        (0.99, 1.0, "mlx_compiled"),
+        (0.998, 1.0, "mlx"),
+        (1.0, 0.975, "mlx"),
+        (1.0, 0.96, "metile"),
+    ),
+)
+def test_mlx_affine_swiglu_uses_separate_exact_and_generated_margins(
+    compiled_latency,
+    generated_latency,
+    expected_algorithm,
+):
+    from metile.backends import mlx_quantized
+
+    native = mlx_quantized.MLXAffineSwiGLUConfig("mlx")
+    compiled = mlx_quantized.MLXAffineSwiGLUConfig("mlx_compiled")
+    generated = mlx_quantized.MLXAffineSwiGLUConfig("metile", "nax", 64)
+
+    selected = mlx_quantized._choose_affine_swiglu_config(
+        [
+            (1.0, 0, native),
+            (compiled_latency, 10, compiled),
+            (generated_latency, 20, generated),
+        ]
+    )
+
+    assert selected.algorithm == expected_algorithm
+
+
+def test_mlx_affine_swiglu_fidelity_uses_scale_aware_error():
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    reference = mx.array([0.0, 1000.0, -2000.0], dtype=mx.float16)
+    reduction_drift = mx.array([0.2, 1001.0, -1998.0], dtype=mx.float16)
+    material_error = mx.array([0.0, 1015.0, -1960.0], dtype=mx.float16)
+
+    assert mlx_quantized._affine_swiglu_compatible(reduction_drift, reference)
+    assert not mlx_quantized._affine_swiglu_compatible(material_error, reference)
+
+
 @pytest.mark.parametrize("rows", (1, 8))
 def test_mlx_compiled_affine_swiglu_matches_native(rows, monkeypatch):
     mx = pytest.importorskip("mlx.core")
@@ -289,6 +332,67 @@ def test_mlx_affine_swiglu_schedule_dimensions_match_mlx(
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
 
 
+@pytest.mark.parametrize(("rows", "block"), ((1, 64), (33, 128)))
+def test_mlx_affine_swiglu_scratch_schedule_matches_mlx(rows, block):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    random = np.random.default_rng(49)
+    input_features = output_features = 64
+    values = mx.array(random.normal(size=(1, rows, input_features)).astype(np.float16))
+    gate = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    up = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    gate_weight, gate_scales, gate_biases = mx.quantize(gate, group_size=64, bits=4)
+    up_weight, up_scales, up_biases = mx.quantize(up, group_size=64, bits=4)
+    kernel = mlx_quantized._compile_affine_swiglu_scratch_qmv(
+        input_features,
+        output_features,
+        values.dtype,
+        block=block,
+        outputs_per_simdgroup=2,
+    )
+
+    actual = kernel(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+    )
+    expected = mlx_quantized._native_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    register_fused = mlx_quantized._compile_affine_swiglu_qmv(
+        input_features,
+        output_features,
+        values.dtype,
+        block=block,
+        outputs_per_simdgroup=2,
+    )(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+    )
+    mx.eval(actual, expected, register_fused)
+
+    np.testing.assert_allclose(np.array(actual), np.array(register_fused), rtol=0, atol=0)
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-1)
+
+
 def test_mlx_affine_repack_runs_native_tensor_kernel():
     mx = pytest.importorskip("mlx.core")
     from metile.backends import mlx_quantized
@@ -371,6 +475,39 @@ def test_mlx_affine_dispatch_reports_native_or_composable_schedule(monkeypatch):
             "schedule": "grouped4",
         },
     )
+
+
+def test_mlx_affine_backend_signature_tracks_candidate_family(monkeypatch):
+    from metile.backends import mlx_affine
+
+    original = mlx_affine.mlx_affine_backend_signature()
+    monkeypatch.setattr(
+        mlx_affine,
+        "_CONFIGS",
+        (*mlx_affine._CONFIGS, mlx_affine.MLXAffineMatmulConfig("metile", 256, "linear")),
+    )
+
+    assert mlx_affine.mlx_affine_backend_signature() != original
+
+
+def test_mlx_lm_plan_key_tracks_affine_backend(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.integrations import mlx_lm
+
+    class Model:
+        layers = ()
+
+        def __call__(self, values):
+            return values
+
+    tokens = mx.zeros((1, 8), dtype=mx.int32)
+    requested = mlx_lm.MLXLMPlan(False, False, False, False, True)
+    monkeypatch.setattr(mlx_lm, "mlx_affine_backend_signature", lambda: "backend-a")
+    first = mlx_lm._mlx_lm_plan_key(Model(), tokens, requested, None, 8, 5)
+    monkeypatch.setattr(mlx_lm, "mlx_affine_backend_signature", lambda: "backend-b")
+    second = mlx_lm._mlx_lm_plan_key(Model(), tokens, requested, None, 8, 5)
+
+    assert first != second
 
 
 def test_framework_dispatch_requires_headroom_over_native():
@@ -506,6 +643,23 @@ def test_mlx_lm_plan_accepts_strong_ttft_win_without_total_regression():
     )
 
 
+def test_mlx_lm_provisional_finalists_preserve_fastest_ttft_plan():
+    from metile.integrations.mlx_lm import MLXLMPlan, _provisional_mlx_lm_finalists
+
+    native = MLXLMPlan(False, False, False, False, False)
+    total = MLXLMPlan(True, False, False, False, False)
+    ttft = MLXLMPlan(False, False, False, False, True)
+    provisional = {
+        native: [(0.100, 0.010, 0.180)] * 3,
+        total: [(0.099, 0.010, 0.160)] * 3,
+        ttft: [(0.080, 0.010, 0.190)] * 3,
+    }
+
+    finalists = _provisional_mlx_lm_finalists(provisional, (native, total, ttft))
+
+    assert finalists == (native, total, ttft)
+
+
 def test_mlx_attention_decode_matches_mlx_gqa(monkeypatch):
     mx = pytest.importorskip("mlx.core")
     monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
@@ -598,6 +752,40 @@ def test_mlx_graph_executor_runs_selected_fusion(monkeypatch):
     assert executable.plan.regions[0].rule.name == "residual_add_rms_norm"
     np.testing.assert_allclose(np.array(actual_sum), np.array(expected_sum), rtol=0, atol=0)
     np.testing.assert_allclose(np.array(actual_norm), np.array(expected_norm), rtol=2e-5, atol=2e-5)
+
+
+def test_mlx_graph_executor_runs_swiglu_epilogue_pipeline():
+    mx = pytest.importorskip("mlx.core")
+    import mlx.nn as nn
+
+    from metile.backends.mlx_graph import compile_mlx_graph
+    from metile.ir.graph_ir import GraphBuilder, TensorSpec
+
+    random = np.random.default_rng(53)
+    values = mx.array(random.standard_normal((1, 4, 8)).astype(np.float16))
+    gate_weight = mx.array(random.standard_normal((1, 8, 16)).astype(np.float16))
+    up_weight = mx.array(random.standard_normal((1, 8, 16)).astype(np.float16))
+    down_weight = mx.array(random.standard_normal((1, 16, 8)).astype(np.float16))
+    builder = GraphBuilder()
+    values_input = builder.input("values", TensorSpec((1, 4, 8), "f16"))
+    gate_input = builder.input("gate_weight", TensorSpec((1, 8, 16), "f16"))
+    up_input = builder.input("up_weight", TensorSpec((1, 8, 16), "f16"))
+    down_input = builder.input("down_weight", TensorSpec((1, 16, 8), "f16"))
+    gate = builder.matmul(values_input, gate_input, name="gate")
+    up = builder.matmul(values_input, up_input, name="up")
+    hidden = builder.multiply(builder.silu(gate, name="silu"), up, name="hidden")
+    output = builder.matmul(hidden, down_input, name="down")
+    executable = compile_mlx_graph(builder.build(output), autotune=False)
+
+    actual = executable(values, gate_weight, up_weight, down_weight)
+    expected = mx.matmul(
+        nn.silu(mx.matmul(values, gate_weight)) * mx.matmul(values, up_weight),
+        down_weight,
+    )
+    mx.eval(actual, expected)
+
+    assert executable.plan.regions[0].rule.name == "parallel_matmul_swiglu_down"
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=1e-3, atol=1e-3)
 
 
 def test_mlx_lm_patch_restores_modules_loaded_after_application(monkeypatch):
@@ -698,9 +886,93 @@ def test_mlx_lm_affine_prefill_patch_is_reversible_and_skips_decode(monkeypatch)
 
     assert module(prefill_values) == "metile"
     assert module(decode_values) == "native"
+    assert type(module) is nn.QuantizedLinear
     patch.restore()
     assert module(prefill_values) == "native"
     assert [call[0] for call in calls] == ["metile", "native", "native"]
+
+
+def test_mlx_lm_quantized_mlp_patch_skips_decode(monkeypatch):
+    pytest.importorskip("mlx_lm")
+    from types import SimpleNamespace
+
+    from mlx_lm.models import llama
+
+    from metile.integrations import mlx_lm
+
+    calls = []
+
+    def original(self, values):
+        calls.append((self, values))
+        return "native"
+
+    monkeypatch.setattr(llama.MLP, "__call__", original)
+    mlp = llama.MLP.__new__(llama.MLP)
+
+    class Model:
+        layers = (SimpleNamespace(mlp=mlp),)
+
+        def __call__(self):
+            pass
+
+    model = Model()
+    patch = mlx_lm.apply_metile_to_mlx_lm(
+        model,
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=True,
+        affine_prefill=mlx_lm.MLXAffinePrefill(model, {}),
+    )
+    values = SimpleNamespace(size=64, shape=(1, 1, 64))
+
+    result = llama.MLP.__call__(mlp, values)
+
+    assert result == "native"
+    assert calls == [(mlp, values)]
+    assert llama.MLP.__call__ is original
+    patch.restore()
+
+
+def test_mlx_lm_quantized_mlp_patch_keeps_decode_dispatch(monkeypatch):
+    pytest.importorskip("mlx_lm")
+    from types import SimpleNamespace
+
+    from mlx_lm.models import llama
+
+    from metile.integrations import mlx_lm
+
+    calls = []
+
+    def original(self, values):
+        calls.append((self, values))
+        return "native"
+
+    monkeypatch.setattr(llama.MLP, "__call__", original)
+    mlp = llama.MLP.__new__(llama.MLP)
+
+    class Model:
+        layers = (SimpleNamespace(mlp=mlp),)
+
+        def __call__(self):
+            pass
+
+    patch = mlx_lm.apply_metile_to_mlx_lm(
+        Model(),
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=True,
+    )
+    values = SimpleNamespace(size=64, shape=(1, 1, 64), dtype="f16")
+
+    result = llama.MLP.__call__(mlp, values)
+
+    assert result == "native"
+    assert calls == [(mlp, values)]
+    assert llama.MLP.__call__ is not original
+    patch.restore()
+    assert llama.MLP.__call__ is original
 
 
 def test_prepare_mlx_lm_affine_prefill_repacks_supported_down_projection():
@@ -758,6 +1030,44 @@ def test_mlx_lm_generation_confirmation_requires_end_to_end_safety(
         arguments,
         candidate,
         None,
+    )
+
+    assert confirmation["accepted"] is expected_accepted
+    assert bool(selected.feature_count) is expected_accepted
+
+
+@pytest.mark.parametrize(
+    ("candidate", "expected_accepted"),
+    (
+        ("prefill", True),
+        ("decode", False),
+    ),
+)
+def test_mlx_lm_generation_confirmation_uses_prefill_noise_floor(
+    candidate,
+    expected_accepted,
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from benchmarks import mlx_lm_backend
+    from metile.integrations.mlx_lm import MLXLMPlan
+
+    arguments = SimpleNamespace(confirmation_trials=3, delay=0)
+    plan = (
+        MLXLMPlan(False, False, False, False, True)
+        if candidate == "prefill"
+        else MLXLMPlan(True, False, False, False, False)
+    )
+
+    def generate(_model, _tokenizer, _prompt, _arguments, patched, _plan, _affine_prefill):
+        response = SimpleNamespace(generation_tps=99.2 if patched else 100.0)
+        return response, 0.98 if patched else 1.0, 0.08 if patched else 0.1
+
+    monkeypatch.setattr(mlx_lm_backend, "_generate", generate)
+
+    selected, confirmation = mlx_lm_backend._confirm_plan(
+        object(), object(), [1, 2, 3], arguments, plan, None
     )
 
     assert confirmation["accepted"] is expected_accepted

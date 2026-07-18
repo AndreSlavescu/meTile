@@ -165,6 +165,20 @@ CUDA-specific whole-kernel template.
 python benchmarks/flash_attention_discovery.py --trials 31
 ```
 
+## Automatic Gated Epilogue Fusion
+
+The graph optimizer recognizes `matmul(x, W_gate)`, `matmul(x, W_up)`,
+`silu(gate) * up`, and the consuming down projection as a declarative
+`ParallelEpilogueRule`. It rejects escaping intermediates and target-resource violations,
+then lets each backend choose its own lowering rather than instantiating a whole MLP template.
+
+For affine 4-bit weights, the Metal runtime now tunes a scratch-spilled schedule alongside
+native MLX, compiled MLX, and register-fused meTile. Gate accumulators are reduced into
+threadgroup memory before up accumulators become live; after a barrier, SwiGLU consumes the
+on-chip values. This directly addresses register pressure while preserving automatic fallback.
+L2 reuse for the immediately following down projection is a scheduling opportunity, not a
+cache-pinning guarantee on Metal.
+
 ## MLX-LM Backend
 
 meTile-generated Metal can execute as a lazy, zero-copy MLX primitive. The integration
@@ -197,9 +211,10 @@ For affine 4-bit model weights, AOT preparation preserves the original quantized
 transposing packed nibbles and scale/bias groups into a K-major NAX view. Ragged prefill rows
 then tune native MLX against generated Morton, grouped, and Hilbert schedules. Only prepared
 projection instances change class, so unrelated linear layers keep the exact MLX path and
-decode rows call the original implementation. Model plans require matching next tokens, bounded
-KL divergence, bounded mean/max logit error, a measured TTFT or end-to-end win, and no median
-decode or total regression.
+the first decode row restores the original class for zero steady-state wrapper overhead. Model
+plans require matching next tokens, bounded KL divergence, bounded mean/max logit error, a
+measured TTFT or end-to-end win, and bounded decode/total behavior. Decode-sensitive plans keep
+the stricter 0.5% confirmation floor; self-deoptimizing prefill-only plans use a 1% noise floor.
 
 The optional MLX primitive backend also accepts MXFP4 and MXFP8 K-major weights. It emits
 register-fragment block-scale decode plus NAX ``matmul2d`` directly into the MLX lazy graph,
@@ -218,10 +233,10 @@ presenting system noise as a speedup:
 
 | Model | MLX decode | MLX + meTile | Native TTFT | Decode | Prefill | TTFT | End-to-end |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Llama 3.2 1B 4-bit | 145.95 tok/s | 146.00 tok/s | 104.1 ms | 1.012x | 1.330x | 1.143x | 1.010x |
-| Llama 3.2 3B 4-bit | 58.04 tok/s | 58.04 tok/s | 174.1 ms | 1.000x | 1.000x | 1.000x | 1.000x |
-| Qwen 2.5 0.5B 4-bit | 294.83 tok/s | 291.21 tok/s | 115.6 ms | 0.988x | 1.202x | 1.122x | 0.998x |
-| Qwen 2.5 1.5B 4-bit | 117.09 tok/s | 117.74 tok/s | 130.1 ms | 1.006x | 1.336x | 1.161x | 1.012x |
+| Llama 3.2 1B 4-bit | 151.36 tok/s | 150.98 tok/s | 102.0 ms | 0.998x | 1.339x | 1.135x | 1.004x |
+| Llama 3.2 3B 4-bit | 61.35 tok/s | 61.35 tok/s | 153.9 ms | 1.000x | 1.000x | 1.000x | 1.000x |
+| Qwen 2.5 0.5B 4-bit | 309.19 tok/s | 304.62 tok/s | 70.8 ms | 0.994x | 1.275x | 1.072x | 1.001x |
+| Qwen 2.5 1.5B 4-bit | 118.54 tok/s | 119.65 tok/s | 130.6 ms | 1.001x | 1.331x | 1.170x | 1.013x |
 
 Three workloads selected the generated affine-prefill path; Llama 3.2 3B retained native
 MLX. Speedups are medians of paired ratios, while chart bars show absolute medians. Raw trials,
@@ -232,7 +247,7 @@ the PNG bar charts:
 ```bash
 python benchmarks/mlx_lm_suite.py \
   --prompt-tokens 128 --generation-tokens 256 --trials 9 --delay 0 \
-  --confirmation-trials 5 \
+  --plan-trials 7 --confirmation-trials 5 \
   --output benchmarks/results/m5-mlx-lm-models.json
 
 python benchmarks/render_mlx_lm_results.py \
