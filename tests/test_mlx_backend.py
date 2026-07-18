@@ -28,6 +28,96 @@ using namespace metal;
     assert "slid" not in body
 
 
+def test_mlx_kernel_body_accepts_kernel_attribute_lists():
+    source = """
+[[kernel, max_total_threads_per_threadgroup(32)]] void example(
+    device half* X [[buffer(0)]],
+    uint3 tgp_id [[threadgroup_position_in_grid]],
+    uint sgid [[simdgroup_index_in_threadgroup]]) {
+    X[tgp_id.x] = half(sgid);
+}
+"""
+
+    body = mlx_backend._mlx_kernel_body(source)
+
+    assert "threadgroup_position_in_grid.x" in body
+    assert "simdgroup_index_in_threadgroup" in body
+
+
+def test_mlx_native_affine_swiglu_matches_quantized_matmul(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    monkeypatch.setattr(
+        mlx_quantized,
+        "_AFFINE_SWIGLU_CONFIGS",
+        (mlx_quantized.MLXAffineSwiGLUConfig("metile", "scalar", 32),),
+    )
+    mlx_quantized._affine_swiglu_schedule_cache.clear()
+    random = np.random.default_rng(43)
+    input_features = output_features = 64
+    values = mx.array(random.normal(size=(1, 1, input_features)).astype(np.float16))
+    gate = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    up = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    gate_weight, gate_scales, gate_biases = mx.quantize(gate, group_size=64, bits=4)
+    up_weight, up_scales, up_biases = mx.quantize(up, group_size=64, bits=4)
+
+    actual = mlx_quantized.mlx_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        autotune=False,
+    )
+    expected = mlx_quantized._native_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
+
+
+def test_mlx_affine_repack_runs_native_tensor_kernel():
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    random = np.random.default_rng(47)
+    input_features = output_features = 64
+    values = mx.array(random.normal(size=(1, 1, input_features)).astype(np.float16))
+    weight = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    packed, scales, biases = mx.quantize(weight, group_size=64, bits=4)
+    repacked = mlx_quantized.repack_mlx_affine_weight(packed, scales, biases)
+    actual = mlx_quantized.mlx_affine_qmv_nax(
+        values,
+        *repacked,
+        output_features=output_features,
+    )
+    expected = mx.quantized_matmul(
+        values,
+        packed,
+        scales=scales,
+        biases=biases,
+        transpose=True,
+        group_size=64,
+        bits=4,
+    )
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
+
+
 def test_framework_dispatch_requires_headroom_over_native():
     native = mlx_backend.MLXAttentionConfig("mlx")
     generated = mlx_backend.MLXAttentionConfig("metile", 256)
@@ -156,15 +246,18 @@ def test_mlx_lm_patch_restores_modules_loaded_after_application(monkeypatch):
     patch = apply_metile_to_mlx_lm()
     from mlx_lm.models import llama
 
+    original_mlp = llama.MLP.__call__._metile_original
     assert base.scaled_dot_product_attention is not original
     assert llama.scaled_dot_product_attention is base.scaled_dot_product_attention
     assert nn.RMSNorm.__call__ is not original_rms_norm
+    assert llama.MLP.__call__ is not original_mlp
 
     patch.restore()
 
     assert base.scaled_dot_product_attention is original
     assert llama.scaled_dot_product_attention is original
     assert nn.RMSNorm.__call__ is original_rms_norm
+    assert llama.MLP.__call__ is original_mlp
 
 
 def test_mlx_lm_patch_restores_graph_fused_transformer_block():

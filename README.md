@@ -92,7 +92,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
 - Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; measured short kernels receive an adaptive bounded poll-before-sleep budget while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
-- Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape.
+- Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape, including fused affine-quantized SwiGLU decode candidates.
 
 ## Block-Scaled GEMM
 
@@ -141,7 +141,8 @@ one-dimensional ``(heads,)`` launch remains a batch-one MHA shorthand.
 ## MLX-LM Backend
 
 meTile-generated Metal can execute as a lazy, zero-copy MLX primitive. The integration
-uses a Liger-style opt-in patch with independent attention and RMSNorm switches:
+uses a Liger-style opt-in patch with independent attention, RMSNorm, graph-fusion,
+and quantized-MLP switches:
 
 ```python
 from mlx_lm import load
@@ -161,10 +162,18 @@ fusion using an exact max-flow/min-cut pass and a stricter 10% switch margin. Un
 prefill attention, masks, sinks, quantized KV caches, and dtypes also fall back exactly.
 RMSNorm supports FP16/FP32 and accumulates in FP32.
 
+For affine 4-bit Llama MLPs, AOT repacking transposes packed nibbles and scale/bias groups
+once, then measures native MLX against generated scalar decode and Metal 4 NAX
+``matmul2d`` plus fused SwiGLU candidates. The selector verifies numerical compatibility,
+requires 10% headroom, persists the decision by device/source/shape, and discards repacked
+weights when native MLX wins.
+
 On this M5 32 GB machine with MLX 0.32.0 and MLX-LM 0.31.3, a five-trial interleaved
-Llama 3.2 1B 4-bit run at 128 prompt / 256 generated tokens measured 138.16 tok/s for
-MLX and 139.59 tok/s with the guarded patch (1.010x decode, 1.014x end to end). Reproduce
-the model-level benchmark rather than relying on that machine-specific number:
+Llama 3.2 1B 4-bit run at 128 prompt / 256 generated tokens measured 93.39 tok/s for
+MLX and 96.06 tok/s with the guarded patch (1.029x decode, 1.035x end to end). The
+affine SwiGLU selector retained native MLX for that run; meTile wins came from RMSNorm
+and the 512-token attention bucket. Reproduce the model-level benchmark rather than
+relying on that machine-specific number:
 
 ```bash
 python benchmarks/mlx_lm_backend.py \

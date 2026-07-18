@@ -9,6 +9,7 @@ from metile.backends.mlx import (
     mlx_rms_norm,
 )
 from metile.backends.mlx_graph import compile_mlx_graph
+from metile.backends.mlx_quantized import mlx_affine_swiglu
 from metile.ir.graph_ir import GraphBuilder, TensorSpec
 
 _graph_executable_cache = {}
@@ -106,11 +107,11 @@ def _execute_residual_rms_graph(values, residual, norm):
 def _patch_graph_fusion(model, replacements):
     classes = []
     if model is not None:
-        classes.extend(type(layer) for layer in getattr(model, "layers", ()))
+        classes.extend(type(layer) for layer in _model_layers(model))
     else:
-        module = sys.modules.get("mlx_lm.models.llama")
-        if module is not None and hasattr(module, "TransformerBlock"):
-            classes.append(module.TransformerBlock)
+        from mlx_lm.models import llama
+
+        classes.append(llama.TransformerBlock)
 
     for block_class in dict.fromkeys(classes):
         if (
@@ -149,23 +150,92 @@ def _patch_graph_fusion(model, replacements):
         block_class.__call__ = metile_transformer_block
 
 
+def _model_layers(model):
+    if model is None:
+        return ()
+    layers = getattr(model, "layers", None)
+    if layers is None:
+        layers = getattr(getattr(model, "model", None), "layers", ())
+    return layers
+
+
+def _supports_quantized_mlp(module, values, quantized_linear):
+    gate = getattr(module, "gate_proj", None)
+    up = getattr(module, "up_proj", None)
+    return (
+        isinstance(gate, quantized_linear)
+        and isinstance(up, quantized_linear)
+        and gate.mode == up.mode == "affine"
+        and gate.group_size == up.group_size == 64
+        and gate.bits == up.bits == 4
+        and gate.get("biases") is not None
+        and up.get("biases") is not None
+        and "bias" not in gate
+        and "bias" not in up
+        and values.size == values.shape[-1]
+        and str(values.dtype) == "mlx.core.float16"
+    )
+
+
+def _patch_quantized_mlp(model, replacements, quantized_linear):
+    classes = [type(layer.mlp) for layer in _model_layers(model) if hasattr(layer, "mlp")]
+    if model is None:
+        from mlx_lm.models import llama
+
+        classes.append(llama.MLP)
+
+    for mlp_class in dict.fromkeys(classes):
+        if mlp_class.__module__ != "mlx_lm.models.llama" or mlp_class.__name__ != "MLP":
+            continue
+        original = mlp_class.__call__
+        if getattr(original, "_metile_original", None) is not None:
+            continue
+
+        def make_replacement(original_call):
+            def replacement(self, values):
+                if not _supports_quantized_mlp(self, values, quantized_linear):
+                    return original_call(self, values)
+                gate = self.gate_proj
+                up = self.up_proj
+                hidden = mlx_affine_swiglu(
+                    values,
+                    gate["weight"],
+                    gate["scales"],
+                    gate.get("biases"),
+                    up["weight"],
+                    up["scales"],
+                    up.get("biases"),
+                    group_size=gate.group_size,
+                    bits=gate.bits,
+                )
+                return self.down_proj(hidden)
+
+            return replacement
+
+        metile_mlp = make_replacement(original)
+        metile_mlp._metile_original = original
+        replacements.append((mlp_class, "__call__", original))
+        mlp_class.__call__ = metile_mlp
+
+
 def apply_metile_to_mlx_lm(
     model=None,
     *,
     attention=True,
     rms_norm=True,
     graph_fusion=True,
+    quantized_mlp=True,
 ):
     """Patch MLX-LM with zero-copy, autotuned meTile primitives.
 
-    Decode attention, RMSNorm, and compute-graph fusion are independently
+    Decode attention, RMSNorm, quantized SwiGLU, and compute-graph fusion are independently
     selectable. Unsupported calls preserve MLX-LM's original implementation.
     The returned handle can restore every changed module or be used as a context
     manager.
     """
     if model is not None and not callable(model):
         raise TypeError("model must be an MLX-LM callable")
-    if not attention and not rms_norm and not graph_fusion:
+    if not attention and not rms_norm and not graph_fusion and not quantized_mlp:
         return MLXPatch([])
     try:
         import mlx.nn as nn
@@ -232,6 +302,8 @@ def apply_metile_to_mlx_lm(
 
     if graph_fusion:
         _patch_graph_fusion(model, replacements)
+    if quantized_mlp:
+        _patch_quantized_mlp(model, replacements, nn.QuantizedLinear)
 
     return MLXPatch(replacements, attention_replacement, attention_original)
 

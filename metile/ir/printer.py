@@ -237,6 +237,11 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
             f"{pad}nax_block_scaled_run({_val(op.ptr_a)}, {_val(op.ptr_values)}, "
             f"{_val(op.ptr_scales)}, bits={op.bits}, k={op.k_offset})"
         )
+    elif isinstance(op, mir.MNaxAffineRun):
+        lines.append(
+            f"{pad}nax_affine_run({_val(op.ptr_a)}, {_val(op.ptr_values)}, "
+            f"{_val(op.ptr_scales)}, {_val(op.ptr_biases)}, k={op.k_offset})"
+        )
     elif isinstance(op, mir.MNaxGemmEpilogue):
         lines.append(f"{pad}nax_gemm_epilogue(ops={op.operations})")
     elif isinstance(op, mir.MNaxGemmStore):
@@ -262,6 +267,16 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         )
     elif isinstance(op, mir.MNaxLoadBlockScale):
         lines.append(f"{pad}nax_load_block_scale({op.name}, col={op.col_offset}, k={op.k_offset})")
+    elif isinstance(op, mir.MNaxLoadAffineParameters):
+        lines.append(
+            f"{pad}nax_load_affine_parameters({op.scale_name}, {op.bias_name}, "
+            f"group={op.group_size}, col={op.col_offset}, k={op.k_offset})"
+        )
+    elif isinstance(op, mir.MNaxLoadAffineFragment):
+        lines.append(
+            f"{pad}nax_load_affine_fragment({op.name}, scale={op.scale}, bias={op.bias}, "
+            f"col={op.col_offset}, k={op.k_offset}, type={op.fragment_type})"
+        )
     elif isinstance(op, mir.MNaxPackRight):
         lines.append(f"{pad}nax_pack_right({op.low}, {op.high})")
     elif isinstance(op, mir.MNaxFmaFragment):
@@ -270,6 +285,11 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         )
     elif isinstance(op, mir.MNaxApplyFragment):
         lines.append(f"{pad}nax_apply_fragment({op.source}, ops={op.operations})")
+    elif isinstance(op, mir.MNaxBinaryFragment):
+        destination = op.destination or op.left
+        lines.append(
+            f"{pad}nax_binary_fragment({op.operation}, {op.left}, {op.right} -> {destination})"
+        )
     elif isinstance(op, mir.MNaxStoreFragment):
         lines.append(
             f"{pad}nax_store_fragment({op.source}, row={op.row_offset}, col={op.col_offset})"

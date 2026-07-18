@@ -168,6 +168,23 @@ def test_native_simd_math_primitives_emit_metal_intrinsics():
     assert "fast::exp(" in msl
 
 
+def test_elementwise_vectorization_rejects_subgroup_collectives():
+    from metile.compiler.passes import vectorize_elementwise
+    from metile.ir import metal_ir as mir
+
+    value = mir.MValue("value", ScalarType("f32"))
+    lane = mir.MValue("lane", U32)
+    broadcast = mir.MSimdBroadcast(value=value, lane=lane)
+    broadcast.result = mir.MValue("broadcast", ScalarType("f32"), broadcast)
+    loop = mir.MForLoop(iv_name="index", start=0, end=256, step=32, body=[broadcast])
+    loop._ew_aligned = True
+    function = mir.MFunction("collective_loop", kernel_type="elementwise", ops=[loop])
+
+    vectorize_elementwise(function)
+
+    assert not hasattr(loop, "_vec_size")
+
+
 def _build_simdgroup_role_ir() -> tir.Function:
     """Build Tile IR with simdgroup_role blocks."""
     func = tir.Function(

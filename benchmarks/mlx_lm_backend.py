@@ -13,6 +13,7 @@ from metile.backends.mlx import (
     mlx_attention_dispatches,
     mlx_rms_norm_dispatches,
 )
+from metile.backends.mlx_quantized import mlx_affine_swiglu_dispatches
 from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
 
 
@@ -31,6 +32,7 @@ def _arguments():
     parser.add_argument("--disable-attention", action="store_true")
     parser.add_argument("--disable-rmsnorm", action="store_true")
     parser.add_argument("--disable-graph-fusion", action="store_true")
+    parser.add_argument("--disable-quantized-mlp", action="store_true")
     parser.add_argument("--skip-verify", action="store_true")
     return parser.parse_args()
 
@@ -42,6 +44,7 @@ def _generate(model, tokenizer, prompt, arguments, patched):
             attention=not arguments.disable_attention,
             rms_norm=not arguments.disable_rmsnorm,
             graph_fusion=not arguments.disable_graph_fusion,
+            quantized_mlp=not arguments.disable_quantized_mlp,
         )
         if patched
         else None
@@ -79,6 +82,7 @@ def _verify_model(model, prompt, arguments):
         attention=not arguments.disable_attention,
         rms_norm=not arguments.disable_rmsnorm,
         graph_fusion=not arguments.disable_graph_fusion,
+        quantized_mlp=not arguments.disable_quantized_mlp,
     ):
         patched_prefix = model(tokens[:, :-1], cache=patched_cache)
         mx.eval(patched_prefix)
@@ -149,6 +153,12 @@ def main():
         print(
             f"rows<={dispatch['row_bucket']} hidden={dispatch['hidden']}: "
             f"{dispatch['algorithm']} block={dispatch['block']}"
+        )
+    print("Selected quantized SwiGLU schedules")
+    for dispatch in mlx_affine_swiglu_dispatches():
+        print(
+            f"{dispatch['input_features']}->{dispatch['output_features']}: "
+            f"{dispatch['algorithm']} {dispatch['implementation']} block={dispatch['block']}"
         )
 
 

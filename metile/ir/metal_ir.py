@@ -667,6 +667,7 @@ class MNaxGemmSetup(MOp):
     m: int = 0
     n: int = 0
     k: int = 0
+    left_type: str = "float"
     right_type: str = "float"
 
     def result_type(self):
@@ -701,10 +702,28 @@ class MNaxBlockScaledRun(MOp):
 
 
 @dataclass
+class MNaxAffineRun(MOp):
+    """Decode one aligned affine-quantized fragment and execute NAX MMAs."""
+
+    ptr_a: MValue = None
+    ptr_values: MValue = None
+    ptr_scales: MValue = None
+    ptr_biases: MValue = None
+    group_size: int = 64
+    fragment_type: str = "half"
+    row_bound: int = 1
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
 class MNaxGemmStore(MOp):
     """Store the four 16x16 accumulator fragments for one simdgroup."""
 
     ptr_c: MValue = None
+    row_bound: int = 0
 
     def result_type(self):
         return None
@@ -770,6 +789,7 @@ class MNaxLoadFragment(MOp):
     row_offset: int = 0
     col_offset: int = 0
     k_offset: int = 0
+    row_bound: int = 0
 
     def result_type(self):
         return None
@@ -797,6 +817,38 @@ class MNaxLoadBlockScale(MOp):
 
     ptr_scales: MValue = None
     name: str = ""
+    col_offset: int = 0
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadAffineFragment(MOp):
+    """Decode one eight-element affine uint4 right register fragment."""
+
+    ptr_values: MValue = None
+    name: str = ""
+    scale: str = ""
+    bias: str = ""
+    col_offset: int = 0
+    k_offset: int = 0
+    fragment_type: str = "half"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadAffineParameters(MOp):
+    """Load four FP16 affine scales and biases for one K group."""
+
+    ptr_scales: MValue = None
+    ptr_biases: MValue = None
+    scale_name: str = ""
+    bias_name: str = ""
+    group_size: int = 64
     col_offset: int = 0
     k_offset: int = 0
 
@@ -839,6 +891,19 @@ class MNaxApplyFragment(MOp):
 
 
 @dataclass
+class MNaxBinaryFragment(MOp):
+    """Combine two register fragments with an element-wise operation."""
+
+    left: str = "d00"
+    right: str = "d01"
+    destination: str = ""
+    operation: str = "multiply"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
 class MNaxStoreFragment(MOp):
     """Store one 16x16 accumulator fragment to the output matrix."""
 
@@ -846,6 +911,7 @@ class MNaxStoreFragment(MOp):
     source: str = "d00"
     row_offset: int = 0
     col_offset: int = 0
+    row_bound: int = 0
 
     def result_type(self):
         return None

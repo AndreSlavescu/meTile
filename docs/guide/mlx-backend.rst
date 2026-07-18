@@ -18,11 +18,12 @@ Apply the reversible model patch after or before loading an MLX-LM model:
    model, tokenizer = load("mlx-community/Llama-3.2-1B-Instruct-4bit")
    patch = apply_metile_to_mlx_lm(model=model)
 
-   # Generation uses independently tuned attention and RMSNorm primitives.
+   # Generation independently tunes attention, RMSNorm, graph, and MLP primitives.
    patch.restore()
 
-The handle is also a context manager. ``attention=False``, ``rms_norm=False``, or
-``graph_fusion=False`` disables each patch target independently.
+The handle is also a context manager. ``attention=False``, ``rms_norm=False``,
+``graph_fusion=False``, or ``quantized_mlp=False`` disables each patch target
+independently.
 
 Dispatch Policy
 ---------------
@@ -43,6 +44,13 @@ high-level compute DAG. The graph fusion pass uses an exact max-flow/min-cut par
 preserves the residual as a second output, and measures the fused multi-output kernel against
 the original MLX graph. Graph fusion requires 10 percent isolated headroom before switching.
 
+Affine 4-bit Llama decode MLPs add three representation families to the same policy:
+native MLX quantized matmul, an output-major scalar meTile kernel, and an M5-native
+``matmul2d`` kernel over an AOT K-major repack. Gate/up projections and SwiGLU are fused
+without materializing either projection. Candidate outputs must first match native MLX;
+the fastest generated representation must then clear a 10 percent guard band. Repacked
+weights are retained only when the NAX representation wins.
+
 Model Benchmark
 ---------------
 
@@ -58,6 +66,7 @@ adds a configurable cooldown, and reports both decode throughput and total time:
      --trials 5 \
      --delay 2
 
-Use ``--disable-attention``, ``--disable-rmsnorm``, or ``--disable-graph-fusion`` for
-ablation runs. The final report lists every native/generated schedule decision so a
-throughput result cannot silently attribute an MLX fallback to meTile.
+Use ``--disable-attention``, ``--disable-rmsnorm``, ``--disable-graph-fusion``, or
+``--disable-quantized-mlp`` for ablation runs. The final report lists every
+native/generated schedule decision so a throughput result cannot silently attribute an
+MLX fallback to meTile.

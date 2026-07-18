@@ -446,6 +446,7 @@ def _emit_gemm_op(
             mir.MNaxGemmSetup,
             mir.MNaxGemmRun,
             mir.MNaxBlockScaledRun,
+            mir.MNaxAffineRun,
             mir.MNaxGemmEpilogue,
             mir.MNaxGemmStore,
         ),
@@ -470,6 +471,12 @@ def _emit_gemm_op(
     elif isinstance(op, mir.MNaxLoadBlockScaledFragment):
         _emit_nax_load_block_scaled_fragment(op, lines, indent, func)
 
+    elif isinstance(op, mir.MNaxLoadAffineParameters):
+        _emit_nax_load_affine_parameters(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxLoadAffineFragment):
+        _emit_nax_load_affine_fragment(op, lines, indent, func)
+
     elif isinstance(op, mir.MNaxPackRight):
         _emit_nax_pack_right(op, lines, indent)
 
@@ -478,6 +485,9 @@ def _emit_gemm_op(
 
     elif isinstance(op, mir.MNaxApplyFragment):
         _emit_nax_apply_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxBinaryFragment):
+        _emit_nax_binary_fragment(op, lines, indent)
 
     elif isinstance(op, mir.MNaxStoreFragment):
         _emit_nax_store_fragment(op, lines, indent, func)
@@ -932,14 +942,30 @@ def _emit_block_scaled_tile_load(op, lines, indent, func):
     lines.append(f"{pad}}}")
 
 
-def _emit_nax_vector(lines, pad, name, row0, row1, ptr, stride):
+def _emit_nax_vector(
+    lines,
+    pad,
+    name,
+    row0,
+    row1,
+    ptr,
+    stride,
+    element_type,
+    condition0=None,
+    condition1=None,
+):
+    zero = f"{element_type}4(0)"
+    load0 = f"*((device const {element_type}4*)(&{ptr}[{row0} * {stride}]))"
+    load1 = f"*((device const {element_type}4*)(&{ptr}[{row1} * {stride}]))"
+    if condition0:
+        load0 = f"({condition0}) ? {load0} : {zero}"
+    if condition1:
+        load1 = f"({condition1}) ? {load1} : {zero}"
+    lines.append(f"{pad}const {element_type}4 {name}0 = {load0};")
+    lines.append(f"{pad}const {element_type}4 {name}1 = {load1};")
     lines.append(
-        f"{pad}const float4 {name}0 = *((device const float4*)(&{ptr}[{row0} * {stride}]));"
+        f"{pad}const metal::vec<{element_type}, 8> {name} = metal::vec<{element_type}, 8>("
     )
-    lines.append(
-        f"{pad}const float4 {name}1 = *((device const float4*)(&{ptr}[{row1} * {stride}]));"
-    )
-    lines.append(f"{pad}const metal::vec<float, 8> {name} = metal::vec<float, 8>(")
     lines.append(
         f"{pad}    {name}0.x, {name}0.y, {name}0.z, {name}0.w, "
         f"{name}1.x, {name}1.y, {name}1.z, {name}1.w);"
@@ -1020,6 +1046,8 @@ def _emit_nax_matmul2d_decl(op, lines, indent):
 def _emit_nax_load_fragment(op, lines, indent, func):
     pad = "    " * indent
     ptr = _val_name_gemm(op.ptr, func)
+    dtype = op.ptr.type.dtype if isinstance(op.ptr.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
     k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
     if op.operand == "left":
         row = "tile_row + frag_m"
@@ -1037,7 +1065,22 @@ def _emit_nax_load_fragment(op, lines, indent, func):
             col = f"N + tile_col + {op.col_offset}u + frag_n"
     else:
         raise ValueError(f"unknown NAX fragment operand: {op.operand}")
-    _emit_nax_vector(lines, pad, op.name, f"({row})", f"({row} + 8u)", ptr, col)
+    condition0 = condition1 = None
+    if op.operand == "left" and op.row_bound:
+        condition0 = f"({row}) < {op.row_bound}u"
+        condition1 = f"({row} + 8u) < {op.row_bound}u"
+    _emit_nax_vector(
+        lines,
+        pad,
+        op.name,
+        f"({row})",
+        f"({row} + 8u)",
+        ptr,
+        col,
+        element_type,
+        condition0,
+        condition1,
+    )
 
 
 def _emit_nax_load_block_scaled_fragment(op, lines, indent, func):
@@ -1096,6 +1139,55 @@ def _emit_nax_load_block_scale(op, lines, indent, func):
     lines.append(f"{pad}const float4 {op.name} = mtile_decode_e8m0({op.name}_bits);")
 
 
+def _emit_nax_load_affine_parameters(op, lines, indent, func):
+    pad = "    " * indent
+    scales = _val_name_gemm(op.ptr_scales, func)
+    biases = _val_name_gemm(op.ptr_biases, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    col = "tile_col + frag_n"
+    if op.col_offset:
+        col = f"tile_col + {op.col_offset}u + frag_n"
+    index = f"(({k} + frag_m) / {op.group_size}u) * N + ({col})"
+    lines.append(
+        f"{pad}const half4 {op.scale_name} = *((device const half4*)(&{scales}[{index}]));"
+    )
+    lines.append(f"{pad}const half4 {op.bias_name} = *((device const half4*)(&{biases}[{index}]));")
+
+
+def _emit_nax_load_affine_fragment(op, lines, indent, func):
+    pad = "    " * indent
+    values = _val_name_gemm(op.ptr_values, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    col = "tile_col + frag_n"
+    if op.col_offset:
+        col = f"tile_col + {op.col_offset}u + frag_n"
+
+    vectors = []
+    for suffix, row in (("0", f"{k} + frag_m"), ("1", f"{k} + frag_m + 8u")):
+        name = f"{op.name}{suffix}"
+        lines.append(f"{pad}const uint {name}_element = ({row}) * N + ({col});")
+        lines.append(
+            f"{pad}const ushort {name}_packed = "
+            f"*((device const ushort*)(&{values}[{name}_element >> 1u]));"
+        )
+        lines.append(
+            f"{pad}const half4 {name}_quantized = half4("
+            + ", ".join(f"half(({name}_packed >> {shift}u) & 15u)" for shift in (0, 4, 8, 12))
+            + ");"
+        )
+        lines.append(f"{pad}const half4 {name} = {name}_quantized * {op.scale} + {op.bias};")
+        vectors.append(name)
+
+    lines.append(
+        f"{pad}const metal::vec<{op.fragment_type}, 8> {op.name} = "
+        f"metal::vec<{op.fragment_type}, 8>("
+    )
+    components = []
+    for vector in vectors:
+        components.extend(f"{op.fragment_type}({vector}.{field})" for field in "xyzw")
+    lines.append(f"{pad}    {', '.join(components[:4])}, {', '.join(components[4:])});")
+
+
 def _emit_nax_pack_right(op, lines, indent):
     pad = "    " * indent
     lines.append(f"{pad}#pragma clang loop unroll(full)")
@@ -1129,19 +1221,40 @@ def _emit_nax_apply_fragment(op, lines, indent):
     lines.append(f"{pad}}}")
 
 
+def _emit_nax_binary_fragment(op, lines, indent):
+    pad = "    " * indent
+    destination = op.destination or op.left
+    if op.operation == "add":
+        expression = f"{op.left}[i] + {op.right}[i]"
+    elif op.operation == "multiply":
+        expression = f"{op.left}[i] * {op.right}[i]"
+    elif op.operation == "swiglu":
+        expression = f"({op.left}[i] / (1.0f + fast::exp(-{op.left}[i]))) * {op.right}[i]"
+    else:
+        raise ValueError(f"unknown NAX binary fragment operation: {op.operation}")
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    {destination}[i] = {expression};")
+    lines.append(f"{pad}}}")
+
+
 def _emit_nax_store_fragment(op, lines, indent, func):
     pad = "    " * indent
     ptr_c = _val_name_gemm(op.ptr_c, func)
-    lines.append(
-        f"{pad}*((device float4*)(&{ptr_c}[(tile_row + {op.row_offset}u + frag_m) * N "
-        f"+ tile_col + {op.col_offset}u + frag_n])) = "
-        f"float4({op.source}[0], {op.source}[1], {op.source}[2], {op.source}[3]);"
-    )
-    lines.append(
-        f"{pad}*((device float4*)(&{ptr_c}[(tile_row + {op.row_offset + 8}u + frag_m) * N "
-        f"+ tile_col + {op.col_offset}u + frag_n])) = "
-        f"float4({op.source}[4], {op.source}[5], {op.source}[6], {op.source}[7]);"
-    )
+    dtype = op.ptr_c.type.dtype if isinstance(op.ptr_c.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    for component_offset, source_offset in ((op.row_offset, 0), (op.row_offset + 8, 4)):
+        row = f"tile_row + {component_offset}u + frag_m"
+        statement = (
+            f"*((device {element_type}4*)(&{ptr_c}[({row}) * N + tile_col "
+            f"+ {op.col_offset}u + frag_n])) = {element_type}4("
+            f"{op.source}[{source_offset}], {op.source}[{source_offset + 1}], "
+            f"{op.source}[{source_offset + 2}], {op.source}[{source_offset + 3}]);"
+        )
+        if op.row_bound:
+            lines.append(f"{pad}if (({row}) < {op.row_bound}u) {{ {statement} }}")
+        else:
+            lines.append(f"{pad}{statement}")
 
 
 def _emit_tile_schedule(op, lines, indent):

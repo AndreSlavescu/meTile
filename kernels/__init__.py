@@ -1,3 +1,4 @@
+from kernels.affine_qmv import affine_qmv, affine_swiglu_qmv
 from kernels.attention import (
     ATTENTION_DECODE_CONFIGS,
     ATTENTION_PARTIAL_CONFIGS,
@@ -34,6 +35,8 @@ __all__ = [
     "ATTENTION_PARTIAL_CONFIGS",
     "MATMUL_CONFIGS",
     "REDUCE_KERNELS",
+    "affine_qmv",
+    "affine_swiglu_qmv",
     "attention_decode",
     "exp_kernel",
     "exp_sqrt_kernel",

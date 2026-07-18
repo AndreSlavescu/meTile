@@ -177,3 +177,14 @@ are both measured because bfloat lowers register footprint on sustained M5 workl
 while float can remain faster for launch-limited shapes. One- and two-step reduction
 forms are measured independently because paired scale reuse wins at small and medium K
 but can reduce occupancy on larger problems.
+
+Affine Uint4 Register Fragments
+-------------------------------
+
+Affine weight-only lowering uses the same fragment IR rather than a dedicated whole-kernel
+template. ``MNaxLoadAffineParameters`` reuses one FP16 scale/bias vector across a 64-value
+K group, ``MNaxLoadAffineFragment`` decodes K-major uint4 nibbles directly into half
+cooperative-tensor inputs, and masked left loads/stores specialize the one-row decode case.
+``MNaxBinaryFragment`` composes gate and up accumulators with SwiGLU while they remain in
+registers. The MLX backend can therefore compare scalar output-major execution, native MLX,
+and this NAX representation without changing fusion legality or the frontend model graph.

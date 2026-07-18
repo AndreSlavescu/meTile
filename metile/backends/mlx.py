@@ -138,7 +138,7 @@ def _replace_identifier(source, identifier, expression):
 
 
 def _mlx_kernel_body(msl_source):
-    kernel_start = msl_source.index("[[kernel]]")
+    kernel_start = msl_source.index("[[kernel")
     body_start = msl_source.index("{", kernel_start)
     header = msl_source[kernel_start:body_start]
     body = msl_source[body_start + 1 : msl_source.rfind("}")]
