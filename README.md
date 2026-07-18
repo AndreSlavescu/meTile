@@ -214,7 +214,7 @@ require at least 5% primitive-level headroom before crossing the framework bound
 otherwise the call stays on MLX. A high-level compute DAG also discovers multi-output
 residual-add/RMSNorm fusion using an exact max-flow/min-cut pass and a stricter 10% switch
 margin. Unsupported attention modes, masks, sinks, quantized KV caches, and dtypes fall
-back exactly. RMSNorm supports FP16/FP32 and accumulates in FP32.
+back exactly. Attention and RMSNorm support BF16/FP16/FP32 and accumulate in FP32.
 
 For affine 4-bit model weights, AOT preparation preserves the original quantized values while
 transposing packed nibbles and scale/bias groups into a K-major NAX view. Ragged prefill rows
@@ -265,6 +265,47 @@ python benchmarks/mlx_lm_suite.py \
 
 python benchmarks/render_mlx_lm_results.py \
   benchmarks/results/m5-mlx-lm-models.json
+```
+
+### Dense BF16 Capacity Baseline
+
+The BF16 capacity suite covers six dense checkpoints from 0.5B through 7B parameters. It uses
+the same guarded dispatcher with native Metal `bfloat` kernels, a 128-token prompt, 64 generated
+tokens, five model-plan trials, three confirmation trials, five measurement trials, and a
+0.1-second cooldown. `mx.get_peak_memory()` reports MLX allocator peak memory rather than total
+system memory:
+
+| Throughput | Latency |
+|:--:|:--:|
+| ![Native MLX and MLX with meTile BF16 prefill and decode throughput across six models](docs/_static/mlx-bf16-model-throughput.png) | ![Native MLX and MLX with meTile BF16 TTFT and end-to-end latency across six models](docs/_static/mlx-bf16-model-latency.png) |
+
+| Model | MLX peak | Decode | Prefill | TTFT | End-to-end | Selected model plan |
+|---|---:|---:|---:|---:|---:|---|
+| Qwen 2.5 0.5B BF16 | 1.11 GiB | 112.20 tok/s | 4084.94 tok/s | 208.0 ms | 0.80 s | Native MLX |
+| Llama 3.2 1B BF16 | 2.46 GiB | 41.05 tok/s | 1920.23 tok/s | 177.0 ms | 1.75 s | Native MLX |
+| Qwen 2.5 1.5B BF16 | 3.06 GiB | 31.89 tok/s | 1449.96 tok/s | 248.1 ms | 2.30 s | Native MLX |
+| Qwen 2.5 3B BF16 | 5.92 GiB | 15.27 tok/s | 701.88 tok/s | 342.9 ms | 4.56 s | Native MLX |
+| Llama 3.2 3B BF16 | 6.16 GiB | 14.78 tok/s | 674.91 tok/s | 340.9 ms | 4.70 s | Native MLX |
+| Qwen 2.5 7B BF16 | 14.38 GiB | 6.83 tok/s | 273.49 tok/s | 667.9 ms | 10.07 s | Native MLX |
+
+Every full-model plan retained native MLX because no BF16 feature combination cleared the
+model-level TTFT or end-to-end guard. The equal bars are therefore deliberate shared native
+samples, not rounded or noise-derived speedups. Verification produced identical next tokens and
+zero measured logit error for all six selected plans. The 7B checkpoint peaked at 14.38 GiB on
+the 32 GB M5, preserving substantial runtime and operating-system headroom. Raw samples, memory,
+verification, and primitive dispatches are committed in
+`benchmarks/results/m5-mlx-lm-bf16-models.json`.
+
+```bash
+METILE_DISABLE_DISK_CACHE=1 python benchmarks/mlx_lm_suite.py \
+  --suite bf16 --offline \
+  --prompt-tokens 128 --generation-tokens 64 \
+  --trials 5 --plan-trials 5 --confirmation-trials 3 --delay 0.1
+
+python benchmarks/render_mlx_lm_results.py \
+  benchmarks/results/m5-mlx-lm-bf16-models.json \
+  --throughput-output docs/_static/mlx-bf16-model-throughput.png \
+  --latency-output docs/_static/mlx-bf16-model-latency.png
 ```
 
 ## Install

@@ -1,9 +1,11 @@
 import json
 import struct
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from benchmarks.mlx_lm_suite import DEFAULT_BF16_MODELS, _backend_command
 from benchmarks.render_mlx_lm_results import (
     _chart_data,
     _label_paired_bars,
@@ -88,6 +90,41 @@ def test_chart_data_preserves_absolute_and_relative_results():
 
 def test_model_label_keeps_family_and_quantization_readable():
     assert _model_label("mlx-community/Qwen2.5-1.5B-Instruct-4bit") == ("Qwen 2.5\n1.5B 4-bit")
+    assert _model_label("mlx-community/Llama-3.2-3B-Instruct-bf16") == ("Llama 3.2\n3B BF16")
+
+
+def test_bf16_suite_spans_dense_models_through_seven_billion_parameters():
+    assert DEFAULT_BF16_MODELS[0].endswith("0.5B-Instruct-bf16")
+    assert DEFAULT_BF16_MODELS[-1].endswith("7B-Instruct-bf16")
+    assert len(DEFAULT_BF16_MODELS) == 6
+
+
+def test_bf16_suite_disables_quantized_only_backends(tmp_path):
+    arguments = SimpleNamespace(
+        suite="bf16",
+        prompt_tokens=128,
+        generation_tokens=64,
+        trials=5,
+        prefill_step_size=2048,
+        delay=0.1,
+        seed=0,
+        plan_decode_steps=8,
+        plan_trials=5,
+        confirmation_trials=3,
+        skip_verify=False,
+        disable_attention=False,
+        disable_rmsnorm=False,
+        disable_graph_fusion=False,
+        disable_quantized_mlp=False,
+        disable_affine_prefill=False,
+        disable_model_autotune=False,
+    )
+
+    command = _backend_command(arguments, DEFAULT_BF16_MODELS[0], tmp_path / "result.json")
+
+    assert "--disable-quantized-mlp" in command
+    assert "--disable-affine-prefill" in command
+    assert "--disable-attention" not in command
 
 
 def test_suite_context_labels_shared_native_fallback_trials():
@@ -158,9 +195,13 @@ def test_renderer_writes_high_resolution_png(renderer, tmp_path):
 
 
 @pytest.mark.parametrize("renderer", (_render_throughput, _render_latency))
-def test_published_suite_renders_without_text_overlap(renderer, tmp_path):
+@pytest.mark.parametrize(
+    "result_name",
+    ("m5-mlx-lm-models.json", "m5-mlx-lm-bf16-models.json"),
+)
+def test_published_suite_renders_without_text_overlap(renderer, result_name, tmp_path):
     pytest.importorskip("matplotlib")
     root = Path(__file__).parents[1]
-    suite = json.loads((root / "benchmarks/results/m5-mlx-lm-models.json").read_text())
+    suite = json.loads((root / f"benchmarks/results/{result_name}").read_text())
 
     renderer(suite, tmp_path / "published.png")

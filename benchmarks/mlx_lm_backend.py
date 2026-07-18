@@ -286,6 +286,16 @@ def _model_metadata(config):
     return {key: text_config[key] for key in keys if key in text_config}
 
 
+def _mlx_memory_metadata():
+    import mlx.core as mx
+
+    return {
+        "active_bytes": int(mx.get_active_memory()),
+        "cache_bytes": int(mx.get_cache_memory()),
+        "peak_bytes": int(mx.get_peak_memory()),
+    }
+
+
 def _write_json_result(
     path,
     arguments,
@@ -299,12 +309,13 @@ def _write_json_result(
     confirmation,
 ):
     payload = {
-        "schema_version": 5,
+        "schema_version": 6,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "revision": _git_revision(),
         "model": arguments.model,
         "model_config": _model_metadata(config),
         "hardware": _hardware_metadata(),
+        "memory": _mlx_memory_metadata(),
         "software": {
             "python": platform.python_version(),
             "mlx": _package_version("mlx"),
@@ -365,6 +376,7 @@ def main():
     )
 
     arguments = _arguments()
+    mx.reset_peak_memory()
     model, tokenizer, config = load(arguments.model, return_config=True)
     tokenizer._eos_token_ids = {}
     vocab_size = config.get("vocab_size") or config["text_config"]["vocab_size"]

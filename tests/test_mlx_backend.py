@@ -72,6 +72,27 @@ def test_mlx_kernel_body_accepts_kernel_attribute_lists():
     assert "simdgroup_index_in_threadgroup" in body
 
 
+def test_mlx_bfloat16_source_specialization_uses_native_metal_types_and_stores():
+    source = """
+device const half4* X;
+device half* Out;
+Out[thread_index_in_threadgroup] = float(X[0].x);
+"""
+
+    specialized = mlx_backend._specialize_mlx_source(source, "mlx.core.bfloat16")
+
+    assert "device const bfloat4* X" in specialized
+    assert "device bfloat* Out" in specialized
+    assert "Out[thread_index_in_threadgroup] = bfloat(float(X[0].x));" in specialized
+    assert "half" not in specialized
+
+
+def test_mlx_source_specialization_preserves_non_bfloat16_source():
+    source = "device half* Out;"
+
+    assert mlx_backend._specialize_mlx_source(source, "mlx.core.float16") == source
+
+
 @pytest.mark.parametrize("rows", (33, 127))
 def test_mlx_block_scaled_matmul_matches_ragged_fp16_reference(rows, monkeypatch):
     mx = pytest.importorskip("mlx.core")
@@ -953,31 +974,63 @@ def test_mlx_attention_decode_matches_mlx_gqa(monkeypatch):
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=2e-5, atol=2e-5)
 
 
-def test_mlx_rms_norm_matches_mlx_float16(monkeypatch):
+def test_mlx_attention_decode_matches_mlx_bfloat16(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_backend._mlx_kernel_cache.clear()
+    mlx_backend._mlx_schedule_cache.clear()
+    random = np.random.default_rng(2027)
+    query = mx.array(random.standard_normal((1, 4, 1, 64)).astype(np.float32)).astype(mx.bfloat16)
+    key = mx.array(random.standard_normal((1, 2, 65, 64)).astype(np.float32)).astype(mx.bfloat16)
+    value = mx.array(random.standard_normal((1, 2, 65, 64)).astype(np.float32)).astype(mx.bfloat16)
+
+    actual = mlx_backend.mlx_attention_decode(query, key, value, scale=0.125, autotune=False)
+    expected = mx.fast.scaled_dot_product_attention(query, key, value, scale=0.125)
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(
+        np.array(actual.astype(mx.float32)),
+        np.array(expected.astype(mx.float32)),
+        rtol=2e-2,
+        atol=4e-3,
+    )
+
+
+@pytest.mark.parametrize("dtype_name", ("float16", "bfloat16"))
+def test_mlx_rms_norm_matches_mlx_low_precision(dtype_name, monkeypatch):
     mx = pytest.importorskip("mlx.core")
     monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
     mlx_backend._mlx_rms_kernel_cache.clear()
     mlx_backend._mlx_rms_schedule_cache.clear()
     random = np.random.default_rng(17)
-    values = mx.array(random.standard_normal((2, 3, 2048)).astype(np.float16))
-    weight = mx.array(random.standard_normal((2048,)).astype(np.float16))
+    dtype = getattr(mx, dtype_name)
+    values = mx.array(random.standard_normal((2, 3, 2048)).astype(np.float32)).astype(dtype)
+    weight = mx.array(random.standard_normal((2048,)).astype(np.float32)).astype(dtype)
 
     actual = mlx_backend.mlx_rms_norm(values, weight, 1e-5, autotune=False)
     expected = mx.fast.rms_norm(values, weight, 1e-5)
     mx.eval(actual, expected)
 
-    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=2e-3, atol=2e-3)
+    tolerance = 4e-2 if dtype_name == "bfloat16" else 2e-3
+    np.testing.assert_allclose(
+        np.array(actual.astype(mx.float32)),
+        np.array(expected.astype(mx.float32)),
+        rtol=tolerance,
+        atol=tolerance,
+    )
 
 
-def test_mlx_fused_add_rms_norm_preserves_both_outputs(monkeypatch):
+@pytest.mark.parametrize("dtype_name", ("float16", "bfloat16"))
+def test_mlx_fused_add_rms_norm_preserves_both_outputs(dtype_name, monkeypatch):
     mx = pytest.importorskip("mlx.core")
     monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
     mlx_backend._mlx_add_rms_kernel_cache.clear()
     mlx_backend._mlx_add_rms_schedule_cache.clear()
     random = np.random.default_rng(29)
-    values = mx.array(random.standard_normal((2, 1, 2048)).astype(np.float16))
-    residual = mx.array(random.standard_normal((2, 1, 2048)).astype(np.float16))
-    weight = mx.array(random.standard_normal((2048,)).astype(np.float16))
+    dtype = getattr(mx, dtype_name)
+    values = mx.array(random.standard_normal((2, 1, 2048)).astype(np.float32)).astype(dtype)
+    residual = mx.array(random.standard_normal((2, 1, 2048)).astype(np.float32)).astype(dtype)
+    weight = mx.array(random.standard_normal((2048,)).astype(np.float32)).astype(dtype)
 
     actual_sum, actual_norm = mlx_backend.mlx_add_rms_norm(
         values, residual, weight, 1e-5, autotune=False
@@ -986,8 +1039,17 @@ def test_mlx_fused_add_rms_norm_preserves_both_outputs(monkeypatch):
     expected_norm = mx.fast.rms_norm(expected_sum, weight, 1e-5)
     mx.eval(actual_sum, actual_norm, expected_sum, expected_norm)
 
-    np.testing.assert_array_equal(np.array(actual_sum), np.array(expected_sum))
-    np.testing.assert_allclose(np.array(actual_norm), np.array(expected_norm), rtol=3e-3, atol=3e-3)
+    np.testing.assert_array_equal(
+        np.array(actual_sum.astype(mx.float32)),
+        np.array(expected_sum.astype(mx.float32)),
+    )
+    tolerance = 4e-2 if dtype_name == "bfloat16" else 3e-3
+    np.testing.assert_allclose(
+        np.array(actual_norm.astype(mx.float32)),
+        np.array(expected_norm.astype(mx.float32)),
+        rtol=tolerance,
+        atol=tolerance,
+    )
 
 
 def test_mlx_graph_executor_runs_selected_fusion(monkeypatch):

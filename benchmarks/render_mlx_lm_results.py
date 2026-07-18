@@ -49,12 +49,20 @@ def _arguments():
 
 def _model_label(model):
     name = model.rsplit("/", 1)[-1]
-    for suffix in ("-Instruct-4bit", "-4bit"):
+    precision = "unknown"
+    for suffix, label in (
+        ("-Instruct-4bit", "4-bit"),
+        ("-4bit", "4-bit"),
+        ("-Instruct-bf16", "BF16"),
+        ("-bf16", "BF16"),
+    ):
         if name.endswith(suffix):
             name = name[: -len(suffix)]
+            precision = label
+            break
     family, size = name.rsplit("-", 1)
     family = family.replace("Llama-", "Llama ").replace("Qwen2.5", "Qwen 2.5")
-    return f"{family}\n{size} 4-bit"
+    return f"{family}\n{size} {precision}"
 
 
 def _suite_context(suite):

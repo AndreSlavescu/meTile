@@ -189,6 +189,7 @@ def _compiled_swiglu_mlp(transpose: tuple[bool, bool, bool]):
 
 def _validate_runtime_value(value: GraphValue, runtime_value):
     dtype = {
+        "mlx.core.bfloat16": "bf16",
         "mlx.core.float16": "f16",
         "mlx.core.float32": "f32",
     }.get(str(runtime_value.dtype))

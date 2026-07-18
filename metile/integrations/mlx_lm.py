@@ -558,7 +558,7 @@ def _supports_metile_decode(queries, keys, values, cache, mask, sinks):
         and queries.shape[-1] == keys.shape[-1]
         and queries.shape[-1] % 32 == 0
         and queries.dtype == keys.dtype == values.dtype
-        and str(queries.dtype) in ("mlx.core.float16", "mlx.core.float32")
+        and str(queries.dtype) in ("mlx.core.bfloat16", "mlx.core.float16", "mlx.core.float32")
     )
 
 
@@ -568,7 +568,7 @@ def _supports_metile_rms_norm(values, weight):
         and weight.ndim == 1
         and values.shape[-1] == weight.shape[0]
         and values.dtype == weight.dtype
-        and str(values.dtype) in ("mlx.core.float16", "mlx.core.float32")
+        and str(values.dtype) in ("mlx.core.bfloat16", "mlx.core.float16", "mlx.core.float32")
     )
 
 
@@ -583,6 +583,7 @@ def _supports_metile_residual_rms_norm(values, residual, norm):
 
 def _tensor_spec(value):
     dtype = {
+        "mlx.core.bfloat16": "bf16",
         "mlx.core.float16": "f16",
         "mlx.core.float32": "f32",
     }[str(value.dtype)]

@@ -14,7 +14,7 @@ import metile
 from kernels.add_rmsnorm import add_rmsnorm
 from kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
 from kernels.rmsnorm import rmsnorm
-from metile.compiler.schedule_search import choose_mdl_tie
+from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 
 _mlx_kernel_cache = {}
@@ -138,6 +138,33 @@ def _mlx_dtype_to_numpy(dtype):
     raise TypeError(f"meTile MLX attention does not support {name}")
 
 
+def _mlx_compiler_dtype(dtype):
+    name = str(dtype)
+    if name == "mlx.core.bfloat16":
+        return np.dtype(np.float16)
+    return _mlx_dtype_to_numpy(dtype)
+
+
+def _specialize_mlx_source(source, dtype):
+    if str(dtype) == "mlx.core.bfloat16":
+        source = re.sub(r"\bhalf(?=[234]?\b)", "bfloat", source)
+        output_names = re.findall(r"\bdevice\s+bfloat\s*\*\s*(\w+)", source)
+        for name in output_names:
+            source = re.sub(
+                rf"(\b{re.escape(name)}\[[^]]+\]\s*=\s*)([^;]+);",
+                r"\1bfloat(\2);",
+                source,
+            )
+        return source
+    return source
+
+
+def _validate_mlx_dtype(dtype):
+    if str(dtype) == "mlx.core.bfloat16":
+        return
+    _mlx_dtype_to_numpy(dtype)
+
+
 def _replace_identifier(source, identifier, expression):
     return re.sub(rf"\b{re.escape(identifier)}\b", expression, source)
 
@@ -166,8 +193,8 @@ def _mlx_kernel_body(msl_source):
 
 def _compile_mlx_attention(query_heads, key_value_heads, dimension, dtype, scale, block):
     mx = _require_mlx()
-    numpy_dtype = _mlx_dtype_to_numpy(dtype)
-    kernel_key = (query_heads, key_value_heads, dimension, numpy_dtype.str, scale, block)
+    numpy_dtype = _mlx_compiler_dtype(dtype)
+    kernel_key = (query_heads, key_value_heads, dimension, str(dtype), scale, block)
     cached = _mlx_kernel_cache.get(kernel_key)
     if cached is not None:
         return cached
@@ -188,7 +215,7 @@ def _compile_mlx_attention(query_heads, key_value_heads, dimension, dtype, scale
         KV_HEADS=key_value_heads,
         BLOCK=block,
     )
-    source = _mlx_kernel_body(compiled.msl_source)
+    source = _mlx_kernel_body(_specialize_mlx_source(compiled.msl_source, dtype))
     source = _replace_identifier(source, "N", "K_shape[2]")
     source = _replace_identifier(source, "scale", f"{float(scale):.12g}f")
     operation_name = f"metile_attention_{stable_digest(kernel_key)[:16]}"
@@ -198,15 +225,19 @@ def _compile_mlx_attention(query_heads, key_value_heads, dimension, dtype, scale
         output_names=["Out"],
         source=source,
     )
-    kernel = _MLXKernel(operation, compiled.threadgroup_size, compiled.description_bits)
+    kernel = _MLXKernel(
+        operation,
+        compiled.threadgroup_size,
+        compressed_description_bits(source),
+    )
     _mlx_kernel_cache[kernel_key] = kernel
     return kernel
 
 
 def _compile_mlx_rms_norm(hidden, dtype, eps, block):
     mx = _require_mlx()
-    numpy_dtype = _mlx_dtype_to_numpy(dtype)
-    kernel_key = (hidden, numpy_dtype.str, float(eps), block)
+    numpy_dtype = _mlx_compiler_dtype(dtype)
+    kernel_key = (hidden, str(dtype), float(eps), block)
     cached = _mlx_rms_kernel_cache.get(kernel_key)
     if cached is not None:
         return cached
@@ -222,7 +253,7 @@ def _compile_mlx_rms_norm(hidden, dtype, eps, block):
         float(eps),
         BLOCK=block,
     )
-    source = _mlx_kernel_body(compiled.msl_source)
+    source = _mlx_kernel_body(_specialize_mlx_source(compiled.msl_source, dtype))
     source = _replace_identifier(source, "N", "X_shape[X_ndim - 1]")
     source = _replace_identifier(source, "eps", f"{float(eps):.12g}f")
     operation = mx.fast.metal_kernel(
@@ -231,15 +262,15 @@ def _compile_mlx_rms_norm(hidden, dtype, eps, block):
         output_names=["Out"],
         source=source,
     )
-    kernel = _MLXRMSNormKernel(operation, block, compiled.description_bits)
+    kernel = _MLXRMSNormKernel(operation, block, compressed_description_bits(source))
     _mlx_rms_kernel_cache[kernel_key] = kernel
     return kernel
 
 
 def _compile_mlx_add_rms_norm(hidden, dtype, eps, block):
     mx = _require_mlx()
-    numpy_dtype = _mlx_dtype_to_numpy(dtype)
-    kernel_key = (hidden, numpy_dtype.str, float(eps), block)
+    numpy_dtype = _mlx_compiler_dtype(dtype)
+    kernel_key = (hidden, str(dtype), float(eps), block)
     cached = _mlx_add_rms_kernel_cache.get(kernel_key)
     if cached is not None:
         return cached
@@ -259,7 +290,7 @@ def _compile_mlx_add_rms_norm(hidden, dtype, eps, block):
         float(eps),
         BLOCK=block,
     )
-    source = _mlx_kernel_body(compiled.msl_source)
+    source = _mlx_kernel_body(_specialize_mlx_source(compiled.msl_source, dtype))
     source = _replace_identifier(source, "N", "X_shape[X_ndim - 1]")
     source = _replace_identifier(source, "eps", f"{float(eps):.12g}f")
     operation = mx.fast.metal_kernel(
@@ -268,7 +299,7 @@ def _compile_mlx_add_rms_norm(hidden, dtype, eps, block):
         output_names=["Sum", "Out"],
         source=source,
     )
-    kernel = _MLXAddRMSNormKernel(operation, block, compiled.description_bits)
+    kernel = _MLXAddRMSNormKernel(operation, block, compressed_description_bits(source))
     _mlx_add_rms_kernel_cache[kernel_key] = kernel
     return kernel
 
@@ -598,7 +629,7 @@ def mlx_attention_decode(query, key, value, *, scale, autotune=True):
         raise ValueError("head dimensions must match and be a multiple of 32")
     if query.dtype != key.dtype or query.dtype != value.dtype:
         raise TypeError("meTile MLX attention requires matching input dtypes")
-    _mlx_dtype_to_numpy(query.dtype)
+    _validate_mlx_dtype(query.dtype)
     return _mlx_attention_decode_unchecked(
         query,
         key,
@@ -615,7 +646,7 @@ def mlx_rms_norm(values, weight, eps, *, autotune=True):
         raise ValueError("meTile MLX RMSNorm requires a matching one-dimensional weight")
     if values.dtype != weight.dtype:
         raise TypeError("meTile MLX RMSNorm requires matching input and weight dtypes")
-    _mlx_dtype_to_numpy(values.dtype)
+    _validate_mlx_dtype(values.dtype)
 
     rows = values.size // values.shape[-1]
     schedule_key = (
@@ -655,7 +686,7 @@ def mlx_add_rms_norm(values, residual, weight, eps, *, autotune=True):
         raise ValueError("meTile fused add/RMSNorm requires a matching RMSNorm weight")
     if values.dtype != weight.dtype:
         raise TypeError("meTile fused add/RMSNorm requires matching input and weight dtypes")
-    _mlx_dtype_to_numpy(values.dtype)
+    _validate_mlx_dtype(values.dtype)
 
     rows = values.size // values.shape[-1]
     schedule_key = (
