@@ -37,21 +37,23 @@ Dispatch Policy
    :alt: Guarded native and generated kernel selection in the meTile MLX runtime
    :width: 100%
 
-Native MLX is an explicit autotune candidate. Generated kernels must beat it by at least
-5% in isolated primitive timing before the integration crosses the framework boundary.
-This guard band accounts for command-graph composition effects that a standalone kernel
-benchmark cannot observe. Decisions persist by device architecture, MLX version, dtype,
-shape bucket, source, and candidate family.
+Native MLX is an explicit autotune candidate. Attention and RMSNorm use a 5 percent
+primitive guard, graph fusion uses 10 percent, generated SwiGLU uses 3 percent, and the
+smaller down-projection/residual epilogue uses 1 percent before model-level confirmation.
+These family-specific guard bands account for command-graph composition effects that a
+standalone kernel benchmark cannot observe. Decisions persist by device architecture, MLX
+version, dtype, shape bucket, source, and candidate family.
 
 Decode attention supports FP16/FP32 MHA, GQA, and MQA with a one-token query. Prefill,
 attention masks, sinks, quantized KV caches, unsupported dimensions, and unsupported
 dtypes retain MLX-LM's original implementation. RMSNorm supports FP16/FP32 values and
 weights with FP32 accumulation.
 
-The integration also captures the canonical Llama residual-add followed by RMSNorm as a
-high-level compute DAG. The graph fusion pass uses an exact max-flow/min-cut partition,
+The integration also captures the canonical Llama and Qwen2 residual-add followed by RMSNorm
+as a high-level compute DAG. The graph fusion pass uses an exact max-flow/min-cut partition,
 preserves the residual as a second output, and measures the fused multi-output kernel against
-the original MLX graph. Graph fusion requires 10 percent isolated headroom before switching.
+the original MLX graph. The first supported call initializes this tournament; later MLX winners
+return directly to the untouched transformer block.
 
 Affine 4-bit models add eager MLX and an M5-native ``matmul2d`` kernel over an AOT K-major
 repack to the same policy. The repack preserves the original affine nibbles, scales, and
@@ -65,8 +67,11 @@ lifetimes before the elementwise epilogue. The M5-native variant removes the dea
 16-row ``matmul2d`` FMA for one-token decode, spills gate fragments through a bank-transposed
 threadgroup layout, resets and reuses the same two accumulators for up, then reloads one gate
 fragment at a time. Quantized-only plans keep this decode tournament; combined affine-prefill
-plans restore native MLP dispatch at the first decode row. Row buckets above one skip native
-decode-only compilation entirely.
+plans keep it independently available for one-row decode. The selected gate/up implementation
+is composed with an affine down-projection/residual epilogue that tunes block width, outputs per
+SIMD-group, and FP16/FP32 decode. A warmed shape-specialized executor binds those decisions and
+weights once, removing repeated Python dispatch construction. Multi-row calls skip this
+decode-only block path and preserve the original MLX-LM implementation.
 
 Model-level tuning rejects plans that change the next token or exceed KL-divergence,
 mean-logit-error, or max-logit-error bounds. Surviving plans need a paired TTFT or total-latency

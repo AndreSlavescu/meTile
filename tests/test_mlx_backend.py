@@ -176,6 +176,104 @@ def test_mlx_native_affine_swiglu_matches_quantized_matmul(monkeypatch):
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
 
 
+@pytest.mark.parametrize(
+    ("block", "outputs_per_simdgroup", "decode_dtype"),
+    ((64, 1, "f32"), (64, 2, "f32"), (64, 2, "f16")),
+)
+def test_mlx_generated_affine_residual_qmv_matches_native(
+    block,
+    outputs_per_simdgroup,
+    decode_dtype,
+    monkeypatch,
+):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    random = np.random.default_rng(54)
+    input_features = output_features = 64
+    values = mx.array(random.normal(size=(1, 1, input_features)).astype(np.float16))
+    dense_weight = mx.array(
+        random.normal(size=(output_features, input_features)).astype(np.float16)
+    )
+    residual = mx.array(random.normal(size=(1, 1, output_features)).astype(np.float16))
+    weight, scales, biases = mx.quantize(dense_weight, group_size=64, bits=4)
+    kernel = mlx_quantized._compile_affine_qmv(
+        input_features,
+        output_features,
+        values.dtype,
+        block=block,
+        outputs_per_simdgroup=outputs_per_simdgroup,
+        decode_dtype=decode_dtype,
+        fuse_residual=True,
+    )
+
+    actual = kernel(values, weight, scales, biases, residual)
+    expected = mlx_quantized._native_affine_residual_qmv(
+        values,
+        weight,
+        scales,
+        biases,
+        residual,
+        64,
+        4,
+    )
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
+
+
+def test_mlx_affine_mlp_executor_reuses_specialized_dispatch(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    random = np.random.default_rng(55)
+    features = 64
+    values = mx.array(random.normal(size=(1, 1, features)).astype(np.float16))
+    residual = mx.array(random.normal(size=(1, 1, features)).astype(np.float16))
+
+    def quantized_weight():
+        dense = mx.array(random.normal(size=(features, features)).astype(np.float16))
+        return mx.quantize(dense, group_size=64, bits=4)
+
+    gate = quantized_weight()
+    up = quantized_weight()
+    down = quantized_weight()
+    monkeypatch.setattr(
+        mlx_quantized,
+        "_affine_swiglu_schedule_cache",
+        {
+            (1, features, features, "mlx.core.float16", 64, 4): mlx_quantized.MLXAffineSwiGLUConfig(
+                "mlx"
+            )
+        },
+    )
+    monkeypatch.setattr(
+        mlx_quantized,
+        "_affine_residual_schedule_cache",
+        {
+            (features, features, "mlx.core.float16", 64, 4): mlx_quantized.MLXAffineResidualConfig(
+                "metile", 64
+            )
+        },
+    )
+
+    executor = mlx_quantized.mlx_affine_mlp_executor(
+        values,
+        *gate,
+        *up,
+        *down,
+        residual,
+    )
+    actual = executor(values, residual)
+    hidden = mlx_quantized._native_affine_swiglu(values, *gate, *up, 64, 4)
+    expected = mlx_quantized._native_affine_residual_qmv(hidden, *down, residual, 64, 4)
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
+
+
 @pytest.mark.parametrize("lifetime_schedule", ("parallel", "scratch"))
 def test_mlx_nax_affine_swiglu_matches_quantized_matmul(lifetime_schedule, monkeypatch):
     mx = pytest.importorskip("mlx.core")
@@ -243,6 +341,37 @@ def test_mlx_affine_swiglu_uses_separate_exact_and_generated_margins(
     generated = mlx_quantized.MLXAffineSwiGLUConfig("metile", "nax", 64)
 
     selected = mlx_quantized._choose_affine_swiglu_config(
+        [
+            (1.0, 0, native),
+            (compiled_latency, 10, compiled),
+            (generated_latency, 20, generated),
+        ]
+    )
+
+    assert selected.algorithm == expected_algorithm
+
+
+@pytest.mark.parametrize(
+    ("compiled_latency", "generated_latency", "expected_algorithm"),
+    (
+        (0.99, 1.0, "mlx_compiled"),
+        (0.998, 1.0, "mlx"),
+        (1.0, 0.995, "mlx"),
+        (1.0, 0.985, "metile"),
+    ),
+)
+def test_mlx_affine_residual_uses_separate_exact_and_generated_margins(
+    compiled_latency,
+    generated_latency,
+    expected_algorithm,
+):
+    from metile.backends import mlx_quantized
+
+    native = mlx_quantized.MLXAffineResidualConfig("mlx")
+    compiled = mlx_quantized.MLXAffineResidualConfig("mlx_compiled")
+    generated = mlx_quantized.MLXAffineResidualConfig("metile", 256, 2)
+
+    selected = mlx_quantized._choose_affine_residual_config(
         [
             (1.0, 0, native),
             (compiled_latency, 10, compiled),
@@ -329,6 +458,31 @@ def test_mlx_affine_swiglu_dispatches_report_row_bucket(monkeypatch):
             "implementation": "",
             "block": 0,
             "outputs_per_simdgroup": 1,
+        },
+    )
+
+
+def test_mlx_affine_residual_dispatches_report_selected_schedule(monkeypatch):
+    from metile.backends import mlx_quantized
+
+    config = mlx_quantized.MLXAffineResidualConfig("metile", 256, 2, "f16")
+    monkeypatch.setattr(
+        mlx_quantized,
+        "_affine_residual_schedule_cache",
+        {(8192, 3072, "mlx.core.float16", 64, 4): config},
+    )
+
+    assert mlx_quantized.mlx_affine_residual_qmv_dispatches() == (
+        {
+            "input_features": 8192,
+            "output_features": 3072,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "bits": 4,
+            "algorithm": "metile",
+            "block": 256,
+            "outputs_per_simdgroup": 2,
+            "decode_dtype": "f16",
         },
     )
 
@@ -621,6 +775,11 @@ def test_mlx_lm_effective_plan_prunes_native_wrappers(monkeypatch):
     monkeypatch.setattr(mlx_lm, "mlx_rms_norm_dispatches", lambda: ({"algorithm": "mlx"},))
     monkeypatch.setattr(mlx_lm, "mlx_add_rms_norm_dispatches", lambda: ())
     monkeypatch.setattr(mlx_lm, "mlx_affine_swiglu_dispatches", lambda: ({"algorithm": "mlx"},))
+    monkeypatch.setattr(
+        mlx_lm,
+        "mlx_affine_residual_qmv_dispatches",
+        lambda: ({"algorithm": "mlx"},),
+    )
 
     assert mlx_lm._effective_mlx_lm_plan(mlx_lm.MLXLMPlan()) == mlx_lm.MLXLMPlan(
         attention=True,
@@ -641,6 +800,7 @@ def test_mlx_lm_effective_plan_keeps_compiled_quantized_mlp(monkeypatch):
         "mlx_affine_swiglu_dispatches",
         lambda: ({"algorithm": "mlx_compiled"},),
     )
+    monkeypatch.setattr(mlx_lm, "mlx_affine_residual_qmv_dispatches", lambda: ())
 
     assert mlx_lm._effective_mlx_lm_plan(mlx_lm.MLXLMPlan()) == mlx_lm.MLXLMPlan(
         attention=False,
@@ -909,6 +1069,132 @@ def test_mlx_lm_patch_restores_graph_fused_transformer_block():
     assert llama.TransformerBlock.__call__ is original
 
 
+def test_mlx_lm_patch_supports_qwen2_transformer_blocks():
+    pytest.importorskip("mlx_lm")
+    from mlx_lm.models import qwen2
+
+    from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+
+    class Model:
+        def __init__(self):
+            self.layers = [qwen2.TransformerBlock.__new__(qwen2.TransformerBlock)]
+
+        def __call__(self):
+            pass
+
+    original = qwen2.TransformerBlock.__call__
+    patch = apply_metile_to_mlx_lm(
+        Model(),
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=True,
+    )
+
+    assert qwen2.TransformerBlock.__call__ is not original
+    patch.restore()
+    assert qwen2.TransformerBlock.__call__ is original
+
+
+def test_mlx_lm_graph_fusion_autotunes_on_first_supported_block(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    pytest.importorskip("mlx_lm")
+    from mlx_lm.models import llama
+
+    from metile.integrations import mlx_lm
+
+    calls = []
+
+    class Norm:
+        eps = 1e-5
+
+        def __init__(self):
+            self.weight = mx.ones((64,), dtype=mx.float16)
+
+        def __getitem__(self, key):
+            assert key == "weight"
+            return self.weight
+
+        def __call__(self, values):
+            return values
+
+    def execute_graph(values, residual, norm):
+        calls.append((values, residual, norm))
+        summed = values + residual
+        return summed, summed
+
+    monkeypatch.setattr(mlx_lm, "mlx_add_rms_norm_selection", lambda *_: None)
+    monkeypatch.setattr(mlx_lm, "_execute_residual_rms_graph", execute_graph)
+
+    class Model:
+        layers = (llama.TransformerBlock.__new__(llama.TransformerBlock),)
+
+        def __call__(self):
+            pass
+
+    values = mx.ones((1, 1, 64), dtype=mx.float16)
+    attention = mx.full((1, 1, 64), 2, dtype=mx.float16)
+    block = SimpleNamespace(
+        input_layernorm=Norm(),
+        post_attention_layernorm=Norm(),
+        self_attn=lambda normalized, mask, cache: attention,
+        mlp=lambda normalized: mx.zeros_like(normalized),
+    )
+    patch = mlx_lm.apply_metile_to_mlx_lm(
+        Model(),
+        attention=False,
+        rms_norm=False,
+        graph_fusion=True,
+        quantized_mlp=False,
+    )
+    try:
+        actual = llama.TransformerBlock.__call__(block, values)
+        mx.eval(actual)
+    finally:
+        patch.restore()
+
+    assert len(calls) == 1
+    np.testing.assert_array_equal(np.array(actual), np.full((1, 1, 64), 3))
+
+
+def test_mlx_lm_quantized_block_bypasses_prefill_rows(monkeypatch):
+    pytest.importorskip("mlx_lm")
+    from mlx_lm.models import llama
+
+    from metile.integrations import mlx_lm
+
+    calls = []
+
+    def original(self, values, mask=None, cache=None):
+        calls.append((self, values, mask, cache))
+        return "native"
+
+    monkeypatch.setattr(llama.TransformerBlock, "__call__", original)
+
+    class Model:
+        layers = (llama.TransformerBlock.__new__(llama.TransformerBlock),)
+
+        def __call__(self):
+            pass
+
+    values = SimpleNamespace(size=128, shape=(1, 2, 64), dtype="mlx.core.float16")
+    block = SimpleNamespace(mlp=SimpleNamespace())
+    patch = mlx_lm.apply_metile_to_mlx_lm(
+        Model(),
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=True,
+    )
+    try:
+        actual = llama.TransformerBlock.__call__(block, values, "mask", "cache")
+    finally:
+        patch.restore()
+
+    assert actual == "native"
+    assert calls == [(block, values, "mask", "cache")]
+
+
 def test_mlx_lm_affine_prefill_patch_is_reversible_and_skips_decode(monkeypatch):
     pytest.importorskip("mlx_lm")
     from types import SimpleNamespace
@@ -1042,6 +1328,70 @@ def test_mlx_lm_quantized_mlp_patch_keeps_decode_dispatch(monkeypatch):
     assert llama.MLP.__call__ is not original
     patch.restore()
     assert llama.MLP.__call__ is original
+
+
+def test_mlx_lm_quantized_mlp_fuses_down_projection_with_residual(monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    pytest.importorskip("mlx_lm")
+    import mlx.nn as nn
+    from mlx_lm.models import llama
+
+    from metile.integrations import mlx_lm
+
+    gate = nn.QuantizedLinear(64, 64, bias=False, group_size=64, bits=4)
+    up = nn.QuantizedLinear(64, 64, bias=False, group_size=64, bits=4)
+    down = nn.QuantizedLinear(64, 64, bias=False, group_size=64, bits=4)
+    module = SimpleNamespace(gate_proj=gate, up_proj=up, down_proj=down)
+    calls = []
+
+    def affine_mlp_executor(*args, **kwargs):
+        calls.append(("prepare", args, kwargs))
+
+        def execute(values, residual):
+            calls.append(("execute", (values, residual), {}))
+            return "fused"
+
+        return execute
+
+    monkeypatch.setattr(mlx_lm, "mlx_affine_mlp_executor", affine_mlp_executor)
+    monkeypatch.setattr(mlx_lm, "_quantized_mlp_executor_cache", {})
+
+    class Model:
+        layers = (llama.TransformerBlock.__new__(llama.TransformerBlock),)
+
+        def __call__(self):
+            pass
+
+    class IdentityNorm:
+        eps = 1e-5
+
+        def __call__(self, values):
+            return values
+
+    values = mx.ones((1, 1, 64), dtype=mx.float16)
+    attention = mx.full((1, 1, 64), 2, dtype=mx.float16)
+    block = SimpleNamespace(
+        input_layernorm=IdentityNorm(),
+        post_attention_layernorm=IdentityNorm(),
+        self_attn=lambda normalized, mask, cache: attention,
+        mlp=module,
+    )
+    patch = mlx_lm.apply_metile_to_mlx_lm(
+        Model(),
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=True,
+    )
+    try:
+        result = llama.TransformerBlock.__call__(block, values)
+        repeated = llama.TransformerBlock.__call__(block, values)
+    finally:
+        patch.restore()
+
+    assert result == repeated == "fused"
+    assert [call[0] for call in calls] == ["prepare", "execute", "execute"]
+    np.testing.assert_array_equal(np.array(calls[1][1][1]), np.full((1, 1, 64), 3))
 
 
 def test_prepare_mlx_lm_affine_prefill_repacks_supported_down_projection():

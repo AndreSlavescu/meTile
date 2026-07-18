@@ -94,7 +94,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Aligned NAX kernels specialize dimensions and bind only matrix buffers on the prepared hot path; reduction epoch and K-fragment preload choices remain runtime-tuned per shape.
 - Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; measured short kernels receive an adaptive bounded poll-before-sleep budget while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
-- Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape, including fused affine-quantized SwiGLU decode candidates.
+- Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape, including fused affine-quantized SwiGLU and down-projection/residual decode candidates.
 - Discovered FlashAttention regions race native MLX against causal/noncausal row-tiled online kernels and persist only compatible winners that clear the 5% framework boundary.
 
 ## Block-Scaled GEMM
@@ -181,6 +181,13 @@ reductions, reuses two accumulator vectors, and transposes lane/element scratch 
 MLX. L2 reuse for the immediately following down projection is a scheduling opportunity, not a
 cache-pinning guarantee on Metal.
 
+The decode backend also composes the selected gate/up implementation with a down-projection
+epilogue that adds the transformer residual before the result leaves the kernel. Its schedule
+tournament covers eager and compiled MLX plus generated block width, outputs per SIMD-group,
+and FP16/FP32 decode choices. A warmed, shape-specialized MLP executor binds the winning
+weights and kernels once, avoiding repeated Python dispatch construction without turning the
+MLP into a monolithic compiler template.
+
 ## MLX-LM Backend
 
 meTile-generated Metal can execute as a lazy, zero-copy MLX primitive. The integration
@@ -213,7 +220,9 @@ For affine 4-bit model weights, AOT preparation preserves the original quantized
 transposing packed nibbles and scale/bias groups into a K-major NAX view. Ragged prefill rows
 then tune native MLX against generated Morton, grouped, and Hilbert schedules. Only prepared
 projection instances change class, so unrelated linear layers keep the exact MLX path and
-the first decode row restores the original class for zero steady-state wrapper overhead. Model
+decode remains independently eligible for the guarded down/residual path in canonical Llama
+and Qwen2 blocks. Unsupported or multi-row calls immediately use the original block, while a
+warmed decode executor bypasses repeated compatibility and kernel-construction work. Model
 plans require matching next tokens, bounded KL divergence, bounded mean/max logit error, a
 measured TTFT or end-to-end win, and bounded decode/total behavior. Decode-sensitive plans keep
 the stricter 0.5% confirmation floor; self-deoptimizing prefill-only plans use a 1% noise floor.

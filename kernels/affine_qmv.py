@@ -1,22 +1,19 @@
 import metile
 
 
-@metile.kernel
-def affine_qmv(
+def _affine_qmv_results(
     X,
     W,
     Scales,
     Biases,
-    Out,
     K,
     N,
-    GROUP_SIZE: metile.constexpr,
-    BITS: metile.constexpr,
-    BLOCK: metile.constexpr,
-    OUTPUTS_PER_SIMDGROUP: metile.constexpr,
-    HALF_DECODE: metile.constexpr,
+    GROUP_SIZE,
+    BITS,
+    BLOCK,
+    OUTPUTS_PER_SIMDGROUP,
+    HALF_DECODE,
 ):
-    """Affine packed-weight matrix-vector product for decode-shaped rows."""
     thread = metile.thread_id()
     lane = thread % 32
     simdgroup = thread // 32
@@ -54,11 +51,84 @@ def affine_qmv(
                 ] * (quantized * scale + bias)
 
     results = [metile.simd_sum(accumulator) for accumulator in accumulators]
+    return lane, output_base, results
+
+
+@metile.kernel
+def affine_qmv(
+    X,
+    W,
+    Scales,
+    Biases,
+    Out,
+    K,
+    N,
+    GROUP_SIZE: metile.constexpr,
+    BITS: metile.constexpr,
+    BLOCK: metile.constexpr,
+    OUTPUTS_PER_SIMDGROUP: metile.constexpr,
+    HALF_DECODE: metile.constexpr,
+):
+    """Affine packed-weight matrix-vector product for decode-shaped rows."""
+    lane, output_base, results = _affine_qmv_results(
+        X,
+        W,
+        Scales,
+        Biases,
+        K,
+        N,
+        GROUP_SIZE,
+        BITS,
+        BLOCK,
+        OUTPUTS_PER_SIMDGROUP,
+        HALF_DECODE,
+    )
     for output_offset in range(OUTPUTS_PER_SIMDGROUP):
         metile.store(
             Out + output_base + output_offset,
             results[output_offset],
             mask=lane == 0,
+        )
+
+
+@metile.kernel
+def affine_residual_qmv(
+    X,
+    W,
+    Scales,
+    Biases,
+    Residual,
+    Out,
+    K,
+    N,
+    GROUP_SIZE: metile.constexpr,
+    BITS: metile.constexpr,
+    BLOCK: metile.constexpr,
+    OUTPUTS_PER_SIMDGROUP: metile.constexpr,
+    HALF_DECODE: metile.constexpr,
+):
+    """Affine packed-weight QMV with a fused residual-add epilogue."""
+    lane, output_base, results = _affine_qmv_results(
+        X,
+        W,
+        Scales,
+        Biases,
+        K,
+        N,
+        GROUP_SIZE,
+        BITS,
+        BLOCK,
+        OUTPUTS_PER_SIMDGROUP,
+        HALF_DECODE,
+    )
+    lane_zero = lane == 0
+    for output_offset in range(OUTPUTS_PER_SIMDGROUP):
+        output_index = output_base + output_offset
+        residual = metile.load(Residual + output_index, mask=lane_zero)
+        metile.store(
+            Out + output_index,
+            results[output_offset] + residual,
+            mask=lane_zero,
         )
 
 

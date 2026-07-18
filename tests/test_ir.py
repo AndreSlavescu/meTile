@@ -155,6 +155,35 @@ def test_explicit_scalar_is_carried_across_runtime_loop():
     assert "simd_sum" not in msl
 
 
+def test_nested_runtime_loop_promotes_inner_and_outer_accumulators():
+    ctx = TracingContext("nested_scalar_recurrence")
+    input_value = tir.Value("input", PtrType("f32"))
+    output_value = tir.Value("output", PtrType("f32"))
+    length_value = tir.Value("length", I32)
+    ctx.func.params = [
+        tir.Param("input", PtrType("f32")),
+        tir.Param("output", PtrType("f32"), is_output=True),
+        tir.Param("length", I32),
+    ]
+
+    with ctx:
+        input_proxy = TracingProxy(input_value)
+        output_proxy = TracingProxy(output_value)
+        length_proxy = TracingProxy(length_value)
+        total = scalar(0.0)
+        for outer in tile_range(0, length_proxy, 4):
+            partial = scalar(0.0)
+            for inner in tile_range(outer, length_proxy):
+                partial = partial + load(input_proxy + inner)
+            total = total + partial
+        store(output_proxy + 0, total)
+
+    msl = emit(lower(ctx.func))
+    assert msl.count("float _acc_") == 2
+    assert "_acc_0 =" in msl
+    assert "_acc_1 =" in msl
+
+
 def test_native_simd_math_primitives_emit_metal_intrinsics():
     func = tir.Function(name="simd_math", params=[tir.Param("value", ScalarType("f32"))])
     value = tir.Value("value", ScalarType("f32"))

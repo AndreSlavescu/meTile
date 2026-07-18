@@ -42,6 +42,12 @@ on-chip. Native MLX, compiled MLX, register-fused meTile, and scratch-spilled me
 independent autotune candidates. Scale-normalized primitive error gates generated
 reductions before model-level next-token, KL-divergence, and logit checks.
 
+For one-row affine decode, a second composable epilogue adds the transformer residual to the
+down projection in the same generated kernel. The runtime tunes this stage separately from
+gate/up, then builds a warmed MLP executor from the two selected callables. This preserves the
+mainloop-plus-epilogue abstraction: changing the residual operation does not require cloning a
+whole MLP kernel template, and native MLX remains a candidate at both boundaries.
+
 This combines the modular epilogue idea used by `SonicMoE
 <https://arxiv.org/abs/2512.14080>`_ with the parallel-operator co-optimization studied by
 `Magneto <https://doi.org/10.1145/3744906>`_. On Apple silicon, threadgroup memory is an

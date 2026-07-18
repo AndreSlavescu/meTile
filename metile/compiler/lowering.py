@@ -1575,6 +1575,8 @@ class _ElementwiseLoweringContext:
         self._next_sg: int = 0  # tracks next available simdgroup index for role assignment
         # Track shared memory allocations: tile IR value name -> threadgroup array name
         self._shared_allocs: dict[str, str] = {}
+        self._loop_post_refs: dict[int, set[str]] = {}
+        self._index_loop_post_refs(self.func.ops)
 
     def lower(self) -> mir.MFunction:
         self._lower_params()
@@ -2172,15 +2174,8 @@ class _ElementwiseLoweringContext:
             if hasattr(body_op, "result") and body_op.result:
                 body_defs[body_op.result.name] = body_op
 
-        # Find values used after the ForRange
-        post_refs = set()
-        found = False
-        for parent_op in self.func.ops:
-            if parent_op is for_range_op:
-                found = True
-                continue
-            if found:
-                self._collect_tile_ir_refs(parent_op, post_refs)
+        # Find values used by later siblings in the loop's containing block.
+        post_refs = self._loop_post_refs.get(id(for_range_op), set())
 
         # Find escaped values (defined in body, used after)
         escaped = [name for name in body_defs if name in post_refs]
@@ -2250,6 +2245,20 @@ class _ElementwiseLoweringContext:
                 refs.add(val.name)
         if isinstance(op, tir.Store) and getattr(op, "mask", None) is not None:
             refs.add(op.mask.name)
+        for body_op in getattr(op, "body", ()):
+            self._collect_tile_ir_refs(body_op, refs)
+
+    def _index_loop_post_refs(self, ops):
+        """Index references after every runtime loop within its parent block."""
+        for index, op in enumerate(ops):
+            if isinstance(op, tir.ForRange):
+                refs = set()
+                for sibling in ops[index + 1 :]:
+                    self._collect_tile_ir_refs(sibling, refs)
+                self._loop_post_refs[id(op)] = refs
+            body = getattr(op, "body", None)
+            if body is not None:
+                self._index_loop_post_refs(body)
 
     def _replace_mvalue_refs(self, ops: list, old_mv: mir.MValue, new_mv: mir.MValue):
         """Replace all references to old_mv with new_mv in Metal IR ops."""

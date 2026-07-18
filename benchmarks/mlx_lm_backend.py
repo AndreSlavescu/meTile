@@ -255,12 +255,18 @@ def _selected_dispatches():
     )
     from metile.backends.mlx_affine import mlx_affine_matmul_dispatches
     from metile.backends.mlx_block_scaled import mlx_block_scaled_dispatches
-    from metile.backends.mlx_quantized import mlx_affine_swiglu_dispatches
+    from metile.backends.mlx_quantized import (
+        mlx_affine_residual_qmv_dispatches,
+        mlx_affine_swiglu_dispatches,
+    )
 
     return {
         "attention": [dict(dispatch) for dispatch in mlx_attention_dispatches()],
         "rms_norm": [dict(dispatch) for dispatch in mlx_rms_norm_dispatches()],
         "add_rms_norm": [dict(dispatch) for dispatch in mlx_add_rms_norm_dispatches()],
+        "affine_residual_qmv": [
+            dict(dispatch) for dispatch in mlx_affine_residual_qmv_dispatches()
+        ],
         "affine_swiglu": [dict(dispatch) for dispatch in mlx_affine_swiglu_dispatches()],
         "affine_matmul": [dict(dispatch) for dispatch in mlx_affine_matmul_dispatches()],
         "block_scaled": [dict(dispatch) for dispatch in mlx_block_scaled_dispatches()],
@@ -293,7 +299,7 @@ def _write_json_result(
     confirmation,
 ):
     payload = {
-        "schema_version": 4,
+        "schema_version": 5,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "revision": _git_revision(),
         "model": arguments.model,
@@ -561,6 +567,14 @@ def main():
         print(
             f"{dispatch['input_features']}->{dispatch['output_features']}: "
             f"{dispatch['algorithm']} {dispatch['implementation']} block={dispatch['block']} "
+            f"outputs/simdgroup={dispatch['outputs_per_simdgroup']} "
+            f"decode={dispatch['decode_dtype']}"
+        )
+    print("Selected quantized down/residual schedules")
+    for dispatch in dispatches["affine_residual_qmv"]:
+        print(
+            f"{dispatch['input_features']}->{dispatch['output_features']}: "
+            f"{dispatch['algorithm']} block={dispatch['block']} "
             f"outputs/simdgroup={dispatch['outputs_per_simdgroup']} "
             f"decode={dispatch['decode_dtype']}"
         )

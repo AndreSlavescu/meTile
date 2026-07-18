@@ -6,6 +6,7 @@ import statistics
 import sys
 import threading
 import time
+import weakref
 from dataclasses import dataclass, field
 
 from metile.backends.mlx import (
@@ -24,6 +25,8 @@ from metile.backends.mlx_affine import (
 )
 from metile.backends.mlx_graph import compile_mlx_graph
 from metile.backends.mlx_quantized import (
+    mlx_affine_mlp_executor,
+    mlx_affine_residual_qmv_dispatches,
     mlx_affine_swiglu,
     mlx_affine_swiglu_backend_signature,
     mlx_affine_swiglu_dispatches,
@@ -33,6 +36,7 @@ from metile.ir.graph_ir import GraphBuilder, TensorSpec
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 
 _graph_executable_cache = {}
+_quantized_mlp_executor_cache = {}
 _mlx_lm_plan_cache = {}
 _mlx_lm_plan_lock = threading.RLock()
 _mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v10.json"
@@ -42,6 +46,12 @@ _MODEL_KL_LIMIT = 1e-3
 _MODEL_MEAN_LOGIT_ERROR_LIMIT = 0.02
 _MODEL_MAX_LOGIT_ERROR_LIMIT = 0.25
 _QUANTIZED_MLP_MIN_ROWS = 32
+_SUPPORTED_GATED_MLP_MODULES = frozenset(
+    {
+        "mlx_lm.models.llama",
+        "mlx_lm.models.qwen2",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -165,7 +175,12 @@ def _effective_mlx_lm_plan(plan, affine_prefill=None):
         graph_fusion=plan.graph_fusion
         and any(dispatch["algorithm"] == "metile" for dispatch in mlx_add_rms_norm_dispatches()),
         quantized_mlp=plan.quantized_mlp
-        and any(dispatch["algorithm"] != "mlx" for dispatch in mlx_affine_swiglu_dispatches()),
+        and (
+            any(dispatch["algorithm"] != "mlx" for dispatch in mlx_affine_swiglu_dispatches())
+            or any(
+                dispatch["algorithm"] != "mlx" for dispatch in mlx_affine_residual_qmv_dispatches()
+            )
+        ),
         affine_prefill=plan.affine_prefill
         and affine_prefill is not None
         and any(dispatch["algorithm"] == "metile" for dispatch in mlx_affine_matmul_dispatches()),
@@ -595,34 +610,90 @@ def _execute_residual_rms_graph(values, residual, norm):
     return executable(values, residual, weight)
 
 
-def _patch_graph_fusion(model, replacements):
+def _patch_graph_fusion(
+    model,
+    replacements,
+    quantized_linear=None,
+    *,
+    quantized_mlp_min_rows=1,
+    quantized_mlp_max_rows=None,
+    fuse_residual_rms=True,
+):
     classes = []
     if model is not None:
         classes.extend(type(layer) for layer in _model_layers(model))
     else:
-        from mlx_lm.models import llama
+        from mlx_lm.models import llama, qwen2
 
-        classes.append(llama.TransformerBlock)
+        classes.extend((llama.TransformerBlock, qwen2.TransformerBlock))
 
     for block_class in dict.fromkeys(classes):
         if (
-            block_class.__module__ != "mlx_lm.models.llama"
+            block_class.__module__ not in _SUPPORTED_GATED_MLP_MODULES
             or block_class.__name__ != "TransformerBlock"
         ):
             continue
         original = block_class.__call__
         if getattr(original, "_metile_original", None) is not None:
             continue
+        quantized_support_cache = {}
 
-        def make_replacement(original_call):
+        def make_replacement(original_call, support_cache):
             def replacement(self, values, mask=None, cache=None):
-                selected = mlx_add_rms_norm_selection(values, self.post_attention_layernorm.eps)
-                if selected is not None and selected.algorithm == "mlx":
+                supports_quantized_residual = False
+                if (
+                    quantized_linear is not None
+                    and hasattr(values, "size")
+                    and getattr(values, "shape", ())
+                    and hasattr(self, "mlp")
+                ):
+                    rows = values.size // values.shape[-1]
+                    support_key = id(self.mlp)
+                    support = support_cache.get(support_key)
+                    if (
+                        support is None
+                        or support[0] is not self.mlp
+                        or support[1] != values.shape[-1]
+                        or support[2] != values.dtype
+                    ):
+                        support = (
+                            self.mlp,
+                            values.shape[-1],
+                            values.dtype,
+                            _supports_quantized_residual_mlp(
+                                self.mlp,
+                                values,
+                                values,
+                                quantized_linear,
+                            ),
+                        )
+                        support_cache[support_key] = support
+                    supports_quantized_residual = (
+                        rows >= quantized_mlp_min_rows
+                        and (quantized_mlp_max_rows is None or rows <= quantized_mlp_max_rows)
+                        and support[3]
+                    )
+                selected = (
+                    mlx_add_rms_norm_selection(values, self.post_attention_layernorm.eps)
+                    if fuse_residual_rms
+                    else None
+                )
+                if not fuse_residual_rms and not supports_quantized_residual:
+                    return original_call(self, values, mask, cache)
+                if (
+                    selected is not None
+                    and selected.algorithm == "mlx"
+                    and not supports_quantized_residual
+                ):
                     return original_call(self, values, mask, cache)
 
                 attention_output = self.self_attn(self.input_layernorm(values), mask, cache)
-                if _supports_metile_residual_rms_norm(
-                    values, attention_output, self.post_attention_layernorm
+                if (
+                    fuse_residual_rms
+                    and (selected is None or selected.algorithm != "mlx")
+                    and _supports_metile_residual_rms_norm(
+                        values, attention_output, self.post_attention_layernorm
+                    )
                 ):
                     hidden, normalized = _execute_residual_rms_graph(
                         values, attention_output, self.post_attention_layernorm
@@ -630,11 +701,13 @@ def _patch_graph_fusion(model, replacements):
                 else:
                     hidden = values + attention_output
                     normalized = self.post_attention_layernorm(hidden)
+                if supports_quantized_residual:
+                    return _execute_quantized_mlp(self.mlp, normalized, hidden)
                 return hidden + self.mlp(normalized)
 
             return replacement
 
-        metile_transformer_block = make_replacement(original)
+        metile_transformer_block = make_replacement(original, quantized_support_cache)
 
         metile_transformer_block._metile_original = original
         replacements.append((block_class, "__call__", original))
@@ -667,17 +740,93 @@ def _supports_quantized_mlp(module, values, quantized_linear):
     )
 
 
-def _patch_quantized_mlp(model, replacements, quantized_linear, *, min_rows=1):
+def _supports_quantized_residual_mlp(module, values, residual, quantized_linear):
+    down = getattr(module, "down_proj", None)
+    return (
+        _supports_quantized_mlp(module, values, quantized_linear)
+        and isinstance(down, quantized_linear)
+        and down.mode == "affine"
+        and down.group_size == 64
+        and down.bits == 4
+        and down.get("biases") is not None
+        and "bias" not in down
+        and residual.shape == (*values.shape[:-1], down.weight.shape[0])
+        and residual.dtype == values.dtype
+    )
+
+
+def _execute_quantized_mlp(module, values, residual=None):
+    gate = module.gate_proj
+    up = module.up_proj
+    if residual is None:
+        hidden = mlx_affine_swiglu(
+            values,
+            gate["weight"],
+            gate["scales"],
+            gate.get("biases"),
+            up["weight"],
+            up["scales"],
+            up.get("biases"),
+            group_size=gate.group_size,
+            bits=gate.bits,
+        )
+        return module.down_proj(hidden)
+    down = module.down_proj
+    cache_key = id(module)
+    cached = _quantized_mlp_executor_cache.get(cache_key)
+    if cached is None or cached[0]() is not module:
+        executor = mlx_affine_mlp_executor(
+            values,
+            gate["weight"],
+            gate["scales"],
+            gate.get("biases"),
+            up["weight"],
+            up["scales"],
+            up.get("biases"),
+            down["weight"],
+            down["scales"],
+            down.get("biases"),
+            residual,
+            group_size=down.group_size,
+            bits=down.bits,
+        )
+
+        def discard(reference, key=cache_key):
+            if _quantized_mlp_executor_cache.get(key, (None,))[0] is reference:
+                del _quantized_mlp_executor_cache[key]
+
+        try:
+            module_reference = weakref.ref(module, discard)
+        except TypeError:
+
+            def module_reference():
+                return module
+
+        cached = (module_reference, executor)
+        _quantized_mlp_executor_cache[cache_key] = cached
+    return cached[1](values, residual)
+
+
+def _patch_quantized_mlp(
+    model,
+    replacements,
+    quantized_linear,
+    *,
+    min_rows=1,
+    max_rows=None,
+):
     if min_rows < 1:
         raise ValueError("quantized MLP minimum rows must be positive")
+    if max_rows is not None and max_rows < min_rows:
+        raise ValueError("quantized MLP maximum rows must not be smaller than its minimum")
     classes = [type(layer.mlp) for layer in _model_layers(model) if hasattr(layer, "mlp")]
     if model is None:
-        from mlx_lm.models import llama
+        from mlx_lm.models import llama, qwen2
 
-        classes.append(llama.MLP)
+        classes.extend((llama.MLP, qwen2.MLP))
 
     for mlp_class in dict.fromkeys(classes):
-        if mlp_class.__module__ != "mlx_lm.models.llama" or mlp_class.__name__ != "MLP":
+        if mlp_class.__module__ not in _SUPPORTED_GATED_MLP_MODULES or mlp_class.__name__ != "MLP":
             continue
         original = mlp_class.__call__
         if getattr(original, "_metile_original", None) is not None:
@@ -689,22 +838,11 @@ def _patch_quantized_mlp(model, replacements, quantized_linear, *, min_rows=1):
                 if rows < min_rows:
                     type(self).__call__ = original_call
                     return original_call(self, values)
+                if max_rows is not None and rows > max_rows:
+                    return original_call(self, values)
                 if not _supports_quantized_mlp(self, values, quantized_linear):
                     return original_call(self, values)
-                gate = self.gate_proj
-                up = self.up_proj
-                hidden = mlx_affine_swiglu(
-                    values,
-                    gate["weight"],
-                    gate["scales"],
-                    gate.get("biases"),
-                    up["weight"],
-                    up["scales"],
-                    up.get("biases"),
-                    group_size=gate.group_size,
-                    bits=gate.bits,
-                )
-                return self.down_proj(hidden)
+                return _execute_quantized_mlp(self, values)
 
             return replacement
 
@@ -882,11 +1020,25 @@ def apply_metile_to_mlx_lm(
             replacements.append((nn.RMSNorm, "__call__", original_rms_norm))
             nn.RMSNorm.__call__ = metile_rms_norm
 
-    if graph_fusion:
-        _patch_graph_fusion(model, replacements)
+    quantized_mlp_prefill_min_rows = _QUANTIZED_MLP_MIN_ROWS if affine_prefill is not None else 1
+    quantized_mlp_prefill_max_rows = None if affine_prefill is not None else 1
+    if graph_fusion or quantized_mlp:
+        _patch_graph_fusion(
+            model,
+            replacements,
+            nn.QuantizedLinear if quantized_mlp else None,
+            quantized_mlp_min_rows=1,
+            quantized_mlp_max_rows=1,
+            fuse_residual_rms=graph_fusion,
+        )
     if quantized_mlp:
-        min_rows = _QUANTIZED_MLP_MIN_ROWS if affine_prefill is not None else 1
-        _patch_quantized_mlp(model, replacements, nn.QuantizedLinear, min_rows=min_rows)
+        _patch_quantized_mlp(
+            model,
+            replacements,
+            nn.QuantizedLinear,
+            min_rows=quantized_mlp_prefill_min_rows,
+            max_rows=quantized_mlp_prefill_max_rows,
+        )
     _patch_affine_prefill(affine_prefill, replacements)
 
     return MLXPatch(replacements, attention_replacement, attention_original)
