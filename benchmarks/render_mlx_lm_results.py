@@ -55,9 +55,12 @@ def _suite_context(suite):
         f"{workload['prompt_tokens']}-token prompt · {workload['generation_tokens']} generated "
         f"· median of {workload['trials']} alternating trials"
     )
+    recorded_date = suite.get("recorded_at", first.get("recorded_at", ""))[:10]
+    revision = first.get("revision", "unknown")[:7]
     footer = (
         f"{chip} · {memory} · MLX {software.get('mlx', 'unknown')} · "
-        f"MLX-LM {software.get('mlx_lm', 'unknown')} · seed {workload.get('seed', 0)}"
+        f"MLX-LM {software.get('mlx_lm', 'unknown')} · seed {workload.get('seed', 0)} · "
+        f"rev {revision} · {recorded_date}"
     )
     return subtitle, footer
 

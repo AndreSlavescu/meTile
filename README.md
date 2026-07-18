@@ -196,16 +196,32 @@ width, adjacent outputs per SIMDgroup, and FP16/FP32 decode arithmetic while ret
 accumulators. The selector verifies numerical compatibility, requires 10% headroom, persists
 the decision by device/source/shape, and discards repacked weights when native MLX wins.
 
-On this M5 32 GB machine with MLX 0.32.0 and MLX-LM 0.31.3, a five-trial interleaved
-Llama 3.2 1B 4-bit run at 128 prompt / 256 generated tokens measured 93.39 tok/s for
-MLX and 96.06 tok/s with the guarded patch (1.029x decode, 1.035x end to end). The
-affine SwiGLU selector retained native MLX for that run; meTile wins came from RMSNorm
-and the 512-token attention bucket. Reproduce the model-level benchmark rather than
-relying on that machine-specific number:
+The committed M5 32 GB suite uses MLX 0.32.0, MLX-LM 0.31.3, a 128-token prompt,
+256 generated tokens, five alternating trials, and two-second cooldowns. It verifies
+the next token for every checkpoint and retains the neutral or losing rows rather than
+reporting only wins:
+
+![meTile speedup relative to native MLX across four models](docs/_static/mlx-model-speedups.svg)
+
+| Model | MLX decode | MLX + meTile | Decode | End-to-end |
+|---|---:|---:|---:|---:|
+| Llama 3.2 1B 4-bit | 152.34 tok/s | 152.24 tok/s | 0.999x | 1.001x |
+| Llama 3.2 3B 4-bit | 59.22 tok/s | 61.56 tok/s | 1.039x | 1.036x |
+| Qwen 2.5 0.5B 4-bit | 308.78 tok/s | 307.25 tok/s | 0.995x | 1.028x |
+| Qwen 2.5 1.5B 4-bit | 117.95 tok/s | 116.35 tok/s | 0.986x | 0.998x |
+
+The Llama 3B row is a model-level win; the other rows show parity or a small miss in at
+least one metric. Raw trials, environment metadata, verification results, and selected
+dispatches are in `benchmarks/results/m5-mlx-lm-models.json`. Reproduce the suite and
+regenerate the SVG reports:
 
 ```bash
-python benchmarks/mlx_lm_backend.py \
-  --prompt-tokens 128 --generation-tokens 256 --trials 5 --delay 2
+python benchmarks/mlx_lm_suite.py \
+  --prompt-tokens 128 --generation-tokens 256 --trials 5 --delay 2 \
+  --output benchmarks/results/m5-mlx-lm-models.json
+
+python benchmarks/render_mlx_lm_results.py \
+  benchmarks/results/m5-mlx-lm-models.json
 ```
 
 ## Install

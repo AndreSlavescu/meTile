@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 574" role="img" aria-labelledby="title description">
+  <title id="title">meTile speedup relative to native MLX</title>
+  <desc id="description">A dot plot compares decode throughput speedup and end-to-end generation speedup for each model. The vertical reference line at one indicates parity with native MLX.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #20242b; }
+      .heading { font-size: 27px; font-weight: 700; }
+      .subtitle { font-size: 13px; fill: #505866; }
+      .model { font-size: 15px; font-weight: 700; }
+      .detail { font-size: 11px; fill: #596273; }
+      .label { font-size: 12px; font-weight: 700; }
+      .value { font-size: 11px; fill: #384252; }
+      .axis { font-size: 10px; fill: #667085; }
+      .footer { font-size: 10px; fill: #667085; }
+    </style>
+  </defs>
+  <rect width="1200" height="574" fill="#ffffff"/>
+  <text x="40" y="48" class="heading">meTile speedup relative to native MLX</text>
+  <text x="40" y="70" class="subtitle">128-token prompt · 256 generated · median of 5 alternating trials · native MLX = 1.000&#215;</text>
+  <line x1="40" y1="88" x2="1160" y2="88" stroke="#b4bcc7" stroke-width="1"/>
+  <line x1="275.00" y1="116" x2="275.00" y2="510" stroke="#e0e4ea" stroke-width="1"/>
+  <text x="275.00" y="108" text-anchor="middle" class="axis">0.95&#215;</text>
+  <line x1="505.00" y1="116" x2="505.00" y2="510" stroke="#5b6574" stroke-width="1.6"/>
+  <text x="505.00" y="108" text-anchor="middle" class="axis">1.00&#215;</text>
+  <line x1="735.00" y1="116" x2="735.00" y2="510" stroke="#e0e4ea" stroke-width="1"/>
+  <text x="735.00" y="108" text-anchor="middle" class="axis">1.05&#215;</text>
+  <line x1="965.00" y1="116" x2="965.00" y2="510" stroke="#e0e4ea" stroke-width="1"/>
+  <text x="965.00" y="108" text-anchor="middle" class="axis">1.10&#215;</text>
+  <text x="40" y="162" class="model">Llama 3.2 1B</text>
+  <text x="40" y="181" class="detail">16 layers · hidden 2048 · 4-bit</text>
+  <line x1="275" y1="160" x2="965" y2="160" stroke="#d8dde5" stroke-width="2"/>
+  <circle cx="501.80" cy="150" r="8" fill="#6fa87d" stroke="#2f5f3d" stroke-width="1.4"/>
+  <circle cx="507.39" cy="172" r="8" fill="#a88ac6" stroke="#5f4778" stroke-width="1.4"/>
+  <text x="1000" y="154" class="label">decode 0.999&#215;</text>
+  <text x="1000" y="176" class="label">end-to-end 1.001&#215;</text>
+  <line x1="40" y1="208" x2="1160" y2="208" stroke="#edf0f3" stroke-width="1"/>
+  <text x="40" y="258" class="model">Llama 3.2 3B</text>
+  <text x="40" y="277" class="detail">28 layers · hidden 3072 · 4-bit</text>
+  <line x1="275" y1="256" x2="965" y2="256" stroke="#d8dde5" stroke-width="2"/>
+  <circle cx="686.62" cy="246" r="8" fill="#6fa87d" stroke="#2f5f3d" stroke-width="1.4"/>
+  <circle cx="669.33" cy="268" r="8" fill="#a88ac6" stroke="#5f4778" stroke-width="1.4"/>
+  <text x="1000" y="250" class="label">decode 1.039&#215;</text>
+  <text x="1000" y="272" class="label">end-to-end 1.036&#215;</text>
+  <line x1="40" y1="304" x2="1160" y2="304" stroke="#edf0f3" stroke-width="1"/>
+  <text x="40" y="354" class="model">Qwen 2.5 0.5B</text>
+  <text x="40" y="373" class="detail">24 layers · hidden 896 · 4-bit</text>
+  <line x1="275" y1="352" x2="965" y2="352" stroke="#d8dde5" stroke-width="2"/>
+  <circle cx="482.14" cy="342" r="8" fill="#6fa87d" stroke="#2f5f3d" stroke-width="1.4"/>
+  <circle cx="634.46" cy="364" r="8" fill="#a88ac6" stroke="#5f4778" stroke-width="1.4"/>
+  <text x="1000" y="346" class="label">decode 0.995&#215;</text>
+  <text x="1000" y="368" class="label">end-to-end 1.028&#215;</text>
+  <line x1="40" y1="400" x2="1160" y2="400" stroke="#edf0f3" stroke-width="1"/>
+  <text x="40" y="450" class="model">Qwen 2.5 1.5B</text>
+  <text x="40" y="469" class="detail">28 layers · hidden 1536 · 4-bit</text>
+  <line x1="275" y1="448" x2="965" y2="448" stroke="#d8dde5" stroke-width="2"/>
+  <circle cx="442.48" cy="438" r="8" fill="#6fa87d" stroke="#2f5f3d" stroke-width="1.4"/>
+  <circle cx="494.97" cy="460" r="8" fill="#a88ac6" stroke="#5f4778" stroke-width="1.4"/>
+  <text x="1000" y="442" class="label">decode 0.986&#215;</text>
+  <text x="1000" y="464" class="label">end-to-end 0.998&#215;</text>
+  <line x1="40" y1="496" x2="1160" y2="496" stroke="#edf0f3" stroke-width="1"/>
+  <circle cx="48" cy="537" r="6" fill="#6fa87d" stroke="#2f5f3d"/>
+  <text x="62" y="541" class="footer">decode throughput</text>
+  <circle cx="183" cy="537" r="6" fill="#a88ac6" stroke="#5f4778"/>
+  <text x="197" y="541" class="footer">end-to-end generation</text>
+  <text x="1160" y="541" text-anchor="end" class="footer">Apple M5 · 32 GB · MLX 0.32.0 · MLX-LM 0.31.3 · seed 0 · rev b287320 · 2026-07-18</text>
+</svg>

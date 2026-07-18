@@ -58,19 +58,72 @@ weights are retained only when the NAX representation wins.
 Model Benchmark
 ---------------
 
-The benchmark loads an actual MLX-LM model, warms both paths, alternates trial order,
-adds a configurable cooldown, and reports both decode throughput and total time:
+The benchmark loads actual MLX-LM models, verifies the next token, warms both paths,
+alternates trial order, adds a configurable cooldown, and records decode throughput,
+total time, environment metadata, raw samples, and every selected dispatch.
+
+The committed M5 32 GB suite uses a 128-token prompt, 256 generated tokens, five
+alternating trials, and two-second cooldowns:
+
+.. image:: /_static/mlx-model-throughput.svg
+   :alt: Native MLX and MLX with meTile median decode throughput across four 4-bit language models
+   :width: 100%
+
+.. image:: /_static/mlx-model-speedups.svg
+   :alt: Decode and end-to-end speedup relative to native MLX across four 4-bit language models
+   :width: 100%
+
+.. list-table:: M5 model-level medians
+   :header-rows: 1
+
+   * - Model
+     - MLX decode
+     - MLX + meTile
+     - Decode
+     - End-to-end
+   * - Llama 3.2 1B 4-bit
+     - 152.34 tok/s
+     - 152.24 tok/s
+     - 0.999x
+     - 1.001x
+   * - Llama 3.2 3B 4-bit
+     - 59.22 tok/s
+     - 61.56 tok/s
+     - 1.039x
+     - 1.036x
+   * - Qwen 2.5 0.5B 4-bit
+     - 308.78 tok/s
+     - 307.25 tok/s
+     - 0.995x
+     - 1.028x
+   * - Qwen 2.5 1.5B 4-bit
+     - 117.95 tok/s
+     - 116.35 tok/s
+     - 0.986x
+     - 0.998x
+
+Llama 3.2 3B is the clear win in this run. Llama 1B is at parity, Qwen 0.5B
+improves end-to-end time despite decode parity, and Qwen 1.5B remains slightly below
+native decode. The guarded backend is therefore presented as shape- and model-dependent,
+not as a universal framework win. The raw result is committed at
+``benchmarks/results/m5-mlx-lm-models.json``.
+
+Reproduce the complete suite and regenerate both figures:
 
 .. code-block:: bash
 
-   python benchmarks/mlx_lm_backend.py \
-     --model mlx-community/Llama-3.2-1B-Instruct-4bit \
+   python benchmarks/mlx_lm_suite.py \
      --prompt-tokens 128 \
      --generation-tokens 256 \
      --trials 5 \
-     --delay 2
+     --delay 2 \
+     --output benchmarks/results/m5-mlx-lm-models.json
+
+   python benchmarks/render_mlx_lm_results.py \
+     benchmarks/results/m5-mlx-lm-models.json
 
 Use ``--disable-attention``, ``--disable-rmsnorm``, ``--disable-graph-fusion``, or
-``--disable-quantized-mlp`` for ablation runs. The final report lists every
-native/generated schedule decision so a throughput result cannot silently attribute an
-MLX fallback to meTile.
+``--disable-quantized-mlp`` with either the single-model or suite runner for ablation
+runs. ``--offline`` makes the suite use already cached checkpoints. The structured
+result lists every native/generated schedule decision so a throughput result cannot
+silently attribute an MLX fallback to meTile.
