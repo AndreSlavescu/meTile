@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import prod
+from math import isfinite, prod
 
 _DTYPE_BYTES = {
     "bool": 1,
@@ -125,6 +125,69 @@ class GraphBuilder:
             "rms_norm",
             (values, weight),
             {"eps": float(eps)},
+            (values.spec,),
+            name,
+        )[0]
+
+    def matmul(
+        self,
+        left: GraphValue,
+        right: GraphValue,
+        *,
+        transpose_right: bool = False,
+        name: str | None = None,
+    ) -> GraphValue:
+        if len(left.spec.shape) < 2 or len(left.spec.shape) != len(right.spec.shape):
+            raise ValueError("matmul inputs must have equal rank of at least two")
+        if left.spec.shape[:-2] != right.spec.shape[:-2]:
+            raise ValueError("matmul batch dimensions must match exactly")
+        if left.spec.dtype != right.spec.dtype:
+            raise ValueError("matmul inputs must have the same dtype")
+        reduction = right.spec.shape[-1] if transpose_right else right.spec.shape[-2]
+        if left.spec.shape[-1] != reduction:
+            raise ValueError("matmul reduction dimensions must match")
+        columns = right.spec.shape[-2] if transpose_right else right.spec.shape[-1]
+        output = TensorSpec((*left.spec.shape[:-2], left.spec.shape[-2], columns), left.spec.dtype)
+        return self._node(
+            "matmul",
+            (left, right),
+            {"transpose_right": bool(transpose_right)},
+            (output,),
+            name,
+        )[0]
+
+    def scale(
+        self,
+        values: GraphValue,
+        factor: float,
+        *,
+        name: str | None = None,
+    ) -> GraphValue:
+        if not isfinite(factor):
+            raise ValueError("scale factor must be finite")
+        return self._node("scale", (values,), {"factor": float(factor)}, (values.spec,), name)[0]
+
+    def causal_mask(self, values: GraphValue, *, name: str | None = None) -> GraphValue:
+        if len(values.spec.shape) < 2:
+            raise ValueError("causal masking requires a rank-two or higher tensor")
+        return self._node("causal_mask", (values,), {}, (values.spec,), name)[0]
+
+    def softmax(
+        self,
+        values: GraphValue,
+        axis: int = -1,
+        *,
+        name: str | None = None,
+    ) -> GraphValue:
+        rank = len(values.spec.shape)
+        normalized_axis = axis + rank if axis < 0 else axis
+        if normalized_axis < 0 or normalized_axis >= rank:
+            raise ValueError("softmax axis is outside the input rank")
+        canonical_axis = normalized_axis - rank if normalized_axis == rank - 1 else normalized_axis
+        return self._node(
+            "softmax",
+            (values,),
+            {"axis": canonical_axis},
             (values.spec,),
             name,
         )[0]

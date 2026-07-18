@@ -72,6 +72,8 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Schedule-algebra pass over finite tile permutations. Generator closure derives the shape-preserving D4, D2, C2, or trivial action; orbit representatives remove equivalent traversals before emitting branch-free linear, grouped-2/4/8, diagonal, Morton, or 4x4 Hilbert schedules.
 - Schedule decoders are composable scalar-expression programs, not whole-kernel templates. Extraction strength-reduces exact constant divisions and chooses target-operation cost first, then compressed canonical-program length as a computable minimum-description-length upper bound.
 - Runtime remains the primary objective across kernel candidates. Compressed generated MSL only breaks measured latency ties within 0.25% of the fastest representation.
+- Proof-carrying reduction discovery models candidate algorithms as finite summary monoids. A restricted equational verifier checks identity, generated associativity, and list-homomorphism obligations before graph rewrites may use sum, max, or stable weighted-softmax states.
+- Exact attention discovery recognizes private `softmax(scale(Q @ K.T)) @ V` DAG regions, proves the online `(maximum, normalizer, numerator)` state, and replaces the materializing chain with one `flash_attention` operation.
 - Composable MXFP4/MXFP8 Metal IR operations for vectorized fused decode, optional threadgroup staging, register-resident NAX fragments, MPP matrix multiply, and stores.
 - NAX setup/run/epilogue/store lowering decomposes into tile-layout, vector-load, cooperative-tensor pack, MMA, per-fragment apply, and fragment-store IR. Shape-tuned reduction epochs can preload adjacent K fragments without owning a whole kernel template.
 - Autotuned fused epilogues (ReLU, GELU, SiLU, exp, scale) run directly on cooperative-tensor or NAX register fragments with zero intermediate global memory traffic.
@@ -93,6 +95,7 @@ def softmax(X, Out, N, BLOCK: metile.constexpr):
 - Prepared calls bulk-bind buffers, reuse unchanged encoder state, batch compatible launches, and expose `repeat(count)` to encode repeated work under one lock; measured short kernels receive an adaptive bounded poll-before-sleep budget while longer workloads block immediately.
 - Pure Python runtime. meTile has a ctypes Metal bridge with no PyObjC dependency.
 - Optional zero-copy MLX graph primitives and a reversible MLX-LM patch select between generated meTile kernels and native MLX per shape, including fused affine-quantized SwiGLU decode candidates.
+- Discovered FlashAttention regions race native MLX against causal/noncausal row-tiled online kernels and persist only compatible winners that clear the 5% framework boundary.
 
 ## Block-Scaled GEMM
 
@@ -137,6 +140,30 @@ The public kernel accepts contiguous float32 MHA/GQA/MQA tensors flattened as qu
 ``[batch, query_heads, D]`` and key/value ``[batch, key_value_heads, tokens, D]``, with
 ``query_heads`` divisible by ``key_value_heads`` and ``D`` divisible by 32. The original
 one-dimensional ``(heads,)`` launch remains a batch-one MHA shorthand.
+
+## FlashAttention Discovery
+
+The high-level compute DAG can express ordinary matmul, scale, causal-mask, and
+softmax nodes without prescribing a kernel boundary. Before backend fusion, the
+compiler finds exact attention chains whose score/probability intermediates do not
+escape. It then discharges an equational proof over the stable weighted-softmax
+summary and emits one proof-carrying `flash_attention` node. Invalid merge equations,
+wrong reduction axes, incompatible shapes, and escaping intermediates reject the
+rewrite.
+
+The generated Metal candidate assigns one query row per threadgroup, streams K/V
+without materializing the score matrix, and merges SIMDgroup-local online states.
+It supports aligned causal masks and MHA/GQA shapes with head dimensions divisible by
+32. Native MLX is still a candidate, numerical compatibility is checked first, and a
+31-round finalist tournament requires 5% headroom before switching. This follows the
+exact online-normalizer construction and IO-aware attention decomposition described by
+[Milakov and Gimelshein](https://arxiv.org/abs/1805.02867) and
+[Dao et al.](https://arxiv.org/abs/2205.14135), but does not assume an NVIDIA warp or
+CUDA-specific whole-kernel template.
+
+```bash
+python benchmarks/flash_attention_discovery.py --trials 31
+```
 
 ## MLX-LM Backend
 
