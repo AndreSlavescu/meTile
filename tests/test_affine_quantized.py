@@ -1,7 +1,11 @@
 import numpy as np
 
 from metile.codegen.msl_emitter import emit
-from metile.compiler.affine_quantized import lower_affine_qmv, lower_affine_swiglu_qmv
+from metile.compiler.affine_quantized import (
+    lower_affine_matmul,
+    lower_affine_qmv,
+    lower_affine_swiglu_qmv,
+)
 from metile.compiler.passes import decompose_nax_fragments
 from metile.compiler.schedule_search import optimize_tile_schedules
 from metile.frontend.kernel import CompiledKernel, FastDispatcher
@@ -25,6 +29,24 @@ def test_affine_qmv_decomposes_to_reusable_nax_primitives():
     assert sum(isinstance(operation, mir.MNaxLoadAffineParameters) for operation in operations) == 2
     assert sum(isinstance(operation, mir.MNaxLoadAffineFragment) for operation in operations) == 8
     assert any(isinstance(operation, mir.MNaxMatmul2dDecl) for operation in operations)
+
+
+def test_affine_matmul_masks_ragged_prefill_rows():
+    function = lower_affine_matmul("affine_prefill_ir", 33, 64, 64, schedule="morton")
+    operations = tuple(_walk(function.ops))
+
+    schedule = next(
+        operation for operation in operations if isinstance(operation, mir.MTileSchedule)
+    )
+    setup = next(operation for operation in operations if isinstance(operation, mir.MNaxGemmSetup))
+    runs = [operation for operation in operations if isinstance(operation, mir.MNaxAffineRun)]
+    store = next(operation for operation in operations if isinstance(operation, mir.MNaxGemmStore))
+
+    assert schedule.grid_m == 2
+    assert schedule.pattern == "morton"
+    assert setup.m == 33
+    assert all(run.row_bound == 33 for run in runs)
+    assert store.row_bound == 33
 
 
 def test_affine_swiglu_is_composed_from_binary_fragment_ir():

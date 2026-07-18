@@ -4,8 +4,9 @@ from metile.ir import metal_ir as mir
 from metile.ir.types import PtrType
 
 
-def lower_affine_qmv(
+def lower_affine_matmul(
     function_name: str,
+    rows: int,
     output_features: int,
     input_features: int,
     *,
@@ -13,7 +14,9 @@ def lower_affine_qmv(
     group_size: int = 64,
     schedule: str = "linear",
 ) -> mir.MFunction:
-    """Build a one-row affine uint4 QMV with native Metal 4 tensor operations."""
+    """Build a ragged affine uint4 matmul from native Metal 4 tensor operations."""
+    if rows < 1:
+        raise ValueError("affine matmul rows must be positive")
     if output_features % block_n or block_n % 32:
         raise ValueError("affine QMV output and block sizes must align to 32")
     if input_features % group_size or group_size % 16:
@@ -50,7 +53,7 @@ def lower_affine_qmv(
             block_m=block_m,
             block_n=block_n,
             block_size=4,
-            grid_m=1,
+            grid_m=(rows + block_m - 1) // block_m,
             grid_n=output_features // block_n,
         )
     )
@@ -60,7 +63,7 @@ def lower_affine_qmv(
             block_n=block_n,
             wm=1,
             wn=simdgroups,
-            m=1,
+            m=rows,
             n=output_features,
             k=input_features,
             left_type="half",
@@ -81,15 +84,36 @@ def lower_affine_qmv(
                     ptr_biases=biases,
                     group_size=group_size,
                     fragment_type="half",
-                    row_bound=1,
+                    row_bound=rows,
                     k_offset=offset,
                 )
                 for offset in range(0, group_size, 16)
             ],
         )
     )
-    function.add_op(mir.MNaxGemmStore(ptr_c=output, row_bound=1))
+    function.add_op(mir.MNaxGemmStore(ptr_c=output, row_bound=rows))
     return function
+
+
+def lower_affine_qmv(
+    function_name: str,
+    output_features: int,
+    input_features: int,
+    *,
+    block_n: int = 64,
+    group_size: int = 64,
+    schedule: str = "linear",
+) -> mir.MFunction:
+    """Build a one-row affine uint4 QMV with native Metal 4 tensor operations."""
+    return lower_affine_matmul(
+        function_name,
+        1,
+        output_features,
+        input_features,
+        block_n=block_n,
+        group_size=group_size,
+        schedule=schedule,
+    )
 
 
 def lower_affine_swiglu_qmv(
@@ -259,4 +283,4 @@ def lower_affine_swiglu_qmv(
     return function
 
 
-__all__ = ["lower_affine_qmv", "lower_affine_swiglu_qmv"]
+__all__ = ["lower_affine_matmul", "lower_affine_qmv", "lower_affine_swiglu_qmv"]

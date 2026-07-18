@@ -32,9 +32,9 @@ def _arguments():
     )
     parser.add_argument("--prompt-tokens", type=int, default=128)
     parser.add_argument("--generation-tokens", type=int, default=256)
-    parser.add_argument("--trials", type=int, default=5)
+    parser.add_argument("--trials", type=int, default=9)
     parser.add_argument("--prefill-step-size", type=int, default=2048)
-    parser.add_argument("--delay", type=float, default=2.0)
+    parser.add_argument("--delay", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--skip-verify", action="store_true")
@@ -42,9 +42,11 @@ def _arguments():
     parser.add_argument("--disable-rmsnorm", action="store_true")
     parser.add_argument("--disable-graph-fusion", action="store_true")
     parser.add_argument("--disable-quantized-mlp", action="store_true")
+    parser.add_argument("--disable-affine-prefill", action="store_true")
     parser.add_argument("--disable-model-autotune", action="store_true")
     parser.add_argument("--plan-decode-steps", type=int, default=8)
     parser.add_argument("--plan-trials", type=int, default=5)
+    parser.add_argument("--confirmation-trials", type=int, default=5)
     return parser.parse_args()
 
 
@@ -70,6 +72,8 @@ def _backend_command(arguments, model, output):
         str(arguments.plan_decode_steps),
         "--plan-trials",
         str(arguments.plan_trials),
+        "--confirmation-trials",
+        str(arguments.confirmation_trials),
         "--output-json",
         str(output),
     ]
@@ -79,6 +83,7 @@ def _backend_command(arguments, model, output):
         "disable_rmsnorm",
         "disable_graph_fusion",
         "disable_quantized_mlp",
+        "disable_affine_prefill",
         "disable_model_autotune",
     ):
         if getattr(arguments, name):

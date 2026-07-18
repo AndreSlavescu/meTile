@@ -173,10 +173,14 @@ and quantized-MLP switches:
 
 ```python
 from mlx_lm import load
-from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+from metile.integrations.mlx_lm import (
+    apply_metile_to_mlx_lm,
+    prepare_mlx_lm_affine_prefill,
+)
 
 model, tokenizer = load("mlx-community/Llama-3.2-1B-Instruct-4bit")
-patch = apply_metile_to_mlx_lm(model=model)
+affine_prefill = prepare_mlx_lm_affine_prefill(model)
+patch = apply_metile_to_mlx_lm(model=model, affine_prefill=affine_prefill)
 
 # Restore every patched function or use the handle as a context manager.
 patch.restore()
@@ -189,39 +193,46 @@ residual-add/RMSNorm fusion using an exact max-flow/min-cut pass and a stricter 
 margin. Unsupported attention modes, masks, sinks, quantized KV caches, and dtypes fall
 back exactly. RMSNorm supports FP16/FP32 and accumulates in FP32.
 
-For affine 4-bit Llama MLPs, AOT repacking transposes packed nibbles and scale/bias groups
-once, then measures eager and compiled MLX against generated scalar and Metal 4 NAX
-``matmul2d`` plus fused SwiGLU candidates. Scalar schedules independently tune threadgroup
-width, adjacent outputs per SIMDgroup, and FP16/FP32 decode arithmetic while retaining FP32
-accumulators. The selector verifies numerical compatibility, requires 3% headroom, persists
-the decision by device/source/row bucket, and discards repacked weights when native MLX wins.
+For affine 4-bit model weights, AOT preparation preserves the original quantized values while
+transposing packed nibbles and scale/bias groups into a K-major NAX view. Ragged prefill rows
+then tune native MLX against generated Morton, grouped, and Hilbert schedules. Only prepared
+projection instances change class, so unrelated linear layers keep the exact MLX path and
+decode rows call the original implementation. Model plans require matching next tokens, bounded
+KL divergence, bounded mean/max logit error, a measured TTFT or end-to-end win, and no median
+decode or total regression.
+
+The optional MLX primitive backend also accepts MXFP4 and MXFP8 K-major weights. It emits
+register-fragment block-scale decode plus NAX ``matmul2d`` directly into the MLX lazy graph,
+autotunes multiple tile/schedule representations, and keeps MLX arrays as the only storage.
 
 The committed M5 32 GB suite uses MLX 0.32.0, MLX-LM 0.31.3, a 128-token prompt,
-256 generated tokens, five trials, and two-second cooldowns. It verifies the next token
-and tunes the complete model plan before measurement. When no optimized plan clears the
-TTFT, decode, and end-to-end safety bars, both labels share the same native measurement
-instead of presenting thermal noise as a speedup:
+256 generated tokens, five end-to-end confirmation pairs, and nine continuous measurement
+pairs. It verifies bounded logit fidelity, tunes the complete model plan, and confirms it on
+the full generation workload before measurement. When no optimized plan clears the TTFT,
+decode, and end-to-end safety bars, both labels share the same native measurement instead of
+presenting system noise as a speedup:
 
-| Decode throughput | TTFT and end-to-end latency |
+| Prefill and decode throughput | TTFT and end-to-end latency |
 |:--:|:--:|
-| ![Native MLX and MLX with meTile decode throughput across four models](docs/_static/mlx-model-throughput.png) | ![Native MLX and MLX with meTile TTFT and end-to-end latency across four models](docs/_static/mlx-model-latency.png) |
+| ![Native MLX and MLX with meTile prefill and decode throughput across four models](docs/_static/mlx-model-throughput.png) | ![Native MLX and MLX with meTile TTFT and end-to-end latency across four models](docs/_static/mlx-model-latency.png) |
 
-| Model | MLX decode | MLX + meTile | Native TTFT | Decode | TTFT | End-to-end |
-|---|---:|---:|---:|---:|---:|---:|
-| Llama 3.2 1B 4-bit | 149.19 tok/s | 149.19 tok/s | 149.6 ms | 1.000x | 1.000x | 1.000x |
-| Llama 3.2 3B 4-bit | 56.62 tok/s | 56.62 tok/s | 281.3 ms | 1.000x | 1.000x | 1.000x |
-| Qwen 2.5 0.5B 4-bit | 306.93 tok/s | 306.93 tok/s | 114.1 ms | 1.000x | 1.000x | 1.000x |
-| Qwen 2.5 1.5B 4-bit | 119.31 tok/s | 119.31 tok/s | 214.3 ms | 1.000x | 1.000x | 1.000x |
+| Model | MLX decode | MLX + meTile | Native TTFT | Decode | Prefill | TTFT | End-to-end |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Llama 3.2 1B 4-bit | 145.95 tok/s | 146.00 tok/s | 104.1 ms | 1.012x | 1.330x | 1.143x | 1.010x |
+| Llama 3.2 3B 4-bit | 58.04 tok/s | 58.04 tok/s | 174.1 ms | 1.000x | 1.000x | 1.000x | 1.000x |
+| Qwen 2.5 0.5B 4-bit | 294.83 tok/s | 291.21 tok/s | 115.6 ms | 0.988x | 1.202x | 1.122x | 0.998x |
+| Qwen 2.5 1.5B 4-bit | 117.09 tok/s | 117.74 tok/s | 130.1 ms | 1.006x | 1.336x | 1.161x | 1.012x |
 
-All four workloads selected native MLX in this run. This is a no-regression result, not a
-speedup claim: candidates that looked faster in isolated timing did not survive the paired
-model-level guard. Raw trials, environment metadata, verification results, comparison mode,
-and selected dispatches are in `benchmarks/results/m5-mlx-lm-models.json`. Reproduce the
-suite and regenerate the PNG bar charts:
+Three workloads selected the generated affine-prefill path; Llama 3.2 3B retained native
+MLX. Speedups are medians of paired ratios, while chart bars show absolute medians. Raw trials,
+confirmation pairs, environment metadata, fidelity metrics, comparison mode, and selected
+dispatches are in `benchmarks/results/m5-mlx-lm-models.json`. Reproduce the suite and regenerate
+the PNG bar charts:
 
 ```bash
 python benchmarks/mlx_lm_suite.py \
-  --prompt-tokens 128 --generation-tokens 256 --trials 5 --delay 2 \
+  --prompt-tokens 128 --generation-tokens 256 --trials 9 --delay 0 \
+  --confirmation-trials 5 \
   --output benchmarks/results/m5-mlx-lm-models.json
 
 python benchmarks/render_mlx_lm_results.py \

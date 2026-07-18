@@ -13,17 +13,22 @@ Apply the reversible model patch after or before loading an MLX-LM model:
 .. code-block:: python
 
    from mlx_lm import load
-   from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+   from metile.integrations.mlx_lm import (
+       apply_metile_to_mlx_lm,
+       prepare_mlx_lm_affine_prefill,
+   )
 
    model, tokenizer = load("mlx-community/Llama-3.2-1B-Instruct-4bit")
-   patch = apply_metile_to_mlx_lm(model=model)
+   affine_prefill = prepare_mlx_lm_affine_prefill(model)
+   patch = apply_metile_to_mlx_lm(model=model, affine_prefill=affine_prefill)
 
    # Generation independently tunes attention, RMSNorm, graph, and MLP primitives.
    patch.restore()
 
 The handle is also a context manager. ``attention=False``, ``rms_norm=False``,
 ``graph_fusion=False``, or ``quantized_mlp=False`` disables each patch target
-independently.
+independently. Affine prefill is explicit because it creates an additional packed view of
+the prepared projections.
 
 Dispatch Policy
 ---------------
@@ -48,27 +53,51 @@ high-level compute DAG. The graph fusion pass uses an exact max-flow/min-cut par
 preserves the residual as a second output, and measures the fused multi-output kernel against
 the original MLX graph. Graph fusion requires 10 percent isolated headroom before switching.
 
-Affine 4-bit Llama MLPs add eager and compiled MLX, an output-major scalar meTile kernel,
-and an M5-native ``matmul2d`` kernel over an AOT K-major repack to the same policy. Gate/up
-projections and SwiGLU are fused without materializing either projection. Candidate outputs
-must first match native MLX; the fastest alternative must then clear a 3 percent guard band.
-Decisions are row-bucketed so prefill and decode can choose independently. Repacked weights
-are retained only when the NAX representation wins.
+Affine 4-bit models add eager MLX and an M5-native ``matmul2d`` kernel over an AOT K-major
+repack to the same policy. The repack preserves the original affine nibbles, scales, and
+biases; it does not requantize model weights. Ragged prefill rows tune Morton, grouped, and
+Hilbert schedules against native MLX. Only the prepared projection instances use the stable
+specialized class, and rows below the configured threshold call the original implementation,
+so decode does not traverse a global monkeypatch.
+
+Model-level tuning rejects plans that change the next token or exceed KL-divergence,
+mean-logit-error, or max-logit-error bounds. Surviving plans need a paired TTFT or total-latency
+win while preserving median decode and total latency. The selected feature plan and primitive
+schedules persist with device, MLX version, shape, source, and tuner-policy identities.
+
+Block-Scaled MLX Primitive
+--------------------------
+
+``MLXBlockScaledWeight`` provides a zero-copy MLX backend for K-major MXFP4 and MXFP8 weights:
+
+.. code-block:: python
+
+   from metile.backends.mlx_block_scaled import (
+       MLXBlockScaledWeight,
+       mlx_block_scaled_matmul,
+   )
+
+   weight = MLXBlockScaledWeight.quantize(dense_k_by_n, format="mxfp8")
+   output = mlx_block_scaled_matmul(activations, weight)
+
+The compiler composes E8M0 scale decode, E2M1 or E4M3 value decode, register fragments,
+native ``matmul2d``, ragged-row masks, and a schedule pass. The runtime measures linear,
+grouped, and Hilbert variants and persists the fastest compatible representation.
 
 Model Benchmark
 ---------------
 
-The benchmark loads actual MLX-LM models, verifies the next token, tunes a persistent
-model-level feature plan, adds a configurable cooldown, and records decode throughput,
-TTFT, total time, environment metadata, raw samples, and every selected dispatch. Optimized
-plans must preserve TTFT and decode while improving paired total latency. When the selected
-plan is native MLX, both labels share each native sample instead of graphing system noise.
+The benchmark loads actual MLX-LM models, verifies bounded logit fidelity, tunes a persistent
+model-level feature plan, adds a configurable cooldown, and records prefill/decode throughput,
+TTFT, total time, environment metadata, raw samples, and every selected dispatch. When the
+selected plan is native MLX, both labels share each native sample instead of graphing system
+noise.
 
 The committed M5 32 GB suite uses a 128-token prompt, 256 generated tokens, five
-native-fallback trials, and two-second cooldowns:
+end-to-end confirmation pairs, and nine continuous measurement pairs:
 
 .. image:: /_static/mlx-model-throughput.png
-   :alt: Native MLX and MLX with meTile median decode throughput across four 4-bit language models
+   :alt: Native MLX and MLX with meTile median prefill and decode throughput across four 4-bit language models
    :width: 100%
 
 .. image:: /_static/mlx-model-latency.png
@@ -83,41 +112,44 @@ native-fallback trials, and two-second cooldowns:
      - MLX + meTile
      - Native TTFT
      - Decode
+     - Prefill
      - TTFT speedup
      - End-to-end
    * - Llama 3.2 1B 4-bit
-     - 149.19 tok/s
-     - 149.19 tok/s
-     - 149.6 ms
-     - 1.000x
-     - 1.000x
-     - 1.000x
+     - 145.95 tok/s
+     - 146.00 tok/s
+     - 104.1 ms
+     - 1.012x
+     - 1.330x
+     - 1.143x
+     - 1.010x
    * - Llama 3.2 3B 4-bit
-     - 56.62 tok/s
-     - 56.62 tok/s
-     - 281.3 ms
+     - 58.04 tok/s
+     - 58.04 tok/s
+     - 174.1 ms
+     - 1.000x
      - 1.000x
      - 1.000x
      - 1.000x
    * - Qwen 2.5 0.5B 4-bit
-     - 306.93 tok/s
-     - 306.93 tok/s
-     - 114.1 ms
-     - 1.000x
-     - 1.000x
-     - 1.000x
+     - 294.83 tok/s
+     - 291.21 tok/s
+     - 115.6 ms
+     - 0.988x
+     - 1.202x
+     - 1.122x
+     - 0.998x
    * - Qwen 2.5 1.5B 4-bit
-     - 119.31 tok/s
-     - 119.31 tok/s
-     - 214.3 ms
-     - 1.000x
-     - 1.000x
-     - 1.000x
+     - 117.09 tok/s
+     - 117.74 tok/s
+     - 130.1 ms
+     - 1.006x
+     - 1.336x
+     - 1.161x
+     - 1.012x
 
-All four workloads selected native MLX in this run. The result demonstrates the guarded
-runtime's no-regression fallback rather than a framework speedup. Several isolated kernel
-candidates measured faster but failed the paired model-level safety test, so the published
-result does not promote them. The raw result is committed at
+Three workloads selected generated affine prefill; Llama 3.2 3B retained native MLX. Table
+speedups are medians of paired ratios, while chart bars are absolute medians. The raw result is committed at
 ``benchmarks/results/m5-mlx-lm-models.json``.
 
 Reproduce the complete suite and regenerate both figures:
@@ -129,15 +161,16 @@ Reproduce the complete suite and regenerate both figures:
    python benchmarks/mlx_lm_suite.py \
      --prompt-tokens 128 \
      --generation-tokens 256 \
-     --trials 5 \
-     --delay 2 \
+     --trials 9 \
+     --delay 0 \
+     --confirmation-trials 5 \
      --output benchmarks/results/m5-mlx-lm-models.json
 
    python benchmarks/render_mlx_lm_results.py \
      benchmarks/results/m5-mlx-lm-models.json
 
-Use ``--disable-attention``, ``--disable-rmsnorm``, ``--disable-graph-fusion``, or
-``--disable-quantized-mlp`` with either the single-model or suite runner for ablation
-runs. ``--offline`` makes the suite use already cached checkpoints. The structured
+Use ``--disable-attention``, ``--disable-rmsnorm``, ``--disable-graph-fusion``,
+``--disable-quantized-mlp``, or ``--disable-affine-prefill`` with either the single-model
+or suite runner for ablation runs. ``--offline`` makes the suite use already cached checkpoints. The structured
 result lists every native/generated schedule decision so a throughput result cannot
 silently attribute an MLX fallback to meTile.

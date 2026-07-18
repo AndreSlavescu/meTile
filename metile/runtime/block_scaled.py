@@ -212,6 +212,33 @@ def _decode_e4m3(bits: np.ndarray) -> np.ndarray:
     return np.where(bits & 128, -magnitude, magnitude)
 
 
+def _quantize_block_scaled_arrays(
+    weight: np.ndarray,
+    format: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    if format not in {"mxfp4", "mxfp8"}:
+        raise ValueError("format must be 'mxfp4' or 'mxfp8'")
+    weight = np.asarray(weight, dtype=np.float32)
+    if weight.ndim != 2:
+        raise ValueError("block-scaled weights must be a KxN matrix")
+    k, n = weight.shape
+    if k % _GROUP_SIZE or n % 64:
+        raise ValueError("K must be divisible by 32 and N by 64")
+
+    groups = weight.reshape(k // _GROUP_SIZE, _GROUP_SIZE, n)
+    maximum = np.max(np.abs(groups), axis=1)
+    limit = 6.0 if format == "mxfp4" else 448.0
+    encoded_scales, decoded_scales = _encode_e8m0(maximum / limit)
+    normalized = (groups / decoded_scales[:, None, :]).reshape(k, n)
+
+    if format == "mxfp4":
+        quantized = _encode_e2m1(normalized).reshape(-1)
+        packed = quantized[0::2] | (quantized[1::2] << 4)
+    else:
+        packed = _encode_e4m3(normalized).reshape(-1)
+    return np.ascontiguousarray(packed), np.ascontiguousarray(encoded_scales)
+
+
 @dataclass
 class BlockScaledWeight:
     """A GPU-resident MX block-scaled KxN weight matrix."""
@@ -227,32 +254,13 @@ class BlockScaledWeight:
 
     @classmethod
     def quantize(cls, weight: np.ndarray, format: str = "mxfp4") -> BlockScaledWeight:
-        if format not in {"mxfp4", "mxfp8"}:
-            raise ValueError("format must be 'mxfp4' or 'mxfp8'")
         weight = np.asarray(weight, dtype=np.float32)
-        if weight.ndim != 2:
-            raise ValueError("block-scaled weights must be a KxN matrix")
-        k, n = weight.shape
-        if k % _GROUP_SIZE or n % 64:
-            raise ValueError("K must be divisible by 32 and N by 64")
-
-        groups = weight.reshape(k // _GROUP_SIZE, _GROUP_SIZE, n)
-        maximum = np.max(np.abs(groups), axis=1)
-        limit = 6.0 if format == "mxfp4" else 448.0
-        encoded_scales, decoded_scales = _encode_e8m0(maximum / limit)
-        normalized = groups / decoded_scales[:, None, :]
-        normalized = normalized.reshape(k, n)
-
-        if format == "mxfp4":
-            quantized = _encode_e2m1(normalized).reshape(-1)
-            packed = quantized[0::2] | (quantized[1::2] << 4)
-        else:
-            packed = _encode_e4m3(normalized).reshape(-1)
+        packed, encoded_scales = _quantize_block_scaled_arrays(weight, format)
 
         return cls(
-            values=MtileBuffer(data=np.ascontiguousarray(packed)),
-            scales=MtileBuffer(data=np.ascontiguousarray(encoded_scales)),
-            shape=(k, n),
+            values=MtileBuffer(data=packed),
+            scales=MtileBuffer(data=encoded_scales),
+            shape=weight.shape,
             format=format,
         )
 

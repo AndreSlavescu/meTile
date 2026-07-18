@@ -18,6 +18,8 @@ def lower_block_scaled_matmul(
     outer_k: int = 0,
     fragment_type: str = "float",
     k_unroll: int = 1,
+    activation_type: str = "f32",
+    output_type: str = "f32",
 ) -> mir.MFunction:
     """Build composable Metal IR for an aligned MXFP weight-only GEMM."""
     if bits not in {4, 8}:
@@ -27,6 +29,10 @@ def lower_block_scaled_matmul(
         raise ValueError("block-scaled M/N tiles must be multiples of 32 and K must be 32 or 64")
     if fragment_type not in {"float", "bfloat"}:
         raise ValueError("fragment_type must be float or bfloat")
+    if activation_type not in {"f16", "f32"} or output_type not in {"f16", "f32"}:
+        raise ValueError("activation and output types must be f16 or f32")
+    if not register_fragments and (activation_type != "f32" or output_type != "f32"):
+        raise ValueError("mixed-precision block-scaled matmul requires register fragments")
     if k_unroll not in {1, 2}:
         raise ValueError("k_unroll must be 1 or 2")
     if k_unroll != 1 and not register_fragments:
@@ -45,15 +51,15 @@ def lower_block_scaled_matmul(
         threadgroup_size=(num_threads, 1, 1),
     )
     function.params = [
-        mir.MParam("activations", PtrType("f32")),
+        mir.MParam("activations", PtrType(activation_type)),
         mir.MParam("packed", PtrType("u8")),
         mir.MParam("scales", PtrType("u8")),
-        mir.MParam("output", PtrType("f32"), is_output=True),
+        mir.MParam("output", PtrType(output_type), is_output=True),
     ]
-    activations = mir.MValue("activations", PtrType("f32"))
+    activations = mir.MValue("activations", PtrType(activation_type))
     packed = mir.MValue("packed", PtrType("u8"))
     scales = mir.MValue("scales", PtrType("u8"))
-    output = mir.MValue("output", PtrType("f32"))
+    output = mir.MValue("output", PtrType(output_type))
 
     function.add_op(mir.ThreadgroupPositionInGrid())
     if register_fragments:
@@ -65,7 +71,7 @@ def lower_block_scaled_matmul(
                 block_m=block_m,
                 block_n=block_n,
                 block_size=4,
-                grid_m=m // block_m,
+                grid_m=(m + block_m - 1) // block_m,
                 grid_n=n // block_n,
             )
         )
@@ -78,6 +84,7 @@ def lower_block_scaled_matmul(
                 m=m,
                 n=n,
                 k=k,
+                left_type="half" if activation_type == "f16" else "float",
                 right_type=fragment_type,
             )
         )
@@ -88,6 +95,7 @@ def lower_block_scaled_matmul(
                 ptr_scales=scales,
                 bits=bits,
                 fragment_type=fragment_type,
+                row_bound=m,
                 k_offset=step_index * 16,
             )
             for step_index in range(k_unroll)
@@ -116,7 +124,7 @@ def lower_block_scaled_matmul(
             function.add_op(
                 mir.MForLoop(iv_name="k", start=0, end=k, step=reduction_step, body=steps)
             )
-        function.add_op(mir.MNaxGemmStore(ptr_c=output))
+        function.add_op(mir.MNaxGemmStore(ptr_c=output, row_bound=m))
         return function
 
     function.add_op(mir.ThreadPositionInThreadgroup())

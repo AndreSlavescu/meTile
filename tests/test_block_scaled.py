@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import metile
+from metile.codegen.msl_emitter import emit
 from metile.compiler.block_scaled import lower_block_scaled_matmul
 from metile.compiler.passes import decompose_nax_fragments
 from metile.ir import metal_ir as mir
@@ -43,6 +44,63 @@ def test_block_scaled_register_fragments_eliminate_staging_and_barriers():
     assert any(isinstance(op, mir.MNaxBlockScaledRun) for op in loop.body)
     assert not any(isinstance(op, mir.MBlockScaledTileLoad) for op in loop.body)
     assert not any(isinstance(op, mir.MBarrier) for op in loop.body)
+
+
+def test_block_scaled_register_fragments_support_fp16_model_io():
+    function = decompose_nax_fragments(
+        lower_block_scaled_matmul(
+            "test_bsmm_fp16",
+            32,
+            64,
+            64,
+            4,
+            block_m=32,
+            block_n=64,
+            register_fragments=True,
+            fragment_type="bfloat",
+            activation_type="f16",
+            output_type="f16",
+        )
+    )
+    source = emit(function)
+
+    assert "device half* activations" in source
+    assert "get_left_input_cooperative_tensor<half, bfloat, float>" in source
+    assert "device half* output" in source
+
+
+def test_block_scaled_register_fragments_mask_ragged_model_rows():
+    function = decompose_nax_fragments(
+        lower_block_scaled_matmul(
+            "test_bsmm_ragged",
+            127,
+            64,
+            64,
+            8,
+            block_m=32,
+            block_n=64,
+            register_fragments=True,
+            activation_type="f16",
+            output_type="f16",
+        )
+    )
+    source = emit(function)
+
+    assert "const uint grid_m = (uint(M) + 32u - 1u) / 32u" in source
+    assert "< 127u" in source
+
+
+def test_block_scaled_staging_rejects_mixed_precision_io():
+    with pytest.raises(ValueError, match="requires register fragments"):
+        lower_block_scaled_matmul(
+            "test_bsmm_fp16_staging",
+            64,
+            64,
+            64,
+            4,
+            activation_type="f16",
+            output_type="f16",
+        )
 
 
 def test_nax_fragment_pass_exposes_composable_native_operations():

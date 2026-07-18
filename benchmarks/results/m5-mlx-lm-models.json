@@ -1,8 +1,16 @@
 {
   "models": [
     {
-      "comparison_mode": "shared_native_fallback",
+      "candidate_plan": {
+        "affine_prefill": true,
+        "attention": false,
+        "graph_fusion": false,
+        "quantized_mlp": false,
+        "rms_norm": false
+      },
+      "comparison_mode": "alternating",
       "features": {
+        "affine_prefill": true,
         "attention": true,
         "graph_fusion": true,
         "model_autotune": true,
@@ -19,15 +27,18 @@
         "system": "Darwin"
       },
       "medians": {
-        "decode_speedup": 1.0,
-        "end_to_end_speedup": 1.0,
-        "metile_decode_tokens_per_second": 149.19023503745802,
-        "metile_elapsed_seconds": 1.8799371670465916,
-        "metile_time_to_first_token_seconds": 0.14957066590432078,
-        "mlx_decode_tokens_per_second": 149.19023503745802,
-        "mlx_elapsed_seconds": 1.8799371670465916,
-        "mlx_time_to_first_token_seconds": 0.14957066590432078,
-        "ttft_speedup": 1.0
+        "decode_speedup": 1.0118564687091205,
+        "end_to_end_speedup": 1.0100629063158815,
+        "metile_decode_tokens_per_second": 146.00074169597502,
+        "metile_elapsed_seconds": 1.8531726249493659,
+        "metile_prefill_tokens_per_second": 3197.7882479939153,
+        "metile_time_to_first_token_seconds": 0.0887647089548409,
+        "mlx_decode_tokens_per_second": 145.95375989575749,
+        "mlx_elapsed_seconds": 1.8530121248913929,
+        "mlx_prefill_tokens_per_second": 2411.9599300716704,
+        "mlx_time_to_first_token_seconds": 0.10410754207987338,
+        "prefill_speedup": 1.3302700651258752,
+        "ttft_speedup": 1.1425494580374882
       },
       "model": "mlx-community/Llama-3.2-1B-Instruct-4bit",
       "model_config": {
@@ -38,75 +49,158 @@
         "num_key_value_heads": 8,
         "vocab_size": 128256
       },
-      "recorded_at": "2026-07-18T03:14:16.983469+00:00",
-      "revision": "0a376a1a5ee6b541e0afb4bbc4b77353a3010860",
+      "plan_confirmation": {
+        "accepted": true,
+        "medians": {
+          "decode_speedup": 1.0096365074802554,
+          "end_to_end_speedup": 1.0140533790948898,
+          "ttft_speedup": 1.1029808226754698
+        },
+        "pairs": [
+          {
+            "decode_speedup": 1.017132918756366,
+            "end_to_end_speedup": 1.0163963403750287,
+            "ttft_speedup": 1.1088561342826317
+          },
+          {
+            "decode_speedup": 1.113577280996637,
+            "end_to_end_speedup": 1.0989847334488447,
+            "ttft_speedup": 0.889553582037845
+          },
+          {
+            "decode_speedup": 0.9837142647857232,
+            "end_to_end_speedup": 0.9955969166217422,
+            "ttft_speedup": 1.2751248351283297
+          },
+          {
+            "decode_speedup": 1.0096365074802554,
+            "end_to_end_speedup": 1.0140533790948898,
+            "ttft_speedup": 1.1029808226754698
+          },
+          {
+            "decode_speedup": 0.9969221053515236,
+            "end_to_end_speedup": 0.9993319725553147,
+            "ttft_speedup": 1.0441298215747676
+          }
+        ]
+      },
+      "recorded_at": "2026-07-18T05:00:28.897197+00:00",
+      "revision": "1fec7967e20af139ce9efd1ceee10fa336fc4aaf",
       "samples": {
         "MLX": [
           {
-            "decode_tokens_per_second": 149.19023503745802,
-            "elapsed_seconds": 1.8868106249719858,
-            "prefill_tokens_per_second": 1580.3477054397447,
-            "time_to_first_token_seconds": 0.16100433305837214
+            "decode_tokens_per_second": 148.73279731689445,
+            "elapsed_seconds": 1.8304834580048919,
+            "prefill_tokens_per_second": 2408.977222091583,
+            "time_to_first_token_seconds": 0.10039712500292808
           },
           {
-            "decode_tokens_per_second": 148.88932411918938,
-            "elapsed_seconds": 1.8799371670465916,
-            "prefill_tokens_per_second": 1482.0618366083531,
-            "time_to_first_token_seconds": 0.14947029203176498
+            "decode_tokens_per_second": 145.95375989575749,
+            "elapsed_seconds": 1.8530121248913929,
+            "prefill_tokens_per_second": 2444.8184849892455,
+            "time_to_first_token_seconds": 0.08872899995185435
           },
           {
-            "decode_tokens_per_second": 144.5207715467934,
-            "elapsed_seconds": 1.9316994159016758,
-            "prefill_tokens_per_second": 1440.5282621286476,
-            "time_to_first_token_seconds": 0.14957066590432078
+            "decode_tokens_per_second": 140.8776881445453,
+            "elapsed_seconds": 1.9315722920000553,
+            "prefill_tokens_per_second": 2403.810444111209,
+            "time_to_first_token_seconds": 0.10447024996392429
           },
           {
-            "decode_tokens_per_second": 149.88041041763822,
-            "elapsed_seconds": 1.8593968339264393,
-            "prefill_tokens_per_second": 1466.3764454202835,
-            "time_to_first_token_seconds": 0.14037020900286734
+            "decode_tokens_per_second": 148.11190941130442,
+            "elapsed_seconds": 1.8350807499373332,
+            "prefill_tokens_per_second": 2369.5219925283545,
+            "time_to_first_token_seconds": 0.0966764169279486
           },
           {
-            "decode_tokens_per_second": 149.8372860734204,
-            "elapsed_seconds": 1.8760165839921683,
-            "prefill_tokens_per_second": 1477.3399883792954,
-            "time_to_first_token_seconds": 0.15763691707979888
+            "decode_tokens_per_second": 143.32559705237816,
+            "elapsed_seconds": 1.9006590839708224,
+            "prefill_tokens_per_second": 2462.0829580976833,
+            "time_to_first_token_seconds": 0.10410754207987338
+          },
+          {
+            "decode_tokens_per_second": 148.05159255010673,
+            "elapsed_seconds": 1.8440528749488294,
+            "prefill_tokens_per_second": 2453.0373208669757,
+            "time_to_first_token_seconds": 0.10477329196874052
+          },
+          {
+            "decode_tokens_per_second": 143.8806330044824,
+            "elapsed_seconds": 1.8821333750383928,
+            "prefill_tokens_per_second": 2411.9599300716704,
+            "time_to_first_token_seconds": 0.09346808306872845
+          },
+          {
+            "decode_tokens_per_second": 140.86359604568585,
+            "elapsed_seconds": 1.9350159169407561,
+            "prefill_tokens_per_second": 2419.5930055131894,
+            "time_to_first_token_seconds": 0.10689075000118464
+          },
+          {
+            "decode_tokens_per_second": 147.63080307861432,
+            "elapsed_seconds": 1.852280875085853,
+            "prefill_tokens_per_second": 2395.624241036355,
+            "time_to_first_token_seconds": 0.10738241602666676
           }
         ],
         "MLX + meTile": [
           {
-            "decode_tokens_per_second": 149.19023503745802,
-            "elapsed_seconds": 1.8868106249719858,
-            "prefill_tokens_per_second": 1580.3477054397447,
-            "time_to_first_token_seconds": 0.16100433305837214
+            "decode_tokens_per_second": 142.15418564259662,
+            "elapsed_seconds": 1.8886176249943674,
+            "prefill_tokens_per_second": 3292.4668734651377,
+            "time_to_first_token_seconds": 0.07671012496575713
           },
           {
-            "decode_tokens_per_second": 148.88932411918938,
-            "elapsed_seconds": 1.8799371670465916,
-            "prefill_tokens_per_second": 1482.0618366083531,
-            "time_to_first_token_seconds": 0.14947029203176498
+            "decode_tokens_per_second": 147.68425608294,
+            "elapsed_seconds": 1.834551207954064,
+            "prefill_tokens_per_second": 3206.7542231952348,
+            "time_to_first_token_seconds": 0.09167070791590959
           },
           {
-            "decode_tokens_per_second": 144.5207715467934,
-            "elapsed_seconds": 1.9316994159016758,
-            "prefill_tokens_per_second": 1440.5282621286476,
-            "time_to_first_token_seconds": 0.14957066590432078
+            "decode_tokens_per_second": 144.0663414285544,
+            "elapsed_seconds": 1.8763034590519965,
+            "prefill_tokens_per_second": 3243.0583329355136,
+            "time_to_first_token_seconds": 0.08828825003001839
           },
           {
-            "decode_tokens_per_second": 149.88041041763822,
-            "elapsed_seconds": 1.8593968339264393,
-            "prefill_tokens_per_second": 1466.3764454202835,
-            "time_to_first_token_seconds": 0.14037020900286734
+            "decode_tokens_per_second": 143.70572436219447,
+            "elapsed_seconds": 1.8846526249544695,
+            "prefill_tokens_per_second": 3187.2344969371984,
+            "time_to_first_token_seconds": 0.09413066692650318
           },
           {
-            "decode_tokens_per_second": 149.8372860734204,
-            "elapsed_seconds": 1.8760165839921683,
-            "prefill_tokens_per_second": 1477.3399883792954,
-            "time_to_first_token_seconds": 0.15763691707979888
+            "decode_tokens_per_second": 147.6778983993059,
+            "elapsed_seconds": 1.830629708012566,
+            "prefill_tokens_per_second": 3197.7882479939153,
+            "time_to_first_token_seconds": 0.08638145797885954
+          },
+          {
+            "decode_tokens_per_second": 147.57356058806786,
+            "elapsed_seconds": 1.838093167054467,
+            "prefill_tokens_per_second": 3058.649045518253,
+            "time_to_first_token_seconds": 0.09339225001167506
+          },
+          {
+            "decode_tokens_per_second": 147.38921030749833,
+            "elapsed_seconds": 1.8317142080049962,
+            "prefill_tokens_per_second": 3188.633804421566,
+            "time_to_first_token_seconds": 0.08475920802447945
+          },
+          {
+            "decode_tokens_per_second": 146.00074169597502,
+            "elapsed_seconds": 1.8531726249493659,
+            "prefill_tokens_per_second": 3218.7121450221425,
+            "time_to_first_token_seconds": 0.0887647089548409
+          },
+          {
+            "decode_tokens_per_second": 144.66209921577516,
+            "elapsed_seconds": 1.8740940419957042,
+            "prefill_tokens_per_second": 3195.200575791431,
+            "time_to_first_token_seconds": 0.09398491703905165
           }
         ]
       },
-      "schema_version": 3,
+      "schema_version": 4,
       "selected_dispatches": {
         "add_rms_norm": [
           {
@@ -124,6 +218,30 @@
             "eps": 1e-05,
             "hidden": 2048,
             "row_bucket": 128
+          }
+        ],
+        "affine_matmul": [
+          {
+            "algorithm": "metile",
+            "bits": 4,
+            "block_n": 32,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "input_features": 8192,
+            "output_features": 2048,
+            "rows": 127,
+            "schedule": "morton"
+          },
+          {
+            "algorithm": "metile",
+            "bits": 4,
+            "block_n": 32,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "input_features": 8192,
+            "output_features": 2048,
+            "rows": 128,
+            "schedule": "morton"
           }
         ],
         "affine_swiglu": [
@@ -166,6 +284,7 @@
             "token_bucket": 256
           }
         ],
+        "block_scaled": [],
         "rms_norm": [
           {
             "algorithm": "mlx",
@@ -186,6 +305,7 @@
         ]
       },
       "selected_plan": {
+        "affine_prefill": true,
         "attention": false,
         "graph_fusion": false,
         "quantized_mlp": false,
@@ -197,23 +317,35 @@
         "python": "3.12.12"
       },
       "verification": {
-        "max_logit_error": 0.0,
+        "actual_next_token": 128000,
+        "kl_divergence": 3.4543096262495965e-05,
+        "max_logit_error": 0.046875,
+        "mean_logit_error": 0.007913924753665924,
         "next_token": 128000
       },
       "workload": {
-        "delay_seconds": 2.0,
+        "confirmation_trials": 5,
+        "delay_seconds": 0.0,
         "generation_tokens": 256,
         "plan_decode_steps": 8,
         "plan_trials": 5,
         "prefill_step_size": 2048,
         "prompt_tokens": 128,
         "seed": 0,
-        "trials": 5
+        "trials": 9
       }
     },
     {
+      "candidate_plan": {
+        "affine_prefill": false,
+        "attention": false,
+        "graph_fusion": false,
+        "quantized_mlp": false,
+        "rms_norm": false
+      },
       "comparison_mode": "shared_native_fallback",
       "features": {
+        "affine_prefill": true,
         "attention": true,
         "graph_fusion": true,
         "model_autotune": true,
@@ -232,12 +364,15 @@
       "medians": {
         "decode_speedup": 1.0,
         "end_to_end_speedup": 1.0,
-        "metile_decode_tokens_per_second": 56.620977298411574,
-        "metile_elapsed_seconds": 4.825580540928058,
-        "metile_time_to_first_token_seconds": 0.2812856249511242,
-        "mlx_decode_tokens_per_second": 56.620977298411574,
-        "mlx_elapsed_seconds": 4.825580540928058,
-        "mlx_time_to_first_token_seconds": 0.2812856249511242,
+        "metile_decode_tokens_per_second": 58.039918272252436,
+        "metile_elapsed_seconds": 4.599079416948371,
+        "metile_prefill_tokens_per_second": 1148.9824805766984,
+        "metile_time_to_first_token_seconds": 0.1740643329685554,
+        "mlx_decode_tokens_per_second": 58.039918272252436,
+        "mlx_elapsed_seconds": 4.599079416948371,
+        "mlx_prefill_tokens_per_second": 1148.9824805766984,
+        "mlx_time_to_first_token_seconds": 0.1740643329685554,
+        "prefill_speedup": 1.0,
         "ttft_speedup": 1.0
       },
       "model": "mlx-community/Llama-3.2-3B-Instruct-4bit",
@@ -249,75 +384,124 @@
         "num_key_value_heads": 8,
         "vocab_size": 128256
       },
-      "recorded_at": "2026-07-18T03:15:15.147016+00:00",
-      "revision": "0a376a1a5ee6b541e0afb4bbc4b77353a3010860",
+      "plan_confirmation": null,
+      "recorded_at": "2026-07-18T05:01:31.392283+00:00",
+      "revision": "1fec7967e20af139ce9efd1ceee10fa336fc4aaf",
       "samples": {
         "MLX": [
           {
-            "decode_tokens_per_second": 58.89625879552178,
-            "elapsed_seconds": 4.79920654091984,
-            "prefill_tokens_per_second": 526.9787555077432,
-            "time_to_first_token_seconds": 0.43499012489337474
+            "decode_tokens_per_second": 56.813355532972786,
+            "elapsed_seconds": 4.679328083992004,
+            "prefill_tokens_per_second": 1301.309488713145,
+            "time_to_first_token_seconds": 0.15430537494830787
           },
           {
-            "decode_tokens_per_second": 59.013632091153134,
-            "elapsed_seconds": 4.598270584014244,
-            "prefill_tokens_per_second": 753.1080433586435,
-            "time_to_first_token_seconds": 0.2384739170083776
+            "decode_tokens_per_second": 57.93524829419813,
+            "elapsed_seconds": 4.6044101669685915,
+            "prefill_tokens_per_second": 1170.450245844433,
+            "time_to_first_token_seconds": 0.15919566701631993
           },
           {
-            "decode_tokens_per_second": 55.33334558098864,
-            "elapsed_seconds": 4.994934167014435,
-            "prefill_tokens_per_second": 468.84987098671513,
-            "time_to_first_token_seconds": 0.34984841698314995
+            "decode_tokens_per_second": 58.94193753341598,
+            "elapsed_seconds": 4.535997375031002,
+            "prefill_tokens_per_second": 1205.4087976557014,
+            "time_to_first_token_seconds": 0.1740643329685554
           },
           {
-            "decode_tokens_per_second": 54.23576131820873,
-            "elapsed_seconds": 4.987417749944143,
-            "prefill_tokens_per_second": 672.1960920877852,
-            "time_to_first_token_seconds": 0.24999166605994105
+            "decode_tokens_per_second": 57.58428632789197,
+            "elapsed_seconds": 4.6662948339944705,
+            "prefill_tokens_per_second": 932.390459679544,
+            "time_to_first_token_seconds": 0.2002932500327006
           },
           {
-            "decode_tokens_per_second": 56.620977298411574,
-            "elapsed_seconds": 4.825580540928058,
-            "prefill_tokens_per_second": 587.6264446173718,
-            "time_to_first_token_seconds": 0.2812856249511242
+            "decode_tokens_per_second": 57.4652117506269,
+            "elapsed_seconds": 4.6854407080681995,
+            "prefill_tokens_per_second": 1131.7584931804697,
+            "time_to_first_token_seconds": 0.2111113331047818
+          },
+          {
+            "decode_tokens_per_second": 59.08842544217353,
+            "elapsed_seconds": 4.546199374948628,
+            "prefill_tokens_per_second": 1148.9824805766984,
+            "time_to_first_token_seconds": 0.19261137500870973
+          },
+          {
+            "decode_tokens_per_second": 59.78203377135932,
+            "elapsed_seconds": 4.483211083104834,
+            "prefill_tokens_per_second": 1113.0543672909412,
+            "time_to_first_token_seconds": 0.18244304100517184
+          },
+          {
+            "decode_tokens_per_second": 59.54305704357895,
+            "elapsed_seconds": 4.490896042087115,
+            "prefill_tokens_per_second": 1141.211557427398,
+            "time_to_first_token_seconds": 0.16850770800374448
+          },
+          {
+            "decode_tokens_per_second": 58.039918272252436,
+            "elapsed_seconds": 4.599079416948371,
+            "prefill_tokens_per_second": 1198.520568152607,
+            "time_to_first_token_seconds": 0.16977754200343043
           }
         ],
         "MLX + meTile": [
           {
-            "decode_tokens_per_second": 58.89625879552178,
-            "elapsed_seconds": 4.79920654091984,
-            "prefill_tokens_per_second": 526.9787555077432,
-            "time_to_first_token_seconds": 0.43499012489337474
+            "decode_tokens_per_second": 56.813355532972786,
+            "elapsed_seconds": 4.679328083992004,
+            "prefill_tokens_per_second": 1301.309488713145,
+            "time_to_first_token_seconds": 0.15430537494830787
           },
           {
-            "decode_tokens_per_second": 59.013632091153134,
-            "elapsed_seconds": 4.598270584014244,
-            "prefill_tokens_per_second": 753.1080433586435,
-            "time_to_first_token_seconds": 0.2384739170083776
+            "decode_tokens_per_second": 57.93524829419813,
+            "elapsed_seconds": 4.6044101669685915,
+            "prefill_tokens_per_second": 1170.450245844433,
+            "time_to_first_token_seconds": 0.15919566701631993
           },
           {
-            "decode_tokens_per_second": 55.33334558098864,
-            "elapsed_seconds": 4.994934167014435,
-            "prefill_tokens_per_second": 468.84987098671513,
-            "time_to_first_token_seconds": 0.34984841698314995
+            "decode_tokens_per_second": 58.94193753341598,
+            "elapsed_seconds": 4.535997375031002,
+            "prefill_tokens_per_second": 1205.4087976557014,
+            "time_to_first_token_seconds": 0.1740643329685554
           },
           {
-            "decode_tokens_per_second": 54.23576131820873,
-            "elapsed_seconds": 4.987417749944143,
-            "prefill_tokens_per_second": 672.1960920877852,
-            "time_to_first_token_seconds": 0.24999166605994105
+            "decode_tokens_per_second": 57.58428632789197,
+            "elapsed_seconds": 4.6662948339944705,
+            "prefill_tokens_per_second": 932.390459679544,
+            "time_to_first_token_seconds": 0.2002932500327006
           },
           {
-            "decode_tokens_per_second": 56.620977298411574,
-            "elapsed_seconds": 4.825580540928058,
-            "prefill_tokens_per_second": 587.6264446173718,
-            "time_to_first_token_seconds": 0.2812856249511242
+            "decode_tokens_per_second": 57.4652117506269,
+            "elapsed_seconds": 4.6854407080681995,
+            "prefill_tokens_per_second": 1131.7584931804697,
+            "time_to_first_token_seconds": 0.2111113331047818
+          },
+          {
+            "decode_tokens_per_second": 59.08842544217353,
+            "elapsed_seconds": 4.546199374948628,
+            "prefill_tokens_per_second": 1148.9824805766984,
+            "time_to_first_token_seconds": 0.19261137500870973
+          },
+          {
+            "decode_tokens_per_second": 59.78203377135932,
+            "elapsed_seconds": 4.483211083104834,
+            "prefill_tokens_per_second": 1113.0543672909412,
+            "time_to_first_token_seconds": 0.18244304100517184
+          },
+          {
+            "decode_tokens_per_second": 59.54305704357895,
+            "elapsed_seconds": 4.490896042087115,
+            "prefill_tokens_per_second": 1141.211557427398,
+            "time_to_first_token_seconds": 0.16850770800374448
+          },
+          {
+            "decode_tokens_per_second": 58.039918272252436,
+            "elapsed_seconds": 4.599079416948371,
+            "prefill_tokens_per_second": 1198.520568152607,
+            "time_to_first_token_seconds": 0.16977754200343043
           }
         ]
       },
-      "schema_version": 3,
+      "schema_version": 4,
       "selected_dispatches": {
         "add_rms_norm": [
           {
@@ -335,6 +519,19 @@
             "eps": 1e-05,
             "hidden": 3072,
             "row_bucket": 128
+          }
+        ],
+        "affine_matmul": [
+          {
+            "algorithm": "metile",
+            "bits": 4,
+            "block_n": 64,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "input_features": 8192,
+            "output_features": 3072,
+            "rows": 128,
+            "schedule": "grouped4"
           }
         ],
         "affine_swiglu": [
@@ -377,6 +574,7 @@
             "token_bucket": 256
           }
         ],
+        "block_scaled": [],
         "rms_norm": [
           {
             "algorithm": "mlx",
@@ -397,6 +595,7 @@
         ]
       },
       "selected_plan": {
+        "affine_prefill": false,
         "attention": false,
         "graph_fusion": false,
         "quantized_mlp": false,
@@ -408,23 +607,35 @@
         "python": "3.12.12"
       },
       "verification": {
+        "actual_next_token": 198,
+        "kl_divergence": 0.0,
         "max_logit_error": 0.0,
+        "mean_logit_error": 0.0,
         "next_token": 198
       },
       "workload": {
-        "delay_seconds": 2.0,
+        "confirmation_trials": 5,
+        "delay_seconds": 0.0,
         "generation_tokens": 256,
         "plan_decode_steps": 8,
         "plan_trials": 5,
         "prefill_step_size": 2048,
         "prompt_tokens": 128,
         "seed": 0,
-        "trials": 5
+        "trials": 9
       }
     },
     {
-      "comparison_mode": "shared_native_fallback",
+      "candidate_plan": {
+        "affine_prefill": true,
+        "attention": false,
+        "graph_fusion": false,
+        "quantized_mlp": false,
+        "rms_norm": false
+      },
+      "comparison_mode": "alternating",
       "features": {
+        "affine_prefill": true,
         "attention": true,
         "graph_fusion": true,
         "model_autotune": true,
@@ -441,15 +652,18 @@
         "system": "Darwin"
       },
       "medians": {
-        "decode_speedup": 1.0,
-        "end_to_end_speedup": 1.0,
-        "metile_decode_tokens_per_second": 306.9282305120784,
-        "metile_elapsed_seconds": 0.9528349579777569,
-        "metile_time_to_first_token_seconds": 0.11412866692990065,
-        "mlx_decode_tokens_per_second": 306.9282305120784,
-        "mlx_elapsed_seconds": 0.9528349579777569,
-        "mlx_time_to_first_token_seconds": 0.11412866692990065,
-        "ttft_speedup": 1.0
+        "decode_speedup": 0.9877096482221478,
+        "end_to_end_speedup": 0.9977254008068955,
+        "metile_decode_tokens_per_second": 291.2100217272307,
+        "metile_elapsed_seconds": 1.0022694999352098,
+        "metile_prefill_tokens_per_second": 5689.478824703025,
+        "metile_time_to_first_token_seconds": 0.11435254104435444,
+        "mlx_decode_tokens_per_second": 294.83363076527735,
+        "mlx_elapsed_seconds": 1.0057249169331044,
+        "mlx_prefill_tokens_per_second": 4823.764531041029,
+        "mlx_time_to_first_token_seconds": 0.11563716700766236,
+        "prefill_speedup": 1.2024084948947906,
+        "ttft_speedup": 1.1223645701848608
       },
       "model": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
       "model_config": {
@@ -460,77 +674,184 @@
         "num_key_value_heads": 2,
         "vocab_size": 151936
       },
-      "recorded_at": "2026-07-18T03:15:35.224924+00:00",
-      "revision": "0a376a1a5ee6b541e0afb4bbc4b77353a3010860",
+      "plan_confirmation": {
+        "accepted": true,
+        "medians": {
+          "decode_speedup": 0.9961156310894587,
+          "end_to_end_speedup": 1.009108556418959,
+          "ttft_speedup": 1.0674207164392744
+        },
+        "pairs": [
+          {
+            "decode_speedup": 0.9785338681955428,
+            "end_to_end_speedup": 1.0043360362255283,
+            "ttft_speedup": 1.2090390376599798
+          },
+          {
+            "decode_speedup": 0.9851531178124716,
+            "end_to_end_speedup": 1.009108556418959,
+            "ttft_speedup": 1.211533594779653
+          },
+          {
+            "decode_speedup": 1.1564431889007234,
+            "end_to_end_speedup": 1.1504636337372747,
+            "ttft_speedup": 1.0674207164392744
+          },
+          {
+            "decode_speedup": 1.0319538863448299,
+            "end_to_end_speedup": 1.0358013409117162,
+            "ttft_speedup": 1.0557180015809735
+          },
+          {
+            "decode_speedup": 0.9961156310894587,
+            "end_to_end_speedup": 0.9684092590494268,
+            "ttft_speedup": 0.7386026222585184
+          }
+        ]
+      },
+      "recorded_at": "2026-07-18T05:02:07.597810+00:00",
+      "revision": "1fec7967e20af139ce9efd1ceee10fa336fc4aaf",
       "samples": {
         "MLX": [
           {
-            "decode_tokens_per_second": 306.9282305120784,
-            "elapsed_seconds": 0.9528349579777569,
-            "prefill_tokens_per_second": 2779.939529776697,
-            "time_to_first_token_seconds": 0.11312779097352177
+            "decode_tokens_per_second": 301.8485128716036,
+            "elapsed_seconds": 0.9713493750896305,
+            "prefill_tokens_per_second": 4901.788840998441,
+            "time_to_first_token_seconds": 0.11563716700766236
           },
           {
-            "decode_tokens_per_second": 312.90690579773224,
-            "elapsed_seconds": 0.93809545901604,
-            "prefill_tokens_per_second": 2807.5947614456645,
-            "time_to_first_token_seconds": 0.11412866692990065
+            "decode_tokens_per_second": 273.34705981052537,
+            "elapsed_seconds": 1.059825292089954,
+            "prefill_tokens_per_second": 4929.808022868113,
+            "time_to_first_token_seconds": 0.1133428750326857
           },
           {
-            "decode_tokens_per_second": 311.99703237803993,
-            "elapsed_seconds": 0.9485457920236513,
-            "prefill_tokens_per_second": 2733.341702174459,
-            "time_to_first_token_seconds": 0.12246949994005263
+            "decode_tokens_per_second": 249.68370950047398,
+            "elapsed_seconds": 1.1566587920533493,
+            "prefill_tokens_per_second": 4566.95670173331,
+            "time_to_first_token_seconds": 0.12377824995201081
           },
           {
-            "decode_tokens_per_second": 264.686891422498,
-            "elapsed_seconds": 1.1326809159945697,
-            "prefill_tokens_per_second": 2191.011716043724,
-            "time_to_first_token_seconds": 0.15972229093313217
+            "decode_tokens_per_second": 241.19903242562708,
+            "elapsed_seconds": 1.2521480830619112,
+            "prefill_tokens_per_second": 4823.764531041029,
+            "time_to_first_token_seconds": 0.1835913750110194
           },
           {
-            "decode_tokens_per_second": 284.0098304834142,
-            "elapsed_seconds": 1.0112183750607073,
-            "prefill_tokens_per_second": 3027.346636836003,
-            "time_to_first_token_seconds": 0.10401424998417497
+            "decode_tokens_per_second": 283.30197663478117,
+            "elapsed_seconds": 1.0529682919150218,
+            "prefill_tokens_per_second": 4603.357450258464,
+            "time_to_first_token_seconds": 0.14298262493684888
+          },
+          {
+            "decode_tokens_per_second": 302.77849511270847,
+            "elapsed_seconds": 0.9633199169766158,
+            "prefill_tokens_per_second": 4933.497240263585,
+            "time_to_first_token_seconds": 0.10846650006715208
+          },
+          {
+            "decode_tokens_per_second": 296.0509149511253,
+            "elapsed_seconds": 0.9816885419422761,
+            "prefill_tokens_per_second": 4756.794907027318,
+            "time_to_first_token_seconds": 0.1083817919716239
+          },
+          {
+            "decode_tokens_per_second": 294.83363076527735,
+            "elapsed_seconds": 1.0057249169331044,
+            "prefill_tokens_per_second": 4656.633820258343,
+            "time_to_first_token_seconds": 0.13009441702160984
+          },
+          {
+            "decode_tokens_per_second": 298.07045927514497,
+            "elapsed_seconds": 0.9739368750015274,
+            "prefill_tokens_per_second": 4965.651077229817,
+            "time_to_first_token_seconds": 0.10705920797772706
           }
         ],
         "MLX + meTile": [
           {
-            "decode_tokens_per_second": 306.9282305120784,
-            "elapsed_seconds": 0.9528349579777569,
-            "prefill_tokens_per_second": 2779.939529776697,
-            "time_to_first_token_seconds": 0.11312779097352177
+            "decode_tokens_per_second": 305.6761734704409,
+            "elapsed_seconds": 0.9598189160460606,
+            "prefill_tokens_per_second": 6248.665120090572,
+            "time_to_first_token_seconds": 0.11435254104435444
           },
           {
-            "decode_tokens_per_second": 312.90690579773224,
-            "elapsed_seconds": 0.93809545901604,
-            "prefill_tokens_per_second": 2807.5947614456645,
-            "time_to_first_token_seconds": 0.11412866692990065
+            "decode_tokens_per_second": 293.43200861515805,
+            "elapsed_seconds": 0.9819332080660388,
+            "prefill_tokens_per_second": 5689.478824703025,
+            "time_to_first_token_seconds": 0.1009857919998467
           },
           {
-            "decode_tokens_per_second": 311.99703237803993,
-            "elapsed_seconds": 0.9485457920236513,
-            "prefill_tokens_per_second": 2733.341702174459,
-            "time_to_first_token_seconds": 0.12246949994005263
+            "decode_tokens_per_second": 252.1927718077253,
+            "elapsed_seconds": 1.242919958080165,
+            "prefill_tokens_per_second": 981.4056819533696,
+            "time_to_first_token_seconds": 0.2171307080425322
           },
           {
-            "decode_tokens_per_second": 264.686891422498,
-            "elapsed_seconds": 1.1326809159945697,
-            "prefill_tokens_per_second": 2191.011716043724,
-            "time_to_first_token_seconds": 0.15972229093313217
+            "decode_tokens_per_second": 223.05274829003025,
+            "elapsed_seconds": 1.2965528749627993,
+            "prefill_tokens_per_second": 5265.719942741947,
+            "time_to_first_token_seconds": 0.13932737498544157
           },
           {
-            "decode_tokens_per_second": 284.0098304834142,
-            "elapsed_seconds": 1.0112183750607073,
-            "prefill_tokens_per_second": 3027.346636836003,
-            "time_to_first_token_seconds": 0.10401424998417497
+            "decode_tokens_per_second": 275.35998714263025,
+            "elapsed_seconds": 1.0553688330110162,
+            "prefill_tokens_per_second": 5666.1507721060125,
+            "time_to_first_token_seconds": 0.11782779102213681
+          },
+          {
+            "decode_tokens_per_second": 295.6561074281229,
+            "elapsed_seconds": 0.9750095420749858,
+            "prefill_tokens_per_second": 6162.598810305366,
+            "time_to_first_token_seconds": 0.10174887510947883
+          },
+          {
+            "decode_tokens_per_second": 286.1188625941925,
+            "elapsed_seconds": 1.0029596249805763,
+            "prefill_tokens_per_second": 5684.204595722061,
+            "time_to_first_token_seconds": 0.10049541702028364
+          },
+          {
+            "decode_tokens_per_second": 291.2100217272307,
+            "elapsed_seconds": 1.0022694999352098,
+            "prefill_tokens_per_second": 5943.386829768126,
+            "time_to_first_token_seconds": 0.1157661669421941
+          },
+          {
+            "decode_tokens_per_second": 306.7400435518271,
+            "elapsed_seconds": 0.9357441250467673,
+            "prefill_tokens_per_second": 5970.7410379446,
+            "time_to_first_token_seconds": 0.09294329199474305
           }
         ]
       },
-      "schema_version": 3,
+      "schema_version": 4,
       "selected_dispatches": {
         "add_rms_norm": [],
+        "affine_matmul": [
+          {
+            "algorithm": "metile",
+            "bits": 4,
+            "block_n": 128,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "input_features": 4864,
+            "output_features": 896,
+            "rows": 127,
+            "schedule": "hilbert"
+          },
+          {
+            "algorithm": "metile",
+            "bits": 4,
+            "block_n": 128,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "input_features": 4864,
+            "output_features": 896,
+            "rows": 128,
+            "schedule": "hilbert"
+          }
+        ],
         "affine_swiglu": [],
         "attention": [
           {
@@ -544,6 +865,7 @@
             "token_bucket": 256
           }
         ],
+        "block_scaled": [],
         "rms_norm": [
           {
             "algorithm": "mlx",
@@ -564,6 +886,7 @@
         ]
       },
       "selected_plan": {
+        "affine_prefill": true,
         "attention": false,
         "graph_fusion": false,
         "quantized_mlp": false,
@@ -575,23 +898,35 @@
         "python": "3.12.12"
       },
       "verification": {
-        "max_logit_error": 0.0,
+        "actual_next_token": 220,
+        "kl_divergence": 3.647512130555697e-05,
+        "max_logit_error": 0.037109375,
+        "mean_logit_error": 0.0060996683314442635,
         "next_token": 220
       },
       "workload": {
-        "delay_seconds": 2.0,
+        "confirmation_trials": 5,
+        "delay_seconds": 0.0,
         "generation_tokens": 256,
         "plan_decode_steps": 8,
         "plan_trials": 5,
         "prefill_step_size": 2048,
         "prompt_tokens": 128,
         "seed": 0,
-        "trials": 5
+        "trials": 9
       }
     },
     {
-      "comparison_mode": "shared_native_fallback",
+      "candidate_plan": {
+        "affine_prefill": true,
+        "attention": false,
+        "graph_fusion": false,
+        "quantized_mlp": false,
+        "rms_norm": false
+      },
+      "comparison_mode": "alternating",
       "features": {
+        "affine_prefill": true,
         "attention": true,
         "graph_fusion": true,
         "model_autotune": true,
@@ -608,15 +943,18 @@
         "system": "Darwin"
       },
       "medians": {
-        "decode_speedup": 1.0,
-        "end_to_end_speedup": 1.0,
-        "metile_decode_tokens_per_second": 119.30822901833768,
-        "metile_elapsed_seconds": 2.3614735000301152,
-        "metile_time_to_first_token_seconds": 0.2142888749949634,
-        "mlx_decode_tokens_per_second": 119.30822901833768,
-        "mlx_elapsed_seconds": 2.3614735000301152,
-        "mlx_time_to_first_token_seconds": 0.2142888749949634,
-        "ttft_speedup": 1.0
+        "decode_speedup": 1.0055238037991663,
+        "end_to_end_speedup": 1.0122635302239127,
+        "metile_decode_tokens_per_second": 117.74386879854745,
+        "metile_elapsed_seconds": 2.296507207909599,
+        "metile_prefill_tokens_per_second": 2352.791617489491,
+        "metile_time_to_first_token_seconds": 0.11224337504245341,
+        "mlx_decode_tokens_per_second": 117.08612872055795,
+        "mlx_elapsed_seconds": 2.3252458329079673,
+        "mlx_prefill_tokens_per_second": 1754.500189185619,
+        "mlx_time_to_first_token_seconds": 0.1300994580378756,
+        "prefill_speedup": 1.3364401968548822,
+        "ttft_speedup": 1.1608055567050584
       },
       "model": "mlx-community/Qwen2.5-1.5B-Instruct-4bit",
       "model_config": {
@@ -627,77 +965,184 @@
         "num_key_value_heads": 2,
         "vocab_size": 151936
       },
-      "recorded_at": "2026-07-18T03:16:07.709683+00:00",
-      "revision": "0a376a1a5ee6b541e0afb4bbc4b77353a3010860",
+      "plan_confirmation": {
+        "accepted": true,
+        "medians": {
+          "decode_speedup": 1.0029088616767776,
+          "end_to_end_speedup": 1.011613343766931,
+          "ttft_speedup": 1.1769833309216016
+        },
+        "pairs": [
+          {
+            "decode_speedup": 1.0530282955707178,
+            "end_to_end_speedup": 1.0599892389799384,
+            "ttft_speedup": 1.1845355625530827
+          },
+          {
+            "decode_speedup": 0.9829604845026029,
+            "end_to_end_speedup": 0.9913293067650578,
+            "ttft_speedup": 1.1401966921532418
+          },
+          {
+            "decode_speedup": 1.0029088616767776,
+            "end_to_end_speedup": 1.011613343766931,
+            "ttft_speedup": 1.1769833309216016
+          },
+          {
+            "decode_speedup": 0.9927635225695786,
+            "end_to_end_speedup": 1.0004696376703315,
+            "ttft_speedup": 1.15994738370939
+          },
+          {
+            "decode_speedup": 1.0435925217360844,
+            "end_to_end_speedup": 1.0501025848661945,
+            "ttft_speedup": 1.186228371728872
+          }
+        ]
+      },
+      "recorded_at": "2026-07-18T05:03:27.575653+00:00",
+      "revision": "1fec7967e20af139ce9efd1ceee10fa336fc4aaf",
       "samples": {
         "MLX": [
           {
-            "decode_tokens_per_second": 119.30822901833768,
-            "elapsed_seconds": 2.3614735000301152,
-            "prefill_tokens_per_second": 1185.168725578857,
-            "time_to_first_token_seconds": 0.1985117079457268
+            "decode_tokens_per_second": 117.17654196845953,
+            "elapsed_seconds": 2.3235937079880387,
+            "prefill_tokens_per_second": 1783.5609235890968,
+            "time_to_first_token_seconds": 0.12951875000726432
           },
           {
-            "decode_tokens_per_second": 116.72188192730856,
-            "elapsed_seconds": 2.41702604200691,
-            "prefill_tokens_per_second": 1139.0091730208437,
-            "time_to_first_token_seconds": 0.2142888749949634
+            "decode_tokens_per_second": 117.08612872055795,
+            "elapsed_seconds": 2.3252458329079673,
+            "prefill_tokens_per_second": 1771.6130074624643,
+            "time_to_first_token_seconds": 0.12941633292939514
           },
           {
-            "decode_tokens_per_second": 120.39892017092671,
-            "elapsed_seconds": 2.359055290929973,
-            "prefill_tokens_per_second": 1137.4592886351045,
-            "time_to_first_token_seconds": 0.22253470798023045
+            "decode_tokens_per_second": 116.3181687015656,
+            "elapsed_seconds": 2.338527791085653,
+            "prefill_tokens_per_second": 1751.7139535628808,
+            "time_to_first_token_seconds": 0.12812858307734132
           },
           {
-            "decode_tokens_per_second": 119.71617448107324,
-            "elapsed_seconds": 2.340582999982871,
-            "prefill_tokens_per_second": 1164.0821543430327,
-            "time_to_first_token_seconds": 0.1926428748993203
+            "decode_tokens_per_second": 116.8771898479897,
+            "elapsed_seconds": 2.3310495410114527,
+            "prefill_tokens_per_second": 1754.500189185619,
+            "time_to_first_token_seconds": 0.1300994580378756
           },
           {
-            "decode_tokens_per_second": 98.4647085705043,
-            "elapsed_seconds": 2.8821652920451015,
-            "prefill_tokens_per_second": 682.506807258975,
-            "time_to_first_token_seconds": 0.27155987499281764
+            "decode_tokens_per_second": 116.43730502560719,
+            "elapsed_seconds": 2.348393833031878,
+            "prefill_tokens_per_second": 1769.0767463988498,
+            "time_to_first_token_seconds": 0.13981316599529237
+          },
+          {
+            "decode_tokens_per_second": 117.71684727676075,
+            "elapsed_seconds": 2.3162076249718666,
+            "prefill_tokens_per_second": 1730.0385398726066,
+            "time_to_first_token_seconds": 0.13158229202963412
+          },
+          {
+            "decode_tokens_per_second": 116.77543783808581,
+            "elapsed_seconds": 2.3354530829237774,
+            "prefill_tokens_per_second": 1748.6737019224645,
+            "time_to_first_token_seconds": 0.13317941594868898
+          },
+          {
+            "decode_tokens_per_second": 117.595131329326,
+            "elapsed_seconds": 2.3144053330179304,
+            "prefill_tokens_per_second": 1779.6088702815507,
+            "time_to_first_token_seconds": 0.12771499995142221
+          },
+          {
+            "decode_tokens_per_second": 117.32029000736756,
+            "elapsed_seconds": 2.3238282500533387,
+            "prefill_tokens_per_second": 1728.7076909237733,
+            "time_to_first_token_seconds": 0.13129820802714676
           }
         ],
         "MLX + meTile": [
           {
-            "decode_tokens_per_second": 119.30822901833768,
-            "elapsed_seconds": 2.3614735000301152,
-            "prefill_tokens_per_second": 1185.168725578857,
-            "time_to_first_token_seconds": 0.1985117079457268
+            "decode_tokens_per_second": 118.19154925726221,
+            "elapsed_seconds": 2.2861705840332434,
+            "prefill_tokens_per_second": 2365.0781145441315,
+            "time_to_first_token_seconds": 0.1107319169677794
           },
           {
-            "decode_tokens_per_second": 116.72188192730856,
-            "elapsed_seconds": 2.41702604200691,
-            "prefill_tokens_per_second": 1139.0091730208437,
-            "time_to_first_token_seconds": 0.2142888749949634
+            "decode_tokens_per_second": 116.79982179860647,
+            "elapsed_seconds": 2.3135268749902025,
+            "prefill_tokens_per_second": 2366.5703596634917,
+            "time_to_first_token_seconds": 0.11224337504245341
           },
           {
-            "decode_tokens_per_second": 120.39892017092671,
-            "elapsed_seconds": 2.359055290929973,
-            "prefill_tokens_per_second": 1137.4592886351045,
-            "time_to_first_token_seconds": 0.22253470798023045
+            "decode_tokens_per_second": 116.96068744375137,
+            "elapsed_seconds": 2.3101966249523684,
+            "prefill_tokens_per_second": 2373.3077305516886,
+            "time_to_first_token_seconds": 0.11173441691789776
           },
           {
-            "decode_tokens_per_second": 119.71617448107324,
-            "elapsed_seconds": 2.340582999982871,
-            "prefill_tokens_per_second": 1164.0821543430327,
-            "time_to_first_token_seconds": 0.1926428748993203
+            "decode_tokens_per_second": 117.64749135557311,
+            "elapsed_seconds": 2.296507207909599,
+            "prefill_tokens_per_second": 2314.5724184148535,
+            "time_to_first_token_seconds": 0.11121079092845321
           },
           {
-            "decode_tokens_per_second": 98.4647085705043,
-            "elapsed_seconds": 2.8821652920451015,
-            "prefill_tokens_per_second": 682.506807258975,
-            "time_to_first_token_seconds": 0.27155987499281764
+            "decode_tokens_per_second": 116.0031850480962,
+            "elapsed_seconds": 2.3311052500503138,
+            "prefill_tokens_per_second": 2387.4824746384347,
+            "time_to_first_token_seconds": 0.11405158403795213
+          },
+          {
+            "decode_tokens_per_second": 117.74386879854745,
+            "elapsed_seconds": 2.2980323750525713,
+            "prefill_tokens_per_second": 2352.791617489491,
+            "time_to_first_token_seconds": 0.11335429199971259
+          },
+          {
+            "decode_tokens_per_second": 118.0898823174663,
+            "elapsed_seconds": 2.292963790940121,
+            "prefill_tokens_per_second": 2336.997826432214,
+            "time_to_first_token_seconds": 0.11486154096201062
+          },
+          {
+            "decode_tokens_per_second": 117.97640959487649,
+            "elapsed_seconds": 2.2932575420709327,
+            "prefill_tokens_per_second": 2324.172070494896,
+            "time_to_first_token_seconds": 0.11363608401734382
+          },
+          {
+            "decode_tokens_per_second": 118.02409226057468,
+            "elapsed_seconds": 2.291156915947795,
+            "prefill_tokens_per_second": 2352.4132658804274,
+            "time_to_first_token_seconds": 0.11171216599177569
           }
         ]
       },
-      "schema_version": 3,
+      "schema_version": 4,
       "selected_dispatches": {
         "add_rms_norm": [],
+        "affine_matmul": [
+          {
+            "algorithm": "metile",
+            "bits": 4,
+            "block_n": 128,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "input_features": 8960,
+            "output_features": 1536,
+            "rows": 127,
+            "schedule": "hilbert"
+          },
+          {
+            "algorithm": "metile",
+            "bits": 4,
+            "block_n": 128,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "input_features": 8960,
+            "output_features": 1536,
+            "rows": 128,
+            "schedule": "hilbert"
+          }
+        ],
         "affine_swiglu": [],
         "attention": [
           {
@@ -711,6 +1156,7 @@
             "token_bucket": 256
           }
         ],
+        "block_scaled": [],
         "rms_norm": [
           {
             "algorithm": "mlx",
@@ -731,6 +1177,7 @@
         ]
       },
       "selected_plan": {
+        "affine_prefill": true,
         "attention": false,
         "graph_fusion": false,
         "quantized_mlp": false,
@@ -742,21 +1189,25 @@
         "python": "3.12.12"
       },
       "verification": {
-        "max_logit_error": 0.0,
+        "actual_next_token": 220,
+        "kl_divergence": 3.16231744363904e-05,
+        "max_logit_error": 0.0537109375,
+        "mean_logit_error": 0.005838163662701845,
         "next_token": 220
       },
       "workload": {
-        "delay_seconds": 2.0,
+        "confirmation_trials": 5,
+        "delay_seconds": 0.0,
         "generation_tokens": 256,
         "plan_decode_steps": 8,
         "plan_trials": 5,
         "prefill_step_size": 2048,
         "prompt_tokens": 128,
         "seed": 0,
-        "trials": 5
+        "trials": 9
       }
     }
   ],
-  "recorded_at": "2026-07-18T03:16:07.932276+00:00",
+  "recorded_at": "2026-07-18T05:03:27.790165+00:00",
   "schema_version": 2
 }

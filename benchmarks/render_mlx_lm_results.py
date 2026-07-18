@@ -11,12 +11,24 @@ METILE_COLOR = "#3f7ee8"
 _CHART_METRICS = (
     "mlx_decode_tokens_per_second",
     "metile_decode_tokens_per_second",
+    "mlx_prefill_tokens_per_second",
+    "metile_prefill_tokens_per_second",
     "mlx_time_to_first_token_seconds",
     "metile_time_to_first_token_seconds",
     "mlx_elapsed_seconds",
     "metile_elapsed_seconds",
 )
-_WORKLOAD_KEYS = ("prompt_tokens", "generation_tokens", "trials", "seed")
+_WORKLOAD_KEYS = (
+    "prompt_tokens",
+    "generation_tokens",
+    "trials",
+    "prefill_step_size",
+    "delay_seconds",
+    "plan_decode_steps",
+    "plan_trials",
+    "confirmation_trials",
+    "seed",
+)
 
 
 def _arguments():
@@ -52,11 +64,12 @@ def _suite_context(suite):
     software = first.get("software", {})
     chip = hardware.get("chip") or hardware.get("processor") or hardware.get("machine", "unknown")
     comparison_modes = {model.get("comparison_mode", "alternating") for model in suite["models"]}
-    trial_kind = (
-        "native-fallback trials"
-        if comparison_modes == {"shared_native_fallback"}
-        else "alternating trials"
-    )
+    if comparison_modes == {"shared_native_fallback"}:
+        trial_kind = "native-fallback trials"
+    elif comparison_modes == {"alternating"}:
+        trial_kind = "alternating trials"
+    else:
+        trial_kind = "guarded paired/fallback trials"
     subtitle = (
         f"{chip} · {workload['prompt_tokens']} prompt tokens · "
         f"{workload['generation_tokens']} generated · "
@@ -109,8 +122,8 @@ def _validate_suite(suite):
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"benchmark metric {metric!r} must be finite and positive")
 
-    if len(comparison_modes) != 1:
-        raise ValueError("all charted models must use the same comparison mode")
+    if not comparison_modes <= {"alternating", "shared_native_fallback"}:
+        raise ValueError("benchmark comparison mode is not recognized")
 
 
 def _chart_data(suite):
@@ -119,6 +132,10 @@ def _chart_data(suite):
         "labels": [_model_label(result["model"]) for result in models],
         "mlx": [result["medians"]["mlx_decode_tokens_per_second"] for result in models],
         "metile": [result["medians"]["metile_decode_tokens_per_second"] for result in models],
+        "mlx_prefill": [result["medians"]["mlx_prefill_tokens_per_second"] for result in models],
+        "metile_prefill": [
+            result["medians"]["metile_prefill_tokens_per_second"] for result in models
+        ],
         "mlx_ttft_ms": [
             result["medians"]["mlx_time_to_first_token_seconds"] * 1e3 for result in models
         ],
@@ -142,32 +159,6 @@ def _matplotlib():
             "pip install -e '.[benchmarks]'"
         ) from error
     return pyplot
-
-
-def _style_axes(axes, subtitle, footer):
-    axes.set_axisbelow(True)
-    axes.grid(axis="y", color="#d9d9d9", linewidth=0.8)
-    axes.spines["top"].set_visible(False)
-    axes.spines["right"].set_visible(False)
-    axes.text(
-        0,
-        1.015,
-        subtitle,
-        transform=axes.transAxes,
-        color="#666666",
-        fontsize=9,
-        va="bottom",
-    )
-    axes.text(
-        1,
-        -0.19,
-        footer,
-        transform=axes.transAxes,
-        color="#777777",
-        fontsize=8,
-        ha="right",
-        va="top",
-    )
 
 
 def _validate_text_layout(figure):
@@ -198,31 +189,53 @@ def _render_throughput(suite, output):
     positions = list(range(len(data["labels"])))
     width = 0.34
 
-    figure_width = max(10.0, 2.1 * len(data["labels"]) + 1.6)
-    figure, axes = pyplot.subplots(figsize=(figure_width, 5.6), dpi=180)
-    mlx_bars = axes.bar(
-        [position - width / 2 for position in positions],
-        data["mlx"],
-        width,
-        label="Native MLX",
-        color=MLX_COLOR,
+    panels = (
+        ("Prefill throughput", data["mlx_prefill"], data["metile_prefill"], "%.0f"),
+        ("Decode throughput", data["mlx"], data["metile"], "%.1f"),
     )
-    metile_bars = axes.bar(
-        [position + width / 2 for position in positions],
-        data["metile"],
-        width,
-        label="MLX + meTile",
-        color=METILE_COLOR,
+    figure_width = max(12.0, 2.2 * len(data["labels"]) + 3.0)
+    figure, axes = pyplot.subplots(1, 2, figsize=(figure_width, 5.8), dpi=180)
+    for axis, (title, mlx_values, metile_values, label_format) in zip(axes, panels, strict=True):
+        mlx_bars = axis.bar(
+            [position - width / 2 for position in positions],
+            mlx_values,
+            width,
+            label="Native MLX",
+            color=MLX_COLOR,
+        )
+        metile_bars = axis.bar(
+            [position + width / 2 for position in positions],
+            metile_values,
+            width,
+            label="MLX + meTile",
+            color=METILE_COLOR,
+        )
+        axis.bar_label(mlx_bars, fmt=label_format, padding=3, fontsize=7, color="#444444")
+        axis.bar_label(
+            metile_bars,
+            fmt=label_format,
+            padding=3,
+            fontsize=7,
+            color="#444444",
+        )
+        axis.set_title(title, loc="left", fontsize=12, pad=10)
+        axis.set_ylabel("Tokens / second")
+        axis.set_xticks(positions, data["labels"], fontsize=8)
+        axis.set_ylim(0, max(mlx_values + metile_values) * 1.18)
+        axis.set_axisbelow(True)
+        axis.grid(axis="y", color="#d9d9d9", linewidth=0.8)
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+    figure.suptitle(
+        "Throughput by model (higher is better)", x=0.07, y=0.965, ha="left", fontsize=18
     )
-    axes.bar_label(mlx_bars, fmt="%.1f", padding=3, fontsize=8, color="#444444")
-    axes.bar_label(metile_bars, fmt="%.1f", padding=3, fontsize=8, color="#444444")
-    axes.set_title("Decode throughput by model", loc="left", fontsize=18, pad=28)
-    axes.set_ylabel("Tokens / second")
-    axes.set_xticks(positions, data["labels"])
-    axes.set_ylim(0, max(data["mlx"] + data["metile"]) * 1.18)
-    axes.legend(frameon=False, loc="upper right", bbox_to_anchor=(1.0, 1.14), ncol=2)
-    _style_axes(axes, subtitle, footer)
-    figure.subplots_adjust(left=0.09, right=0.98, top=0.78, bottom=0.24)
+    figure.text(0.07, 0.88, subtitle, color="#666666", fontsize=9, va="bottom")
+    figure.text(0.98, 0.035, footer, color="#777777", fontsize=8, ha="right", va="bottom")
+    handles, labels = axes[0].get_legend_handles_labels()
+    figure.legend(
+        handles, labels, frameon=False, loc="upper right", bbox_to_anchor=(0.98, 0.965), ncol=2
+    )
+    figure.subplots_adjust(left=0.07, right=0.98, top=0.80, bottom=0.20, wspace=0.24)
     _validate_text_layout(figure)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})

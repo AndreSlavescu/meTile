@@ -23,6 +23,11 @@ def _suite():
             "prompt_tokens": 128,
             "generation_tokens": 256,
             "trials": 5,
+            "prefill_step_size": 2048,
+            "delay_seconds": 2.0,
+            "plan_decode_steps": 8,
+            "plan_trials": 5,
+            "confirmation_trials": 3,
             "seed": 0,
         },
     }
@@ -34,6 +39,8 @@ def _suite():
                 "medians": {
                     "mlx_decode_tokens_per_second": 100.0,
                     "metile_decode_tokens_per_second": 105.0,
+                    "mlx_prefill_tokens_per_second": 1000.0,
+                    "metile_prefill_tokens_per_second": 1250.0,
                     "mlx_time_to_first_token_seconds": 0.12,
                     "metile_time_to_first_token_seconds": 0.10,
                     "mlx_elapsed_seconds": 1.5,
@@ -49,6 +56,8 @@ def _suite():
                 "medians": {
                     "mlx_decode_tokens_per_second": 200.0,
                     "metile_decode_tokens_per_second": 198.0,
+                    "mlx_prefill_tokens_per_second": 2000.0,
+                    "metile_prefill_tokens_per_second": 2400.0,
                     "mlx_time_to_first_token_seconds": 0.09,
                     "metile_time_to_first_token_seconds": 0.08,
                     "mlx_elapsed_seconds": 0.8,
@@ -68,6 +77,8 @@ def test_chart_data_preserves_absolute_and_relative_results():
     assert data["labels"] == ["Llama 3.2\n1B 4-bit", "Qwen 2.5\n0.5B 4-bit"]
     assert data["mlx"] == [100.0, 200.0]
     assert data["metile"] == [105.0, 198.0]
+    assert data["mlx_prefill"] == [1000.0, 2000.0]
+    assert data["metile_prefill"] == [1250.0, 2400.0]
     assert data["mlx_ttft_ms"] == pytest.approx([120.0, 90.0])
     assert data["metile_ttft_ms"] == pytest.approx([100.0, 80.0])
     assert data["mlx_total_seconds"] == pytest.approx([1.5, 0.8])
@@ -86,6 +97,16 @@ def test_suite_context_labels_shared_native_fallback_trials():
     subtitle, _ = _suite_context(suite)
 
     assert "median of 5 native-fallback trials" in subtitle
+
+
+def test_suite_context_labels_mixed_guarded_trials():
+    suite = _suite()
+    suite["models"][0]["comparison_mode"] = "alternating"
+    suite["models"][1]["comparison_mode"] = "shared_native_fallback"
+
+    subtitle, _ = _suite_context(suite)
+
+    assert "median of 5 guarded paired/fallback trials" in subtitle
 
 
 def test_suite_validation_rejects_mixed_workloads():

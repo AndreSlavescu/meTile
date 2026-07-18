@@ -534,6 +534,7 @@ def _block_scaled_nax_step(
             name=a0,
             operand="left",
             k_offset=run.k_offset,
+            row_bound=run.row_bound,
         ),
         mir.MNaxFmaFragment(left=a0),
         mir.MNaxLoadFragment(
@@ -542,6 +543,7 @@ def _block_scaled_nax_step(
             operand="left",
             row_offset=16,
             k_offset=run.k_offset,
+            row_bound=run.row_bound,
         ),
         mir.MNaxFmaFragment(
             left=a1,

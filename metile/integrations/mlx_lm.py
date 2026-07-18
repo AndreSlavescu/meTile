@@ -6,7 +6,7 @@ import statistics
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from metile.backends.mlx import (
     _mlx_attention_decode_unchecked,
@@ -15,6 +15,11 @@ from metile.backends.mlx import (
     mlx_attention_dispatches,
     mlx_rms_norm,
     mlx_rms_norm_dispatches,
+)
+from metile.backends.mlx_affine import (
+    MLXAffineWeight,
+    mlx_affine_matmul,
+    mlx_affine_matmul_dispatches,
 )
 from metile.backends.mlx_graph import compile_mlx_graph
 from metile.backends.mlx_quantized import mlx_affine_swiglu, mlx_affine_swiglu_dispatches
@@ -25,9 +30,12 @@ from metile.runtime.cache import atomic_write_json, cache_root, read_json, stabl
 _graph_executable_cache = {}
 _mlx_lm_plan_cache = {}
 _mlx_lm_plan_lock = threading.RLock()
-_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v3.json"
+_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v5.json"
 _MODEL_SWITCH_MARGIN = 0.01
 _MODEL_REGRESSION_MARGIN = 0.005
+_MODEL_KL_LIMIT = 1e-3
+_MODEL_MEAN_LOGIT_ERROR_LIMIT = 0.02
+_MODEL_MAX_LOGIT_ERROR_LIMIT = 0.25
 
 
 @dataclass(frozen=True)
@@ -38,6 +46,7 @@ class MLXLMPlan:
     rms_norm: bool = True
     graph_fusion: bool = True
     quantized_mlp: bool = True
+    affine_prefill: bool = False
 
     @property
     def feature_count(self):
@@ -65,7 +74,10 @@ class MLXPatch:
                 ):
                     module.scaled_dot_product_attention = self.original
         for module, name, original in reversed(self.replacements):
-            setattr(module, name, original)
+            if name == "__class__":
+                object.__setattr__(module, name, original)
+            else:
+                setattr(module, name, original)
         self.replacements.clear()
 
     def __enter__(self):
@@ -73,6 +85,48 @@ class MLXPatch:
 
     def __exit__(self, *_):
         self.restore()
+
+
+@dataclass
+class MLXAffinePrefill:
+    """AOT-repacked affine projections for one MLX-LM model."""
+
+    model: object
+    weights: dict[int, tuple[object, MLXAffineWeight]]
+    min_rows: int = 32
+    patched_classes: dict[int, type] = field(default_factory=dict)
+
+    def weight_for(self, module):
+        entry = self.weights.get(id(module))
+        return entry[1] if entry is not None and entry[0] is module else None
+
+    @property
+    def projection_count(self):
+        return len(self.weights)
+
+    def patched_class(self, module):
+        key = id(module)
+        patched = self.patched_classes.get(key)
+        if patched is not None:
+            return patched
+        original_class = type(module)
+        weight = self.weight_for(module)
+        min_rows = self.min_rows
+
+        class MLXAffinePrefillLinear(original_class):
+            def __call__(self, values):
+                rows = values.size // values.shape[-1]
+                if rows < min_rows:
+                    return super().__call__(values)
+                output = mlx_affine_matmul(values, weight)
+                if "bias" in self:
+                    output = output + self["bias"]
+                return output
+
+        MLXAffinePrefillLinear.__name__ = f"MeTile{original_class.__name__}"
+        MLXAffinePrefillLinear.__qualname__ = f"MeTile{original_class.__qualname__}"
+        self.patched_classes[key] = MLXAffinePrefillLinear
+        return MLXAffinePrefillLinear
 
 
 def _mlx_lm_plan_candidates(requested):
@@ -86,6 +140,7 @@ def _mlx_lm_plan_candidates(requested):
                 rms_norm="rms_norm" in enabled,
                 graph_fusion="graph_fusion" in enabled,
                 quantized_mlp="quantized_mlp" in enabled,
+                affine_prefill="affine_prefill" in enabled,
             )
         )
     return tuple(
@@ -93,7 +148,7 @@ def _mlx_lm_plan_candidates(requested):
     )
 
 
-def _effective_mlx_lm_plan(plan):
+def _effective_mlx_lm_plan(plan, affine_prefill=None):
     return MLXLMPlan(
         attention=plan.attention
         and any(dispatch["algorithm"] == "metile" for dispatch in mlx_attention_dispatches()),
@@ -103,6 +158,9 @@ def _effective_mlx_lm_plan(plan):
         and any(dispatch["algorithm"] == "metile" for dispatch in mlx_add_rms_norm_dispatches()),
         quantized_mlp=plan.quantized_mlp
         and any(dispatch["algorithm"] != "mlx" for dispatch in mlx_affine_swiglu_dispatches()),
+        affine_prefill=plan.affine_prefill
+        and affine_prefill is not None
+        and any(dispatch["algorithm"] == "metile" for dispatch in mlx_affine_matmul_dispatches()),
     )
 
 
@@ -128,12 +186,20 @@ def _mlx_lm_model_signature(model):
     }
 
 
-def _mlx_lm_plan_key(model, sample_tokens, requested, decode_steps, trials):
+def _mlx_lm_plan_key(model, sample_tokens, requested, affine_prefill, decode_steps, trials):
     import mlx.core as mx
 
     return stable_digest(
         {
             "architecture": mx.device_info().get("architecture"),
+            "affine_prefill": (
+                {
+                    "min_rows": affine_prefill.min_rows,
+                    "projections": affine_prefill.projection_count,
+                }
+                if affine_prefill is not None
+                else None
+            ),
             "decode_steps": decode_steps,
             "mlx": mx.__version__,
             "model": _mlx_lm_model_signature(model),
@@ -142,13 +208,16 @@ def _mlx_lm_plan_key(model, sample_tokens, requested, decode_steps, trials):
             "source": stable_digest(
                 {
                     "apply": inspect.getsource(apply_metile_to_mlx_lm),
+                    "affine_prefill": inspect.getsource(_patch_affine_prefill),
+                    "choose": inspect.getsource(_choose_mlx_lm_plan),
+                    "fidelity": inspect.getsource(_plan_preserves_logits),
                     "timing": inspect.getsource(_time_mlx_lm_plan),
                 }
             ),
             "regression_margin": _MODEL_REGRESSION_MARGIN,
             "switch_margin": _MODEL_SWITCH_MARGIN,
             "trials": trials,
-            "tuner": 3,
+            "tuner": 5,
         }
     )
 
@@ -177,13 +246,13 @@ def _write_mlx_lm_plan(key, plan):
     atomic_write_json(_mlx_lm_plan_cache_path, payload)
 
 
-def _time_mlx_lm_plan(model, sample_tokens, plan, decode_steps):
+def _time_mlx_lm_plan(model, sample_tokens, plan, affine_prefill, decode_steps):
     import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache
 
     cache = make_prompt_cache(model)
     decode_token = sample_tokens[:, -1:]
-    with apply_metile_to_mlx_lm(model=model, plan=plan):
+    with apply_metile_to_mlx_lm(model=model, plan=plan, affine_prefill=affine_prefill):
         total_start = time.perf_counter_ns()
         logits = model(sample_tokens, cache=cache)
         mx.eval(logits)
@@ -198,10 +267,70 @@ def _time_mlx_lm_plan(model, sample_tokens, plan, decode_steps):
     return (ttft, decode, total), next_token
 
 
-def _measure_mlx_lm_plans(model, sample_tokens, candidates, decode_steps, rounds):
+def _logit_fidelity(reference, actual):
+    import mlx.core as mx
+
+    reference = reference[:, -1].astype(mx.float32)
+    actual = actual[:, -1].astype(mx.float32)
+    difference = mx.abs(reference - actual)
+    reference_log_probs = reference - mx.logsumexp(reference, axis=-1, keepdims=True)
+    actual_log_probs = actual - mx.logsumexp(actual, axis=-1, keepdims=True)
+    divergence = mx.sum(
+        mx.exp(reference_log_probs) * (reference_log_probs - actual_log_probs),
+        axis=-1,
+    )
+    mx.eval(difference, divergence)
+    return {
+        "next_token": int(mx.argmax(reference, axis=-1).item()),
+        "actual_next_token": int(mx.argmax(actual, axis=-1).item()),
+        "kl_divergence": max(0.0, float(mx.max(divergence).item())),
+        "mean_logit_error": float(mx.mean(difference).item()),
+        "max_logit_error": float(mx.max(difference).item()),
+    }
+
+
+def _fidelity_compatible(fidelity):
+    return (
+        fidelity["next_token"] == fidelity["actual_next_token"]
+        and fidelity["kl_divergence"] <= _MODEL_KL_LIMIT
+        and fidelity["mean_logit_error"] <= _MODEL_MEAN_LOGIT_ERROR_LIMIT
+        and fidelity["max_logit_error"] <= _MODEL_MAX_LOGIT_ERROR_LIMIT
+    )
+
+
+def _plan_preserves_logits(model, sample_tokens, plan, affine_prefill, reference):
+    import mlx.core as mx
+
+    with apply_metile_to_mlx_lm(model=model, plan=plan, affine_prefill=affine_prefill):
+        actual = model(sample_tokens)
+        mx.eval(actual)
+    fidelity = _logit_fidelity(reference, actual)
+    return _fidelity_compatible(fidelity)
+
+
+def _measure_mlx_lm_plans(
+    model,
+    sample_tokens,
+    candidates,
+    affine_prefill,
+    decode_steps,
+    rounds,
+):
+    import mlx.core as mx
+
     samples = {plan: [] for plan in candidates}
     expected_token = None
     compatible = set(candidates)
+    reference = model(sample_tokens)
+    mx.eval(reference)
+    for plan in candidates:
+        if not plan.feature_count:
+            continue
+        try:
+            if not _plan_preserves_logits(model, sample_tokens, plan, affine_prefill, reference):
+                compatible.remove(plan)
+        except (RuntimeError, TypeError, ValueError):
+            compatible.remove(plan)
     for round_index in range(rounds):
         shift = round_index % len(candidates)
         ordered = candidates[shift:] + candidates[:shift]
@@ -215,6 +344,7 @@ def _measure_mlx_lm_plans(model, sample_tokens, candidates, decode_steps, rounds
                     model,
                     sample_tokens,
                     plan,
+                    affine_prefill,
                     decode_steps,
                 )
             except (RuntimeError, TypeError, ValueError):
@@ -241,16 +371,31 @@ def _choose_mlx_lm_plan(samples):
         ttft_ratios = _paired_plan_ratios(measurements, native_measurements, 0)
         decode_ratios = _paired_plan_ratios(measurements, native_measurements, 1)
         total_ratios = _paired_plan_ratios(measurements, native_measurements, 2)
-        required_wins = max(1, (len(total_ratios) * 4 + 4) // 5)
+        required_wins = max(1, (len(total_ratios) * 2 + 2) // 3)
+        ttft_median = statistics.median(ttft_ratios)
+        decode_median = statistics.median(decode_ratios)
+        total_median = statistics.median(total_ratios)
+        improves_total = total_median < 1.0 - _MODEL_SWITCH_MARGIN
+        improves_ttft = ttft_median < 0.97
+        decode_sensitive = any(
+            (plan.attention, plan.rms_norm, plan.graph_fusion, plan.quantized_mlp)
+        )
+        decode_limit = 1.0 + (_MODEL_REGRESSION_MARGIN if decode_sensitive else 0.05)
         if (
-            statistics.median(ttft_ratios) <= 1.0 + _MODEL_REGRESSION_MARGIN
-            and statistics.median(decode_ratios) <= 1.0 + _MODEL_REGRESSION_MARGIN
-            and statistics.median(total_ratios) < 1.0 - _MODEL_SWITCH_MARGIN
+            ttft_median <= 1.0 + _MODEL_REGRESSION_MARGIN
+            and decode_median <= decode_limit
+            and total_median <= 1.0 + _MODEL_REGRESSION_MARGIN
+            and (improves_total or improves_ttft)
             and sum(ratio <= 1.01 for ratio in ttft_ratios) >= required_wins
-            and sum(ratio <= 1.01 for ratio in decode_ratios) >= required_wins
-            and sum(ratio < 1.0 for ratio in total_ratios) >= required_wins
+            and sum(ratio <= 1.05 for ratio in decode_ratios) >= required_wins
+            and (
+                sum(ratio < 1.0 for ratio in total_ratios) >= required_wins
+                if improves_total
+                else sum(ratio < 0.98 for ratio in ttft_ratios) >= required_wins
+            )
         ):
-            generated.append((statistics.median(total_ratios), plan.feature_count * 64, plan))
+            objective = min(total_median, ttft_median)
+            generated.append((objective, plan.feature_count * 64, plan))
     return choose_mdl_tie(generated) if generated else native
 
 
@@ -273,6 +418,7 @@ def autotune_metile_for_mlx_lm(
     rms_norm=True,
     graph_fusion=True,
     quantized_mlp=True,
+    affine_prefill=None,
     decode_steps=8,
     trials=5,
 ):
@@ -283,20 +429,47 @@ def autotune_metile_for_mlx_lm(
         raise ValueError("sample_tokens must have shape [batch, sequence]")
     if decode_steps < 1 or trials < 1:
         raise ValueError("decode_steps and trials must be positive")
-    requested = MLXLMPlan(attention, rms_norm, graph_fusion, quantized_mlp)
-    key = _mlx_lm_plan_key(model, sample_tokens, requested, decode_steps, trials)
+    if affine_prefill is not None and not isinstance(affine_prefill, MLXAffinePrefill):
+        raise TypeError("affine_prefill must be an MLXAffinePrefill")
+    if affine_prefill is not None and affine_prefill.model is not model:
+        raise ValueError("affine_prefill was prepared for a different model")
+    requested = MLXLMPlan(
+        attention,
+        rms_norm,
+        graph_fusion,
+        quantized_mlp,
+        affine_prefill is not None,
+    )
+    key = _mlx_lm_plan_key(
+        model,
+        sample_tokens,
+        requested,
+        affine_prefill,
+        decode_steps,
+        trials,
+    )
     with _mlx_lm_plan_lock:
         cached = _read_mlx_lm_plan(key)
         if cached is not None:
             return cached
 
         candidates = _mlx_lm_plan_candidates(requested)
-        _measure_mlx_lm_plans(model, sample_tokens, candidates, decode_steps, 1)
-        candidates = tuple(dict.fromkeys(_effective_mlx_lm_plan(plan) for plan in candidates))
+        _measure_mlx_lm_plans(
+            model,
+            sample_tokens,
+            candidates,
+            affine_prefill,
+            decode_steps,
+            1,
+        )
+        candidates = tuple(
+            dict.fromkeys(_effective_mlx_lm_plan(plan, affine_prefill) for plan in candidates)
+        )
         provisional = _measure_mlx_lm_plans(
             model,
             sample_tokens,
             candidates,
+            affine_prefill,
             decode_steps,
             3,
         )
@@ -317,6 +490,7 @@ def autotune_metile_for_mlx_lm(
             model,
             sample_tokens,
             finalists,
+            affine_prefill,
             decode_steps,
             trials,
         )
@@ -503,6 +677,65 @@ def _patch_quantized_mlp(model, replacements, quantized_linear):
         mlp_class.__call__ = metile_mlp
 
 
+def _patch_affine_prefill(affine_prefill, replacements):
+    if affine_prefill is None:
+        return
+    for module, _ in affine_prefill.weights.values():
+        patched_class = affine_prefill.patched_classes.get(id(module))
+        original_class = type(module)
+        if original_class is patched_class:
+            continue
+        replacements.append((module, "__class__", original_class))
+        object.__setattr__(module, "__class__", affine_prefill.patched_class(module))
+
+
+def prepare_mlx_lm_affine_prefill(
+    model,
+    *,
+    projections=("down_proj",),
+    min_rows=32,
+):
+    """AOT-repack exact affine weights for generated prefill matmuls."""
+    if not callable(model):
+        raise TypeError("model must be an MLX-LM callable")
+    if not projections or not all(isinstance(name, str) and name for name in projections):
+        raise ValueError("projections must contain at least one attribute name")
+    if min_rows < 1:
+        raise ValueError("min_rows must be positive")
+    try:
+        import mlx.nn as nn
+    except ImportError as error:
+        raise ImportError(
+            "Affine prefill preparation requires the optional 'mlx' package"
+        ) from error
+
+    weights = {}
+    for layer in _model_layers(model):
+        mlp = getattr(layer, "mlp", None)
+        for name in projections:
+            module = getattr(mlp, name, None)
+            if (
+                not isinstance(module, nn.QuantizedLinear)
+                or module.mode != "affine"
+                or module.group_size != 64
+                or module.bits != 4
+                or module.get("biases") is None
+                or module.weight.shape[0] % 32
+            ):
+                continue
+            weight = MLXAffineWeight.from_mlx(
+                module.weight,
+                module.scales,
+                module.biases,
+                group_size=module.group_size,
+                bits=module.bits,
+            )
+            weights[id(module)] = (module, weight)
+    if not weights:
+        raise ValueError("model contains no supported affine prefill projections")
+    return MLXAffinePrefill(model, weights, min_rows)
+
+
 def apply_metile_to_mlx_lm(
     model=None,
     *,
@@ -510,6 +743,7 @@ def apply_metile_to_mlx_lm(
     rms_norm=True,
     graph_fusion=True,
     quantized_mlp=True,
+    affine_prefill=None,
     plan=None,
 ):
     """Patch MLX-LM with zero-copy, autotuned meTile primitives.
@@ -528,7 +762,20 @@ def apply_metile_to_mlx_lm(
         rms_norm = rms_norm and plan.rms_norm
         graph_fusion = graph_fusion and plan.graph_fusion
         quantized_mlp = quantized_mlp and plan.quantized_mlp
-    if not attention and not rms_norm and not graph_fusion and not quantized_mlp:
+        if not plan.affine_prefill:
+            affine_prefill = None
+    if affine_prefill is not None:
+        if not isinstance(affine_prefill, MLXAffinePrefill):
+            raise TypeError("affine_prefill must be an MLXAffinePrefill")
+        if model is not affine_prefill.model:
+            raise ValueError("affine_prefill was prepared for a different model")
+    if (
+        not attention
+        and not rms_norm
+        and not graph_fusion
+        and not quantized_mlp
+        and affine_prefill is None
+    ):
         return MLXPatch([])
     try:
         import mlx.nn as nn
@@ -602,13 +849,16 @@ def apply_metile_to_mlx_lm(
         _patch_graph_fusion(model, replacements)
     if quantized_mlp:
         _patch_quantized_mlp(model, replacements, nn.QuantizedLinear)
+    _patch_affine_prefill(affine_prefill, replacements)
 
     return MLXPatch(replacements, attention_replacement, attention_original)
 
 
 __all__ = [
+    "MLXAffinePrefill",
     "MLXLMPlan",
     "MLXPatch",
     "apply_metile_to_mlx_lm",
     "autotune_metile_for_mlx_lm",
+    "prepare_mlx_lm_affine_prefill",
 ]

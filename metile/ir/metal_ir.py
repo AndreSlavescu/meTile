@@ -695,6 +695,7 @@ class MNaxBlockScaledRun(MOp):
     ptr_scales: MValue = None
     bits: int = 4
     fragment_type: str = "float"
+    row_bound: int = 0
     k_offset: int = 0
 
     def result_type(self):
