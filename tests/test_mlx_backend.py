@@ -1,8 +1,34 @@
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 import metile
 from metile.backends import mlx as mlx_backend
+
+
+def test_mlx_lm_benchmark_helpers_import_without_optional_mlx_packages():
+    script = """
+import builtins
+
+original_import = builtins.__import__
+
+def import_without_mlx(name, *args, **kwargs):
+    if name == "mlx" or name.startswith("mlx.") or name == "mlx_lm" or name.startswith("mlx_lm."):
+        raise ModuleNotFoundError(name)
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = import_without_mlx
+from benchmarks import mlx_lm_backend
+assert callable(mlx_lm_backend._confirm_plan)
+"""
+    subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[1],
+        check=True,
+    )
 
 
 def test_mlx_kernel_body_rebinds_metal_thread_attributes():

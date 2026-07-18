@@ -11,25 +11,6 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-import mlx.core as mx
-
-from metile.backends.mlx import (
-    mlx_add_rms_norm_dispatches,
-    mlx_attention_dispatches,
-    mlx_rms_norm_dispatches,
-)
-from metile.backends.mlx_affine import mlx_affine_matmul_dispatches
-from metile.backends.mlx_block_scaled import mlx_block_scaled_dispatches
-from metile.backends.mlx_quantized import mlx_affine_swiglu_dispatches
-from metile.integrations.mlx_lm import (
-    MLXLMPlan,
-    _fidelity_compatible,
-    _logit_fidelity,
-    apply_metile_to_mlx_lm,
-    autotune_metile_for_mlx_lm,
-    prepare_mlx_lm_affine_prefill,
-)
-
 
 def _arguments():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -60,6 +41,8 @@ def _arguments():
 
 def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill):
     from mlx_lm import stream_generate
+
+    from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
 
     patch = (
         apply_metile_to_mlx_lm(
@@ -97,7 +80,14 @@ def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill
 
 
 def _verify_model(model, prompt, arguments, plan, affine_prefill):
+    import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache
+
+    from metile.integrations.mlx_lm import (
+        _fidelity_compatible,
+        _logit_fidelity,
+        apply_metile_to_mlx_lm,
+    )
 
     tokens = mx.array(prompt[: min(len(prompt), 128)])[None]
     baseline_cache = make_prompt_cache(model)
@@ -193,7 +183,7 @@ def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill):
         f"total={medians['end_to_end_speedup']:.3f}x -> "
         f"{'accepted' if accepted else 'native fallback'}"
     )
-    return plan if accepted else MLXLMPlan(False, False, False, False, False), confirmation
+    return plan if accepted else type(plan)(False, False, False, False, False), confirmation
 
 
 def _package_version(package):
@@ -246,6 +236,15 @@ def _git_revision():
 
 
 def _selected_dispatches():
+    from metile.backends.mlx import (
+        mlx_add_rms_norm_dispatches,
+        mlx_attention_dispatches,
+        mlx_rms_norm_dispatches,
+    )
+    from metile.backends.mlx_affine import mlx_affine_matmul_dispatches
+    from metile.backends.mlx_block_scaled import mlx_block_scaled_dispatches
+    from metile.backends.mlx_quantized import mlx_affine_swiglu_dispatches
+
     return {
         "attention": [dict(dispatch) for dispatch in mlx_attention_dispatches()],
         "rms_norm": [dict(dispatch) for dispatch in mlx_rms_norm_dispatches()],
@@ -338,7 +337,14 @@ def _write_json_result(
 
 
 def main():
+    import mlx.core as mx
     from mlx_lm import load
+
+    from metile.integrations.mlx_lm import (
+        MLXLMPlan,
+        autotune_metile_for_mlx_lm,
+        prepare_mlx_lm_affine_prefill,
+    )
 
     arguments = _arguments()
     model, tokenizer, config = load(arguments.model, return_config=True)
