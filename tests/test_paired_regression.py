@@ -7,8 +7,14 @@ def test_aggregate_results_uses_geometric_mean():
     assert aggregate_results([{"kernel": 1.0}, {"kernel": 4.0}]) == {"kernel": 2.0}
 
 
-def test_aggregate_results_rejects_different_kernel_sets():
-    with pytest.raises(ValueError, match="same kernels"):
+def test_aggregate_results_uses_supported_intersection():
+    assert aggregate_results([{"shared": 1.0, "first": 1.0}, {"shared": 4.0, "second": 1.0}]) == {
+        "shared": 2.0
+    }
+
+
+def test_aggregate_results_requires_common_kernel():
+    with pytest.raises(ValueError, match="no kernels in common"):
         aggregate_results([{"first": 1.0}, {"second": 1.0}])
 
 

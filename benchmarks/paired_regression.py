@@ -61,9 +61,9 @@ with output.open("w") as handle:
 def aggregate_results(samples: list[dict[str, float]]) -> dict[str, float]:
     if not samples:
         raise ValueError("at least one benchmark sample is required")
-    names = set(samples[0])
-    if any(set(sample) != names for sample in samples[1:]):
-        raise ValueError("benchmark samples do not contain the same kernels")
+    names = set.intersection(*(set(sample) for sample in samples))
+    if not names:
+        raise ValueError("benchmark samples have no kernels in common")
     return {
         name: math.exp(sum(math.log(sample[name]) for sample in samples) / len(samples))
         for name in names
