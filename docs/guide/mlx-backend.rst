@@ -48,29 +48,31 @@ high-level compute DAG. The graph fusion pass uses an exact max-flow/min-cut par
 preserves the residual as a second output, and measures the fused multi-output kernel against
 the original MLX graph. Graph fusion requires 10 percent isolated headroom before switching.
 
-Affine 4-bit Llama decode MLPs add three representation families to the same policy:
-native MLX quantized matmul, an output-major scalar meTile kernel, and an M5-native
-``matmul2d`` kernel over an AOT K-major repack. Gate/up projections and SwiGLU are fused
-without materializing either projection. Candidate outputs must first match native MLX;
-the fastest generated representation must then clear a 10 percent guard band. Repacked
-weights are retained only when the NAX representation wins.
+Affine 4-bit Llama MLPs add eager and compiled MLX, an output-major scalar meTile kernel,
+and an M5-native ``matmul2d`` kernel over an AOT K-major repack to the same policy. Gate/up
+projections and SwiGLU are fused without materializing either projection. Candidate outputs
+must first match native MLX; the fastest alternative must then clear a 3 percent guard band.
+Decisions are row-bucketed so prefill and decode can choose independently. Repacked weights
+are retained only when the NAX representation wins.
 
 Model Benchmark
 ---------------
 
-The benchmark loads actual MLX-LM models, verifies the next token, warms both paths,
-alternates trial order, adds a configurable cooldown, and records decode throughput,
-total time, environment metadata, raw samples, and every selected dispatch.
+The benchmark loads actual MLX-LM models, verifies the next token, tunes a persistent
+model-level feature plan, adds a configurable cooldown, and records decode throughput,
+TTFT, total time, environment metadata, raw samples, and every selected dispatch. Optimized
+plans must preserve TTFT and decode while improving paired total latency. When the selected
+plan is native MLX, both labels share each native sample instead of graphing system noise.
 
 The committed M5 32 GB suite uses a 128-token prompt, 256 generated tokens, five
-alternating trials, and two-second cooldowns:
+native-fallback trials, and two-second cooldowns:
 
 .. image:: /_static/mlx-model-throughput.png
    :alt: Native MLX and MLX with meTile median decode throughput across four 4-bit language models
    :width: 100%
 
-.. image:: /_static/mlx-model-speedups.png
-   :alt: Decode and end-to-end percentage change relative to native MLX across four 4-bit language models
+.. image:: /_static/mlx-model-latency.png
+   :alt: Native MLX and MLX with meTile TTFT and end-to-end latency across four 4-bit language models
    :width: 100%
 
 .. list-table:: M5 model-level medians
@@ -79,33 +81,43 @@ alternating trials, and two-second cooldowns:
    * - Model
      - MLX decode
      - MLX + meTile
+     - Native TTFT
      - Decode
+     - TTFT speedup
      - End-to-end
    * - Llama 3.2 1B 4-bit
-     - 152.34 tok/s
-     - 152.24 tok/s
-     - 0.999x
-     - 1.001x
+     - 149.19 tok/s
+     - 149.19 tok/s
+     - 149.6 ms
+     - 1.000x
+     - 1.000x
+     - 1.000x
    * - Llama 3.2 3B 4-bit
-     - 59.22 tok/s
-     - 61.56 tok/s
-     - 1.039x
-     - 1.036x
+     - 56.62 tok/s
+     - 56.62 tok/s
+     - 281.3 ms
+     - 1.000x
+     - 1.000x
+     - 1.000x
    * - Qwen 2.5 0.5B 4-bit
-     - 308.78 tok/s
-     - 307.25 tok/s
-     - 0.995x
-     - 1.028x
+     - 306.93 tok/s
+     - 306.93 tok/s
+     - 114.1 ms
+     - 1.000x
+     - 1.000x
+     - 1.000x
    * - Qwen 2.5 1.5B 4-bit
-     - 117.95 tok/s
-     - 116.35 tok/s
-     - 0.986x
-     - 0.998x
+     - 119.31 tok/s
+     - 119.31 tok/s
+     - 214.3 ms
+     - 1.000x
+     - 1.000x
+     - 1.000x
 
-Llama 3.2 3B is the clear win in this run. Llama 1B is at parity, Qwen 0.5B
-improves end-to-end time despite decode parity, and Qwen 1.5B remains slightly below
-native decode. The guarded backend is therefore presented as shape- and model-dependent,
-not as a universal framework win. The raw result is committed at
+All four workloads selected native MLX in this run. The result demonstrates the guarded
+runtime's no-regression fallback rather than a framework speedup. Several isolated kernel
+candidates measured faster but failed the paired model-level safety test, so the published
+result does not promote them. The raw result is committed at
 ``benchmarks/results/m5-mlx-lm-models.json``.
 
 Reproduce the complete suite and regenerate both figures:

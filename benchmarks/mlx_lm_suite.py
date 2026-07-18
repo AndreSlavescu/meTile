@@ -107,7 +107,7 @@ def main():
             results.append(json.loads(output.read_text()))
 
     suite = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "models": results,
     }

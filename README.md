@@ -182,40 +182,42 @@ patch = apply_metile_to_mlx_lm(model=model)
 patch.restore()
 ```
 
-The dispatcher benchmarks native MLX alongside generated blocks. It requires at least
-5% primitive-level headroom before crossing the framework boundary; otherwise the call
-stays on MLX. A high-level compute DAG also discovers multi-output residual-add/RMSNorm
-fusion using an exact max-flow/min-cut pass and a stricter 10% switch margin. Unsupported
-prefill attention, masks, sinks, quantized KV caches, and dtypes also fall back exactly.
-RMSNorm supports FP16/FP32 and accumulates in FP32.
+The dispatcher benchmarks native MLX alongside generated blocks. Attention and RMSNorm
+require at least 5% primitive-level headroom before crossing the framework boundary;
+otherwise the call stays on MLX. A high-level compute DAG also discovers multi-output
+residual-add/RMSNorm fusion using an exact max-flow/min-cut pass and a stricter 10% switch
+margin. Unsupported attention modes, masks, sinks, quantized KV caches, and dtypes fall
+back exactly. RMSNorm supports FP16/FP32 and accumulates in FP32.
 
 For affine 4-bit Llama MLPs, AOT repacking transposes packed nibbles and scale/bias groups
-once, then measures native MLX against generated scalar decode and Metal 4 NAX
+once, then measures eager and compiled MLX against generated scalar and Metal 4 NAX
 ``matmul2d`` plus fused SwiGLU candidates. Scalar schedules independently tune threadgroup
 width, adjacent outputs per SIMDgroup, and FP16/FP32 decode arithmetic while retaining FP32
-accumulators. The selector verifies numerical compatibility, requires 10% headroom, persists
-the decision by device/source/shape, and discards repacked weights when native MLX wins.
+accumulators. The selector verifies numerical compatibility, requires 3% headroom, persists
+the decision by device/source/row bucket, and discards repacked weights when native MLX wins.
 
 The committed M5 32 GB suite uses MLX 0.32.0, MLX-LM 0.31.3, a 128-token prompt,
-256 generated tokens, five alternating trials, and two-second cooldowns. It verifies
-the next token for every checkpoint and retains the neutral or losing rows rather than
-reporting only wins:
+256 generated tokens, five trials, and two-second cooldowns. It verifies the next token
+and tunes the complete model plan before measurement. When no optimized plan clears the
+TTFT, decode, and end-to-end safety bars, both labels share the same native measurement
+instead of presenting thermal noise as a speedup:
 
-| Decode throughput | Performance change vs MLX |
+| Decode throughput | TTFT and end-to-end latency |
 |:--:|:--:|
-| ![Native MLX and MLX with meTile decode throughput across four models](docs/_static/mlx-model-throughput.png) | ![meTile performance change relative to native MLX across four models](docs/_static/mlx-model-speedups.png) |
+| ![Native MLX and MLX with meTile decode throughput across four models](docs/_static/mlx-model-throughput.png) | ![Native MLX and MLX with meTile TTFT and end-to-end latency across four models](docs/_static/mlx-model-latency.png) |
 
-| Model | MLX decode | MLX + meTile | Decode | End-to-end |
-|---|---:|---:|---:|---:|
-| Llama 3.2 1B 4-bit | 152.34 tok/s | 152.24 tok/s | 0.999x | 1.001x |
-| Llama 3.2 3B 4-bit | 59.22 tok/s | 61.56 tok/s | 1.039x | 1.036x |
-| Qwen 2.5 0.5B 4-bit | 308.78 tok/s | 307.25 tok/s | 0.995x | 1.028x |
-| Qwen 2.5 1.5B 4-bit | 117.95 tok/s | 116.35 tok/s | 0.986x | 0.998x |
+| Model | MLX decode | MLX + meTile | Native TTFT | Decode | TTFT | End-to-end |
+|---|---:|---:|---:|---:|---:|---:|
+| Llama 3.2 1B 4-bit | 149.19 tok/s | 149.19 tok/s | 149.6 ms | 1.000x | 1.000x | 1.000x |
+| Llama 3.2 3B 4-bit | 56.62 tok/s | 56.62 tok/s | 281.3 ms | 1.000x | 1.000x | 1.000x |
+| Qwen 2.5 0.5B 4-bit | 306.93 tok/s | 306.93 tok/s | 114.1 ms | 1.000x | 1.000x | 1.000x |
+| Qwen 2.5 1.5B 4-bit | 119.31 tok/s | 119.31 tok/s | 214.3 ms | 1.000x | 1.000x | 1.000x |
 
-The Llama 3B row is a model-level win; the other rows show parity or a small miss in at
-least one metric. Raw trials, environment metadata, verification results, and selected
-dispatches are in `benchmarks/results/m5-mlx-lm-models.json`. Reproduce the suite and
-regenerate the PNG bar charts:
+All four workloads selected native MLX in this run. This is a no-regression result, not a
+speedup claim: candidates that looked faster in isolated timing did not survive the paired
+model-level guard. Raw trials, environment metadata, verification results, comparison mode,
+and selected dispatches are in `benchmarks/results/m5-mlx-lm-models.json`. Reproduce the
+suite and regenerate the PNG bar charts:
 
 ```bash
 python benchmarks/mlx_lm_suite.py \

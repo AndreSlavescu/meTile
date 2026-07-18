@@ -7,8 +7,6 @@ from pathlib import Path
 
 MLX_COLOR = "#ffb000"
 METILE_COLOR = "#3f7ee8"
-END_TO_END_COLOR = "#8b5cf6"
-TTFT_COLOR = "#16a085"
 
 
 def _arguments():
@@ -20,9 +18,9 @@ def _arguments():
         default=Path("docs/_static/mlx-model-throughput.png"),
     )
     parser.add_argument(
-        "--speedup-output",
+        "--latency-output",
         type=Path,
-        default=Path("docs/_static/mlx-model-speedups.png"),
+        default=Path("docs/_static/mlx-model-latency.png"),
     )
     return parser.parse_args()
 
@@ -43,10 +41,16 @@ def _suite_context(suite):
     hardware = first.get("hardware", {})
     software = first.get("software", {})
     chip = hardware.get("chip") or hardware.get("processor") or hardware.get("machine", "unknown")
+    comparison_modes = {model.get("comparison_mode", "alternating") for model in suite["models"]}
+    trial_kind = (
+        "native-fallback trials"
+        if comparison_modes == {"shared_native_fallback"}
+        else "alternating trials"
+    )
     subtitle = (
         f"{chip} · {workload['prompt_tokens']} prompt tokens · "
         f"{workload['generation_tokens']} generated · "
-        f"median of {workload['trials']} alternating trials"
+        f"median of {workload['trials']} {trial_kind}"
     )
     footer = (
         f"MLX {software.get('mlx', 'unknown')} · MLX-LM {software.get('mlx_lm', 'unknown')} · "
@@ -61,16 +65,14 @@ def _chart_data(suite):
         "labels": [_model_label(result["model"]) for result in models],
         "mlx": [result["medians"]["mlx_decode_tokens_per_second"] for result in models],
         "metile": [result["medians"]["metile_decode_tokens_per_second"] for result in models],
-        "decode_change": [(result["medians"]["decode_speedup"] - 1.0) * 100.0 for result in models],
-        "ttft_change": [
-            (result["medians"]["ttft_speedup"] - 1.0) * 100.0
-            if "ttft_speedup" in result["medians"]
-            else None
-            for result in models
+        "mlx_ttft_ms": [
+            result["medians"]["mlx_time_to_first_token_seconds"] * 1e3 for result in models
         ],
-        "end_to_end_change": [
-            (result["medians"]["end_to_end_speedup"] - 1.0) * 100.0 for result in models
+        "metile_ttft_ms": [
+            result["medians"]["metile_time_to_first_token_seconds"] * 1e3 for result in models
         ],
+        "mlx_total_seconds": [result["medians"]["mlx_elapsed_seconds"] for result in models],
+        "metile_total_seconds": [result["medians"]["metile_elapsed_seconds"] for result in models],
     }
 
 
@@ -171,45 +173,64 @@ def _render_throughput(suite, output):
     pyplot.close(figure)
 
 
-def _render_speedups(suite, output):
+def _render_latency(suite, output):
     pyplot = _matplotlib()
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
     positions = list(range(len(data["labels"])))
-    series = [
-        ("Decode", data["decode_change"], METILE_COLOR),
-        ("End-to-end", data["end_to_end_change"], END_TO_END_COLOR),
-    ]
-    if all(value is not None for value in data["ttft_change"]):
-        series.insert(1, ("TTFT", data["ttft_change"], TTFT_COLOR))
-    width = 0.72 / len(series)
-
-    figure, axes = pyplot.subplots(figsize=(10, 5.6), dpi=180)
-    for index, (label, values, color) in enumerate(series):
-        offset = (index - (len(series) - 1) / 2) * width
-        bars = axes.bar(
-            [position + offset for position in positions],
-            values,
-            width,
-            label=label,
-            color=color,
-        )
-        axes.bar_label(bars, fmt="%+.1f%%", padding=3, fontsize=8, color="#444444")
-    axes.axhline(0, color="#555555", linewidth=1.1)
-    axes.set_title("Latency and throughput change vs native MLX", loc="left", fontsize=18, pad=28)
-    axes.set_ylabel("Improvement vs MLX (%)")
-    axes.set_xticks(positions, data["labels"])
-    largest = max(abs(value) for _, values, _ in series for value in values)
-    limit = max(2.0, largest * 1.5)
-    axes.set_ylim(-limit, limit)
-    axes.legend(
-        frameon=False,
-        loc="upper right",
-        bbox_to_anchor=(1.0, 1.14),
-        ncol=len(series),
+    width = 0.34
+    panels = (
+        (
+            "Time to first token",
+            "Milliseconds",
+            data["mlx_ttft_ms"],
+            data["metile_ttft_ms"],
+            "%.1f",
+        ),
+        (
+            "End-to-end generation",
+            "Seconds",
+            data["mlx_total_seconds"],
+            data["metile_total_seconds"],
+            "%.2f",
+        ),
     )
-    _style_axes(axes, subtitle, footer)
-    figure.subplots_adjust(left=0.09, right=0.98, top=0.78, bottom=0.24)
+
+    figure, axes = pyplot.subplots(1, 2, figsize=(12, 5.8), dpi=180)
+    for axes_index, (title, ylabel, mlx_values, metile_values, label_format) in enumerate(panels):
+        axis = axes[axes_index]
+        mlx_bars = axis.bar(
+            [position - width / 2 for position in positions],
+            mlx_values,
+            width,
+            label="Native MLX",
+            color=MLX_COLOR,
+        )
+        metile_bars = axis.bar(
+            [position + width / 2 for position in positions],
+            metile_values,
+            width,
+            label="MLX + meTile",
+            color=METILE_COLOR,
+        )
+        axis.bar_label(mlx_bars, fmt=label_format, padding=3, fontsize=7, color="#444444")
+        axis.bar_label(metile_bars, fmt=label_format, padding=3, fontsize=7, color="#444444")
+        axis.set_title(title, loc="left", fontsize=12, pad=10)
+        axis.set_ylabel(ylabel)
+        axis.set_xticks(positions, data["labels"], fontsize=8)
+        axis.set_ylim(0, max(mlx_values + metile_values) * 1.18)
+        axis.set_axisbelow(True)
+        axis.grid(axis="y", color="#d9d9d9", linewidth=0.8)
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+    figure.suptitle("Latency by model (lower is better)", x=0.07, y=0.965, ha="left", fontsize=18)
+    figure.text(0.07, 0.88, subtitle, color="#666666", fontsize=9, va="bottom")
+    figure.text(0.98, 0.035, footer, color="#777777", fontsize=8, ha="right", va="bottom")
+    handles, labels = axes[0].get_legend_handles_labels()
+    figure.legend(
+        handles, labels, frameon=False, loc="upper right", bbox_to_anchor=(0.98, 0.965), ncol=2
+    )
+    figure.subplots_adjust(left=0.07, right=0.98, top=0.80, bottom=0.20, wspace=0.24)
     _validate_text_layout(figure)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})
@@ -222,9 +243,9 @@ def main():
     if not suite.get("models"):
         raise ValueError("benchmark suite contains no model results")
     _render_throughput(suite, arguments.throughput_output)
-    _render_speedups(suite, arguments.speedup_output)
+    _render_latency(suite, arguments.latency_output)
     print(f"Wrote {arguments.throughput_output}")
-    print(f"Wrote {arguments.speedup_output}")
+    print(f"Wrote {arguments.latency_output}")
 
 
 if __name__ == "__main__":
