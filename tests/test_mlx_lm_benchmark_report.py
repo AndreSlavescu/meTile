@@ -1,4 +1,6 @@
+import json
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +10,8 @@ from benchmarks.render_mlx_lm_results import (
     _render_latency,
     _render_throughput,
     _suite_context,
+    _validate_suite,
+    _validate_text_layout,
 )
 
 
@@ -84,6 +88,25 @@ def test_suite_context_labels_shared_native_fallback_trials():
     assert "median of 5 native-fallback trials" in subtitle
 
 
+def test_suite_validation_rejects_mixed_workloads():
+    suite = _suite()
+    suite["models"][1]["workload"] = {**suite["models"][1]["workload"], "prompt_tokens": 64}
+
+    with pytest.raises(ValueError, match="share hardware, software, and workload"):
+        _validate_suite(suite)
+
+
+def test_layout_validator_rejects_overlapping_text():
+    pyplot = pytest.importorskip("matplotlib.pyplot")
+    figure = pyplot.figure()
+    figure.text(0.5, 0.5, "left")
+    figure.text(0.5, 0.5, "right")
+
+    with pytest.raises(RuntimeError, match="chart text overlaps"):
+        _validate_text_layout(figure)
+    pyplot.close(figure)
+
+
 @pytest.mark.parametrize("renderer", (_render_throughput, _render_latency))
 def test_renderer_writes_high_resolution_png(renderer, tmp_path):
     pytest.importorskip("matplotlib")
@@ -97,3 +120,12 @@ def test_renderer_writes_high_resolution_png(renderer, tmp_path):
     assert width >= 1600
     assert height >= 900
     assert len(payload) > 20_000
+
+
+@pytest.mark.parametrize("renderer", (_render_throughput, _render_latency))
+def test_published_suite_renders_without_text_overlap(renderer, tmp_path):
+    pytest.importorskip("matplotlib")
+    root = Path(__file__).parents[1]
+    suite = json.loads((root / "benchmarks/results/m5-mlx-lm-models.json").read_text())
+
+    renderer(suite, tmp_path / "published.png")

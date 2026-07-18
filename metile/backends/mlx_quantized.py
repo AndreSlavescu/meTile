@@ -250,7 +250,6 @@ def _compile_nax_affine_qmv(
         output_names=["output"],
         source=_mlx_kernel_body(source),
         header=_tensor_kernel_header(),
-        compile_options={"math_mode": "fast"},
     )
     kernel = _MLXNaxAffineQMVKernel(
         operation,
@@ -307,7 +306,6 @@ def _compile_nax_affine_swiglu_qmv(
         output_names=["output"],
         source=_mlx_kernel_body(source),
         header=_tensor_kernel_header(),
-        compile_options={"math_mode": "fast"},
     )
     kernel = _MLXNaxAffineSwiGLUKernel(
         operation,

@@ -2,11 +2,21 @@
 
 import argparse
 import json
+import math
 from itertools import combinations
 from pathlib import Path
 
 MLX_COLOR = "#ffb000"
 METILE_COLOR = "#3f7ee8"
+_CHART_METRICS = (
+    "mlx_decode_tokens_per_second",
+    "metile_decode_tokens_per_second",
+    "mlx_time_to_first_token_seconds",
+    "metile_time_to_first_token_seconds",
+    "mlx_elapsed_seconds",
+    "metile_elapsed_seconds",
+)
+_WORKLOAD_KEYS = ("prompt_tokens", "generation_tokens", "trials", "seed")
 
 
 def _arguments():
@@ -57,6 +67,50 @@ def _suite_context(suite):
         f"seed {workload.get('seed', 0)} · rev {first.get('revision', 'unknown')[:7]}"
     )
     return subtitle, footer
+
+
+def _validate_suite(suite):
+    models = suite.get("models")
+    if not isinstance(models, list) or not models:
+        raise ValueError("benchmark suite contains no model results")
+
+    reference = models[0]
+    reference_workload = reference.get("workload", {})
+    context = {
+        "hardware": reference.get("hardware", {}),
+        "software": reference.get("software", {}),
+        "workload": {key: reference_workload.get(key) for key in _WORKLOAD_KEYS},
+    }
+    comparison_modes = set()
+    model_names = set()
+    for result in models:
+        model = result.get("model")
+        if not isinstance(model, str) or not model:
+            raise ValueError("every benchmark result requires a model name")
+        if model in model_names:
+            raise ValueError(f"duplicate benchmark model: {model}")
+        model_names.add(model)
+
+        workload = result.get("workload", {})
+        result_context = {
+            "hardware": result.get("hardware", {}),
+            "software": result.get("software", {}),
+            "workload": {key: workload.get(key) for key in _WORKLOAD_KEYS},
+        }
+        if result_context != context:
+            raise ValueError("all charted models must share hardware, software, and workload")
+        comparison_modes.add(result.get("comparison_mode", "alternating"))
+
+        medians = result.get("medians", {})
+        for metric in _CHART_METRICS:
+            value = medians.get(metric)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"benchmark metric {metric!r} must be numeric")
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"benchmark metric {metric!r} must be finite and positive")
+
+    if len(comparison_modes) != 1:
+        raise ValueError("all charted models must use the same comparison mode")
 
 
 def _chart_data(suite):
@@ -137,13 +191,15 @@ def _validate_text_layout(figure):
 
 
 def _render_throughput(suite, output):
+    _validate_suite(suite)
     pyplot = _matplotlib()
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
     positions = list(range(len(data["labels"])))
     width = 0.34
 
-    figure, axes = pyplot.subplots(figsize=(10, 5.6), dpi=180)
+    figure_width = max(10.0, 2.1 * len(data["labels"]) + 1.6)
+    figure, axes = pyplot.subplots(figsize=(figure_width, 5.6), dpi=180)
     mlx_bars = axes.bar(
         [position - width / 2 for position in positions],
         data["mlx"],
@@ -174,6 +230,7 @@ def _render_throughput(suite, output):
 
 
 def _render_latency(suite, output):
+    _validate_suite(suite)
     pyplot = _matplotlib()
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
@@ -196,7 +253,8 @@ def _render_latency(suite, output):
         ),
     )
 
-    figure, axes = pyplot.subplots(1, 2, figsize=(12, 5.8), dpi=180)
+    figure_width = max(12.0, 2.2 * len(data["labels"]) + 3.0)
+    figure, axes = pyplot.subplots(1, 2, figsize=(figure_width, 5.8), dpi=180)
     for axes_index, (title, ylabel, mlx_values, metile_values, label_format) in enumerate(panels):
         axis = axes[axes_index]
         mlx_bars = axis.bar(
@@ -240,8 +298,6 @@ def _render_latency(suite, output):
 def main():
     arguments = _arguments()
     suite = json.loads(arguments.input.read_text())
-    if not suite.get("models"):
-        raise ValueError("benchmark suite contains no model results")
     _render_throughput(suite, arguments.throughput_output)
     _render_latency(suite, arguments.latency_output)
     print(f"Wrote {arguments.throughput_output}")
