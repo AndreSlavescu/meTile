@@ -12,6 +12,7 @@ _RUNNER = """
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
@@ -34,7 +35,24 @@ def bench_end_to_end(dispatch):
     )
 
 module._bench = bench_end_to_end
-results = module.run_all(num_rounds=rounds)
+groups = ("bench_gemm", "bench_softmax", "bench_layernorm", "bench_fft")
+all_times = {}
+for round_index in range(rounds):
+    if round_index:
+        time.sleep(module._COOLDOWN)
+    for function_name in groups:
+        time.sleep(module._COOLDOWN)
+        try:
+            group_results = getattr(module, function_name)()
+        except Exception as error:
+            print(
+                f"unavailable {function_name}: {type(error).__name__}: {error}",
+                file=sys.stderr,
+            )
+            continue
+        for name, value in group_results.items():
+            all_times.setdefault(name, []).append(value)
+results = {name: module._geomean(values) for name, values in all_times.items()}
 with output.open("w") as handle:
     json.dump(results, handle)
 """
@@ -81,7 +99,11 @@ def _run_sample(root: Path, output: Path, rounds: int, cache_dir: Path) -> dict[
 
 
 def _format_report(
-    rows: list[tuple[str, float, float, float]], regressions: list[str], threshold: float
+    rows: list[tuple[str, float, float, float]],
+    regressions: list[str],
+    threshold: float,
+    baseline_only: tuple[str, ...] = (),
+    current_only: tuple[str, ...] = (),
 ) -> str:
     lines = [
         f"{'kernel':<30} {'baseline':>12} {'current':>12} {'change':>8}  status",
@@ -97,10 +119,19 @@ def _format_report(
         lines.append(f"\n{len(regressions)} regression(s) detected (>{threshold:.0%} slower).")
     else:
         lines.append("\nNo regressions detected by the paired comparison.")
+    if current_only:
+        lines.append("Base unavailable: " + ", ".join(current_only))
+    if baseline_only:
+        lines.append("PR unavailable: " + ", ".join(baseline_only))
     return "\n".join(lines)
 
 
-def _write_step_summary(rows: list[tuple[str, float, float, float]], regressions: list[str]):
+def _write_step_summary(
+    rows: list[tuple[str, float, float, float]],
+    regressions: list[str],
+    baseline_only: tuple[str, ...],
+    current_only: tuple[str, ...],
+):
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
@@ -117,6 +148,10 @@ def _write_step_summary(rows: list[tuple[str, float, float, float]], regressions
             f"| `{name}` | {baseline * 1e6:.1f} us | {current * 1e6:.1f} us | "
             f"{change:+.1%} | {status} |"
         )
+    if current_only:
+        lines.extend(("", "Base unavailable: " + ", ".join(f"`{name}`" for name in current_only)))
+    if baseline_only:
+        lines.extend(("", "PR unavailable: " + ", ".join(f"`{name}`" for name in baseline_only)))
     with open(summary_path, "a") as handle:
         handle.write("\n".join(lines) + "\n")
 
@@ -156,9 +191,18 @@ def main():
 
     baseline = aggregate_results(samples["baseline"])
     current = aggregate_results(samples["current"])
-    rows, regressions = regression_rows(current, baseline, args.threshold)
-    print("\n" + _format_report(rows, regressions, args.threshold))
-    _write_step_summary(rows, regressions)
+    common = set(baseline) & set(current)
+    if not common:
+        raise RuntimeError("base and PR have no comparable benchmark results")
+    baseline_only = tuple(sorted(set(baseline) - common))
+    current_only = tuple(sorted(set(current) - common))
+    rows, regressions = regression_rows(
+        {name: current[name] for name in common},
+        {name: baseline[name] for name in common},
+        args.threshold,
+    )
+    print("\n" + _format_report(rows, regressions, args.threshold, baseline_only, current_only))
+    _write_step_summary(rows, regressions, baseline_only, current_only)
     raise SystemExit(1 if regressions else 0)
 
 

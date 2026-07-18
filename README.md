@@ -244,8 +244,10 @@ python benchmarks/paired_regression.py --baseline-root /path/to/baseline
 ```
 
 Pull-request CI reports an ABBA-ordered, launch-to-completion comparison against
-the checked-out base revision. Shared-host measurements remain diagnostic rather
-than blocking; reproducible performance claims use the interleaved M5 harnesses.
+the checked-out base revision. If one revision cannot compile a group on the hosted
+Apple target, the report marks that group unavailable and compares only the exact
+supported intersection. Shared-host measurements remain diagnostic rather than
+blocking; reproducible performance claims use the interleaved M5 harnesses.
 
 ## Architecture
 
