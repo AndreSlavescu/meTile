@@ -203,7 +203,7 @@ def _write_json_result(
     plan,
 ):
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "revision": _git_revision(),
         "model": arguments.model,
@@ -232,6 +232,7 @@ def _write_json_result(
             "model_autotune": not arguments.disable_model_autotune,
         },
         "selected_plan": plan.as_dict(),
+        "comparison_mode": "alternating" if plan.feature_count else "shared_native_fallback",
         "verification": verification,
         "samples": {
             name: [
@@ -287,11 +288,40 @@ def main():
 
     print("Warming MLX baseline...")
     _generate(model, tokenizer, prompt, arguments, patched=False, plan=plan)
-    print("Compiling and autotuning meTile MLX kernels...")
-    _generate(model, tokenizer, prompt, arguments, patched=True, plan=plan)
+    if plan.feature_count:
+        print("Compiling and autotuning meTile MLX kernels...")
+        _generate(model, tokenizer, prompt, arguments, patched=True, plan=plan)
+    else:
+        print("Native fallback selected; sharing each measurement across both labels.")
 
     results = {"MLX": [], "MLX + meTile": []}
     for trial in range(arguments.trials):
+        if not plan.feature_count:
+            if arguments.delay:
+                time.sleep(arguments.delay)
+            response, elapsed, ttft = _generate(
+                model,
+                tokenizer,
+                prompt,
+                arguments,
+                patched=False,
+                plan=plan,
+            )
+            sample = (
+                float(response.generation_tps),
+                float(response.prompt_tps),
+                float(elapsed),
+                float(ttft),
+            )
+            results["MLX"].append(sample)
+            results["MLX + meTile"].append(sample)
+            print(
+                f"Trial {trial + 1} shared native: "
+                f"decode={response.generation_tps:.2f} tok/s, "
+                f"prefill={response.prompt_tps:.2f} tok/s, total={elapsed:.3f}s"
+                f", TTFT={ttft * 1e3:.1f}ms"
+            )
+            continue
         order = (False, True) if trial % 2 == 0 else (True, False)
         for patched in order:
             if arguments.delay:
