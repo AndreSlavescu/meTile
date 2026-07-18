@@ -27,6 +27,7 @@ _mlx_rms_cache_path = cache_root() / "mlx-rmsnorm-autotune-v1.json"
 _mlx_add_rms_kernel_cache = {}
 _mlx_add_rms_schedule_cache = {}
 _mlx_add_rms_cache_path = cache_root() / "mlx-add-rmsnorm-autotune-v2.json"
+_mlx_core = None
 _FRAMEWORK_SWITCH_MARGIN = 0.05
 _GRAPH_FUSION_SWITCH_MARGIN = 0.10
 
@@ -117,10 +118,14 @@ class _MLXAddRMSNormKernel:
 
 
 def _require_mlx():
+    global _mlx_core
+    if _mlx_core is not None:
+        return _mlx_core
     try:
         import mlx.core as mx
     except ImportError as error:
         raise ImportError("The meTile MLX backend requires the optional 'mlx' package") from error
+    _mlx_core = mx
     return mx
 
 
@@ -285,7 +290,9 @@ def _persistent_key(query, key, scale, configs):
             "query_heads": query.shape[1],
             "scale": scale,
             "source": inspect.getsource(attention_decode_kernel.fn),
+            "switch_margin": _FRAMEWORK_SWITCH_MARGIN,
             "tokens": _token_bucket(key.shape[2]),
+            "tuner": 2,
         }
     )
 
@@ -328,6 +335,8 @@ def _rms_persistent_key(values, eps, configs):
             "mlx": mx.__version__,
             "rows": _token_bucket(values.size // values.shape[-1]),
             "source": inspect.getsource(rmsnorm.fn),
+            "switch_margin": _FRAMEWORK_SWITCH_MARGIN,
+            "tuner": 2,
         }
     )
 
@@ -421,24 +430,7 @@ def _tune_mlx_attention(query, key, value, scale, configs):
             kernels.append(
                 (config, lambda kernel=kernel: kernel(query, key, value), kernel.description_bits)
             )
-    for _, dispatch, _ in kernels:
-        mx.eval(dispatch())
-
-    samples = {config: [] for config in configs}
-    for round_index in range(7):
-        ordered = kernels[round_index % len(kernels) :] + kernels[: round_index % len(kernels)]
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
-
-    results = [
-        (statistics.median(samples[config]), description_bits, config)
-        for config, _, description_bits in kernels
-    ]
-    return _choose_framework_config(results)
+    return _tune_framework_kernels(kernels, lambda dispatch: mx.eval(dispatch()))
 
 
 def _tune_mlx_rms_norm(values, weight, eps, configs):
@@ -458,24 +450,7 @@ def _tune_mlx_rms_norm(values, weight, eps, configs):
             kernels.append(
                 (config, lambda kernel=kernel: kernel(values, weight), kernel.description_bits)
             )
-    for _, dispatch, _ in kernels:
-        mx.eval(dispatch())
-
-    samples = {config: [] for config in configs}
-    for round_index in range(7):
-        ordered = kernels[round_index % len(kernels) :] + kernels[: round_index % len(kernels)]
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
-
-    results = [
-        (statistics.median(samples[config]), description_bits, config)
-        for config, _, description_bits in kernels
-    ]
-    return _choose_framework_config(results)
+    return _tune_framework_kernels(kernels, lambda dispatch: mx.eval(dispatch()))
 
 
 def _tune_mlx_add_rms_norm(values, residual, weight, eps, configs):
@@ -498,52 +473,54 @@ def _tune_mlx_add_rms_norm(values, residual, weight, eps, configs):
                     kernel.description_bits,
                 )
             )
-    for _, dispatch, _ in kernels:
-        mx.eval(*dispatch())
-
-    samples = {config: [] for config in configs}
-    for round_index in range(11):
-        ordered = kernels[round_index % len(kernels) :] + kernels[: round_index % len(kernels)]
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval(*dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
-
-    provisional = {
-        config: statistics.median(config_samples) for config, config_samples in samples.items()
-    }
-    best = min(provisional.values())
-    native_config = next(config for config in configs if config.algorithm == "mlx")
-    fastest_generated_config = min(
-        (config for config in configs if config.algorithm == "metile"),
-        key=provisional.__getitem__,
+    return _tune_framework_kernels(
+        kernels,
+        lambda dispatch: mx.eval(*dispatch()),
+        margin=_GRAPH_FUSION_SWITCH_MARGIN,
     )
+
+
+def _tune_framework_kernels(kernels, evaluate, *, margin=_FRAMEWORK_SWITCH_MARGIN):
+    for _, dispatch, _ in kernels:
+        evaluate(dispatch)
+
+    def measure(active, rounds):
+        samples = {config: [] for config, _, _ in active}
+        for round_index in range(rounds):
+            shift = round_index % len(active)
+            ordered = active[shift:] + active[:shift]
+            if round_index & 1:
+                ordered.reverse()
+            for config, dispatch, _ in ordered:
+                start = time.perf_counter_ns()
+                evaluate(dispatch)
+                samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+        return samples
+
+    provisional_samples = measure(kernels, 11)
+    provisional = {
+        config: statistics.median(samples) for config, samples in provisional_samples.items()
+    }
+    native = next(config for config in provisional if config.algorithm == "mlx")
+    generated = tuple(config for config in provisional if config.algorithm == "metile")
+    if not generated:
+        return native
+    fastest_generated = min(generated, key=provisional.__getitem__)
+    best = min(provisional.values())
     finalists = {
         config
         for config, latency in provisional.items()
-        if latency <= best * 1.10 or config is native_config or config is fastest_generated_config
+        if latency <= best * 1.10 or config in {native, fastest_generated}
     }
     finalist_kernels = [candidate for candidate in kernels if candidate[0] in finalists]
-    samples = {config: [] for config in finalists}
-    for round_index in range(31):
-        ordered = (
-            finalist_kernels[round_index % len(finalist_kernels) :]
-            + finalist_kernels[: round_index % len(finalist_kernels)]
-        )
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval(*dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
-
-    results = [
-        (statistics.median(samples[config]), description_bits, config)
-        for config, _, description_bits in finalist_kernels
-    ]
-    return _choose_framework_config(results, margin=_GRAPH_FUSION_SWITCH_MARGIN)
+    finalist_samples = measure(finalist_kernels, 31)
+    return _choose_framework_config(
+        [
+            (statistics.median(finalist_samples[config]), description_bits, config)
+            for config, _, description_bits in finalist_kernels
+        ],
+        margin=margin,
+    )
 
 
 def _choose_framework_config(results, *, margin=_FRAMEWORK_SWITCH_MARGIN):
@@ -555,28 +532,7 @@ def _choose_framework_config(results, *, margin=_FRAMEWORK_SWITCH_MARGIN):
     return choose_mdl_tie(generated)
 
 
-def mlx_attention_decode(query, key, value, *, scale, autotune=True):
-    """Run a zero-copy meTile decode-attention primitive on MLX arrays.
-
-    Inputs use MLX's ``[batch, heads, sequence, dimension]`` convention. The
-    operation is intentionally decode-only: the query sequence length must be
-    one. Generated Metal is embedded in MLX's lazy graph without NumPy copies.
-    """
-    _require_mlx()
-    if query.ndim != 4 or key.ndim != 4 or value.ndim != 4:
-        raise ValueError("meTile MLX attention expects rank-four query, key, and value arrays")
-    if query.shape[2] != 1:
-        raise ValueError("meTile MLX attention currently supports decode queries of length one")
-    if key.shape != value.shape or query.shape[0] != key.shape[0]:
-        raise ValueError("meTile MLX attention requires matching batch and key/value shapes")
-    if query.shape[1] % key.shape[1]:
-        raise ValueError("key/value heads must divide query heads")
-    if query.shape[-1] != key.shape[-1] or query.shape[-1] % 32:
-        raise ValueError("head dimensions must match and be a multiple of 32")
-    if query.dtype != key.dtype or query.dtype != value.dtype:
-        raise TypeError("meTile MLX attention requires matching input dtypes")
-    _mlx_dtype_to_numpy(query.dtype)
-
+def _select_mlx_attention(query, key, value, scale, autotune):
     schedule_key = (
         query.shape[0],
         query.shape[1],
@@ -601,6 +557,11 @@ def mlx_attention_decode(query, key, value, *, scale, autotune=True):
                 )
                 _write_config(persistent_key, selected)
             _mlx_schedule_cache[schedule_key] = selected
+    return selected
+
+
+def _mlx_attention_decode_unchecked(query, key, value, scale, *, autotune=True):
+    selected = _select_mlx_attention(query, key, value, scale, autotune)
 
     if selected.algorithm == "mlx":
         mx = _require_mlx()
@@ -615,6 +576,36 @@ def mlx_attention_decode(query, key, value, *, scale, autotune=True):
         selected.block,
     )
     return kernel(query, key, value)
+
+
+def mlx_attention_decode(query, key, value, *, scale, autotune=True):
+    """Run a zero-copy meTile decode-attention primitive on MLX arrays.
+
+    Inputs use MLX's ``[batch, heads, sequence, dimension]`` convention. The
+    operation is intentionally decode-only: the query sequence length must be
+    one. Generated Metal is embedded in MLX's lazy graph without NumPy copies.
+    """
+    _require_mlx()
+    if query.ndim != 4 or key.ndim != 4 or value.ndim != 4:
+        raise ValueError("meTile MLX attention expects rank-four query, key, and value arrays")
+    if query.shape[2] != 1:
+        raise ValueError("meTile MLX attention currently supports decode queries of length one")
+    if key.shape != value.shape or query.shape[0] != key.shape[0]:
+        raise ValueError("meTile MLX attention requires matching batch and key/value shapes")
+    if query.shape[1] % key.shape[1]:
+        raise ValueError("key/value heads must divide query heads")
+    if query.shape[-1] != key.shape[-1] or query.shape[-1] % 32:
+        raise ValueError("head dimensions must match and be a multiple of 32")
+    if query.dtype != key.dtype or query.dtype != value.dtype:
+        raise TypeError("meTile MLX attention requires matching input dtypes")
+    _mlx_dtype_to_numpy(query.dtype)
+    return _mlx_attention_decode_unchecked(
+        query,
+        key,
+        value,
+        scale,
+        autotune=autotune,
+    )
 
 
 def mlx_rms_norm(values, weight, eps, *, autotune=True):

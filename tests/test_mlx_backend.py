@@ -89,6 +89,74 @@ def test_mlx_native_affine_swiglu_matches_quantized_matmul(monkeypatch):
     np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
 
 
+@pytest.mark.parametrize("rows", (1, 8))
+def test_mlx_compiled_affine_swiglu_matches_native(rows, monkeypatch):
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    monkeypatch.setattr(mlx_quantized, "_compiled_affine_swiglu", None)
+    random = np.random.default_rng(48)
+    input_features = output_features = 64
+    values = mx.array(random.normal(size=(1, rows, input_features)).astype(np.float16))
+    gate = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    up = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    gate_weight, gate_scales, gate_biases = mx.quantize(gate, group_size=64, bits=4)
+    up_weight, up_scales, up_biases = mx.quantize(up, group_size=64, bits=4)
+
+    actual = mlx_quantized._mlx_compiled_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    expected = mlx_quantized._native_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    mx.eval(actual, expected)
+
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=0, atol=0)
+
+
+def test_mlx_affine_swiglu_dispatches_report_row_bucket(monkeypatch):
+    from metile.backends import mlx_quantized
+
+    config = mlx_quantized.MLXAffineSwiGLUConfig("mlx_compiled")
+    monkeypatch.setattr(
+        mlx_quantized,
+        "_affine_swiglu_schedule_cache",
+        {(128, 2048, 5632, "mlx.core.float16", 64, 4): config},
+    )
+
+    assert mlx_quantized.mlx_affine_swiglu_dispatches() == (
+        {
+            "row_bucket": 128,
+            "input_features": 2048,
+            "output_features": 5632,
+            "dtype": "mlx.core.float16",
+            "group_size": 64,
+            "bits": 4,
+            "algorithm": "mlx_compiled",
+            "decode_dtype": "f32",
+            "implementation": "",
+            "block": 0,
+            "outputs_per_simdgroup": 1,
+        },
+    )
+
+
 @pytest.mark.parametrize(
     ("outputs_per_simdgroup", "decode_dtype"),
     ((1, "f32"), (4, "f32"), (4, "f16")),
@@ -184,6 +252,94 @@ def test_framework_dispatch_accepts_larger_graph_fusion_margin():
     )
 
     assert selected == native
+
+
+def test_mlx_lm_plan_candidates_cover_requested_feature_lattice():
+    from metile.integrations.mlx_lm import MLXLMPlan, _mlx_lm_plan_candidates
+
+    candidates = _mlx_lm_plan_candidates(
+        MLXLMPlan(attention=True, rms_norm=True, graph_fusion=False, quantized_mlp=False)
+    )
+
+    assert len(candidates) == 4
+    assert MLXLMPlan(False, False, False, False) in candidates
+    assert MLXLMPlan(True, True, False, False) in candidates
+    assert all(not plan.graph_fusion and not plan.quantized_mlp for plan in candidates)
+
+
+def test_mlx_lm_effective_plan_prunes_native_wrappers(monkeypatch):
+    from metile.integrations import mlx_lm
+
+    monkeypatch.setattr(mlx_lm, "mlx_attention_dispatches", lambda: ({"algorithm": "metile"},))
+    monkeypatch.setattr(mlx_lm, "mlx_rms_norm_dispatches", lambda: ({"algorithm": "mlx"},))
+    monkeypatch.setattr(mlx_lm, "mlx_add_rms_norm_dispatches", lambda: ())
+    monkeypatch.setattr(mlx_lm, "mlx_affine_swiglu_dispatches", lambda: ({"algorithm": "mlx"},))
+
+    assert mlx_lm._effective_mlx_lm_plan(mlx_lm.MLXLMPlan()) == mlx_lm.MLXLMPlan(
+        attention=True,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=False,
+    )
+
+
+def test_mlx_lm_effective_plan_keeps_compiled_quantized_mlp(monkeypatch):
+    from metile.integrations import mlx_lm
+
+    monkeypatch.setattr(mlx_lm, "mlx_attention_dispatches", lambda: ())
+    monkeypatch.setattr(mlx_lm, "mlx_rms_norm_dispatches", lambda: ())
+    monkeypatch.setattr(mlx_lm, "mlx_add_rms_norm_dispatches", lambda: ())
+    monkeypatch.setattr(
+        mlx_lm,
+        "mlx_affine_swiglu_dispatches",
+        lambda: ({"algorithm": "mlx_compiled"},),
+    )
+
+    assert mlx_lm._effective_mlx_lm_plan(mlx_lm.MLXLMPlan()) == mlx_lm.MLXLMPlan(
+        attention=False,
+        rms_norm=False,
+        graph_fusion=False,
+        quantized_mlp=True,
+    )
+
+
+def test_mlx_lm_plan_requires_decode_ttft_and_total_headroom():
+    from metile.integrations.mlx_lm import MLXLMPlan, _choose_mlx_lm_plan
+
+    native = MLXLMPlan(False, False, False, False)
+    safe = MLXLMPlan(attention=True, rms_norm=False, graph_fusion=False, quantized_mlp=False)
+    ttft_regression = MLXLMPlan(
+        attention=False,
+        rms_norm=True,
+        graph_fusion=False,
+        quantized_mlp=False,
+    )
+    selected = _choose_mlx_lm_plan(
+        {
+            native: [(0.100, 0.0100, 0.180)] * 5,
+            safe: [(0.099, 0.0095, 0.174)] * 5,
+            ttft_regression: [(0.102, 0.0090, 0.172)] * 5,
+        }
+    )
+
+    assert selected == safe
+
+
+def test_mlx_lm_plan_falls_back_when_total_win_is_too_small():
+    from metile.integrations.mlx_lm import MLXLMPlan, _choose_mlx_lm_plan
+
+    native = MLXLMPlan(False, False, False, False)
+    close = MLXLMPlan(attention=True, rms_norm=False, graph_fusion=False, quantized_mlp=False)
+
+    assert (
+        _choose_mlx_lm_plan(
+            {
+                native: [(0.100, 0.0100, 0.180)] * 5,
+                close: [(0.100, 0.0099, 0.179)] * 5,
+            }
+        )
+        == native
+    )
 
 
 def test_mlx_attention_decode_matches_mlx_gqa(monkeypatch):

@@ -2,11 +2,13 @@
 
 import argparse
 import json
+from itertools import combinations
 from pathlib import Path
 
 MLX_COLOR = "#ffb000"
 METILE_COLOR = "#3f7ee8"
 END_TO_END_COLOR = "#8b5cf6"
+TTFT_COLOR = "#16a085"
 
 
 def _arguments():
@@ -60,6 +62,12 @@ def _chart_data(suite):
         "mlx": [result["medians"]["mlx_decode_tokens_per_second"] for result in models],
         "metile": [result["medians"]["metile_decode_tokens_per_second"] for result in models],
         "decode_change": [(result["medians"]["decode_speedup"] - 1.0) * 100.0 for result in models],
+        "ttft_change": [
+            (result["medians"]["ttft_speedup"] - 1.0) * 100.0
+            if "ttft_speedup" in result["medians"]
+            else None
+            for result in models
+        ],
         "end_to_end_change": [
             (result["medians"]["end_to_end_speedup"] - 1.0) * 100.0 for result in models
         ],
@@ -106,6 +114,26 @@ def _style_axes(axes, subtitle, footer):
     )
 
 
+def _validate_text_layout(figure):
+    from matplotlib.text import Text
+
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+    texts = [
+        artist
+        for artist in figure.findobj(Text)
+        if artist.get_visible() and artist.get_text().strip()
+    ]
+    bounds = [(artist, artist.get_window_extent(renderer).padded(2)) for artist in texts]
+    canvas = figure.bbox
+    for artist, box in bounds:
+        if box.x0 < canvas.x0 or box.y0 < canvas.y0 or box.x1 > canvas.x1 or box.y1 > canvas.y1:
+            raise RuntimeError(f"chart text leaves the canvas: {artist.get_text()!r}")
+    for (left, left_box), (right, right_box) in combinations(bounds, 2):
+        if left_box.overlaps(right_box):
+            raise RuntimeError(f"chart text overlaps: {left.get_text()!r} and {right.get_text()!r}")
+
+
 def _render_throughput(suite, output):
     pyplot = _matplotlib()
     data = _chart_data(suite)
@@ -134,9 +162,10 @@ def _render_throughput(suite, output):
     axes.set_ylabel("Tokens / second")
     axes.set_xticks(positions, data["labels"])
     axes.set_ylim(0, max(data["mlx"] + data["metile"]) * 1.18)
-    axes.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, 1.14), ncol=2)
+    axes.legend(frameon=False, loc="upper right", bbox_to_anchor=(1.0, 1.14), ncol=2)
     _style_axes(axes, subtitle, footer)
     figure.subplots_adjust(left=0.09, right=0.98, top=0.78, bottom=0.24)
+    _validate_text_layout(figure)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})
     pyplot.close(figure)
@@ -147,35 +176,41 @@ def _render_speedups(suite, output):
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
     positions = list(range(len(data["labels"])))
-    width = 0.34
+    series = [
+        ("Decode", data["decode_change"], METILE_COLOR),
+        ("End-to-end", data["end_to_end_change"], END_TO_END_COLOR),
+    ]
+    if all(value is not None for value in data["ttft_change"]):
+        series.insert(1, ("TTFT", data["ttft_change"], TTFT_COLOR))
+    width = 0.72 / len(series)
 
     figure, axes = pyplot.subplots(figsize=(10, 5.6), dpi=180)
-    decode_bars = axes.bar(
-        [position - width / 2 for position in positions],
-        data["decode_change"],
-        width,
-        label="Decode throughput",
-        color=METILE_COLOR,
-    )
-    end_to_end_bars = axes.bar(
-        [position + width / 2 for position in positions],
-        data["end_to_end_change"],
-        width,
-        label="End-to-end generation",
-        color=END_TO_END_COLOR,
-    )
-    axes.bar_label(decode_bars, fmt="%+.1f%%", padding=3, fontsize=8, color="#444444")
-    axes.bar_label(end_to_end_bars, fmt="%+.1f%%", padding=3, fontsize=8, color="#444444")
+    for index, (label, values, color) in enumerate(series):
+        offset = (index - (len(series) - 1) / 2) * width
+        bars = axes.bar(
+            [position + offset for position in positions],
+            values,
+            width,
+            label=label,
+            color=color,
+        )
+        axes.bar_label(bars, fmt="%+.1f%%", padding=3, fontsize=8, color="#444444")
     axes.axhline(0, color="#555555", linewidth=1.1)
-    axes.set_title("Performance change vs native MLX", loc="left", fontsize=18, pad=28)
-    axes.set_ylabel("Change vs MLX (%)")
+    axes.set_title("Latency and throughput change vs native MLX", loc="left", fontsize=18, pad=28)
+    axes.set_ylabel("Improvement vs MLX (%)")
     axes.set_xticks(positions, data["labels"])
-    largest = max(abs(value) for value in data["decode_change"] + data["end_to_end_change"])
+    largest = max(abs(value) for _, values, _ in series for value in values)
     limit = max(2.0, largest * 1.5)
     axes.set_ylim(-limit, limit)
-    axes.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, 1.14), ncol=2)
+    axes.legend(
+        frameon=False,
+        loc="upper right",
+        bbox_to_anchor=(1.0, 1.14),
+        ncol=len(series),
+    )
     _style_axes(axes, subtitle, footer)
     figure.subplots_adjust(left=0.09, right=0.98, top=0.78, bottom=0.24)
+    _validate_text_layout(figure)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})
     pyplot.close(figure)

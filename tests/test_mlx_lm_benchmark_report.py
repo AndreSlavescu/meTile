@@ -30,6 +30,7 @@ def _suite():
                     "mlx_decode_tokens_per_second": 100.0,
                     "metile_decode_tokens_per_second": 105.0,
                     "decode_speedup": 1.05,
+                    "ttft_speedup": 1.02,
                     "end_to_end_speedup": 1.03,
                 },
             },
@@ -40,6 +41,7 @@ def _suite():
                     "mlx_decode_tokens_per_second": 200.0,
                     "metile_decode_tokens_per_second": 198.0,
                     "decode_speedup": 0.99,
+                    "ttft_speedup": 1.04,
                     "end_to_end_speedup": 1.01,
                 },
             },
@@ -54,6 +56,7 @@ def test_chart_data_preserves_absolute_and_relative_results():
     assert data["mlx"] == [100.0, 200.0]
     assert data["metile"] == [105.0, 198.0]
     assert data["decode_change"] == pytest.approx([5.0, -1.0])
+    assert data["ttft_change"] == pytest.approx([2.0, 4.0])
     assert data["end_to_end_change"] == pytest.approx([3.0, 1.0])
 
 

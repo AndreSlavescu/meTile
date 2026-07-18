@@ -11,7 +11,12 @@ import numpy as np
 
 import metile
 from kernels.affine_qmv import affine_qmv, affine_swiglu_qmv
-from metile.backends.mlx import _mlx_dtype_to_numpy, _mlx_kernel_body, _replace_identifier
+from metile.backends.mlx import (
+    _mlx_dtype_to_numpy,
+    _mlx_kernel_body,
+    _replace_identifier,
+    _token_bucket,
+)
 from metile.codegen.msl_emitter import emit
 from metile.compiler.affine_quantized import lower_affine_qmv, lower_affine_swiglu_qmv
 from metile.compiler.passes import decompose_nax_fragments
@@ -28,9 +33,10 @@ _nax_affine_qmv_kernel_cache = {}
 _nax_affine_swiglu_kernel_cache = {}
 _affine_swiglu_schedule_cache = {}
 _affine_weight_cache = {}
+_compiled_affine_swiglu = None
 _affine_cache_lock = threading.RLock()
-_affine_cache_path = cache_root() / "mlx-affine-swiglu-autotune-v1.json"
-_SWITCH_MARGIN = 0.10
+_affine_cache_path = cache_root() / "mlx-affine-swiglu-autotune-v2.json"
+_SWITCH_MARGIN = 0.03
 
 
 @dataclass(frozen=True)
@@ -43,7 +49,7 @@ class MLXAffineSwiGLUConfig:
 
 
 _AFFINE_SWIGLU_CONFIGS = tuple(
-    [MLXAffineSwiGLUConfig("mlx")]
+    [MLXAffineSwiGLUConfig("mlx"), MLXAffineSwiGLUConfig("mlx_compiled")]
     + [
         MLXAffineSwiGLUConfig("metile", "scalar", block, outputs_per_simdgroup)
         for block, outputs_per_simdgroup in (
@@ -59,6 +65,7 @@ _AFFINE_SWIGLU_CONFIGS = tuple(
             (128, 4),
             (256, 1),
             (256, 2),
+            (256, 4),
         )
     ]
     + [
@@ -644,6 +651,35 @@ def _native_affine_swiglu(
     return nn.silu(gate) * up
 
 
+def _mlx_compiled_affine_swiglu(
+    values,
+    gate_weight,
+    gate_scales,
+    gate_biases,
+    up_weight,
+    up_scales,
+    up_biases,
+    group_size,
+    bits,
+):
+    import mlx.core as mx
+
+    global _compiled_affine_swiglu
+    if _compiled_affine_swiglu is None:
+        _compiled_affine_swiglu = mx.compile(_native_affine_swiglu)
+    return _compiled_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        group_size,
+        bits,
+    )
+
+
 def _repacked_affine_pair(
     gate_weight,
     gate_scales,
@@ -699,6 +735,21 @@ def _affine_swiglu_dispatch(
             ),
             0,
         )
+    if config.algorithm == "mlx_compiled":
+        return (
+            lambda: _mlx_compiled_affine_swiglu(
+                values,
+                gate_weight,
+                gate_scales,
+                gate_biases,
+                up_weight,
+                up_scales,
+                up_biases,
+                group_size,
+                bits,
+            ),
+            compressed_description_bits(inspect.getsource(_native_affine_swiglu)),
+        )
     if config.implementation == "scalar":
         kernel = _compile_affine_swiglu_qmv(
             values.shape[-1],
@@ -748,13 +799,13 @@ def _affine_swiglu_dispatch(
 
 def _choose_affine_swiglu_config(results):
     native = next(result for result in results if result[2].algorithm == "mlx")
-    generated = [result for result in results if result[2].algorithm == "metile"]
-    if not generated:
+    alternatives = [result for result in results if result[2].algorithm != "mlx"]
+    if not alternatives:
         return native[2]
-    fastest_generated = min(generated, key=lambda result: result[0])
-    if fastest_generated[0] >= native[0] * (1.0 - _SWITCH_MARGIN):
+    fastest_alternative = min(alternatives, key=lambda result: result[0])
+    if fastest_alternative[0] >= native[0] * (1.0 - _SWITCH_MARGIN):
         return native[2]
-    return choose_mdl_tie(generated)
+    return choose_mdl_tie(alternatives)
 
 
 def _tune_affine_swiglu(
@@ -821,15 +872,15 @@ def _tune_affine_swiglu(
     }
     configs = tuple(config for config, _, _ in kernels)
     native = next(config for config in configs if config.algorithm == "mlx")
-    generated = tuple(config for config in configs if config.algorithm == "metile")
-    if not generated:
+    alternatives = tuple(config for config in configs if config.algorithm != "mlx")
+    if not alternatives:
         return native
-    fastest_generated = min(generated, key=provisional.__getitem__)
+    fastest_alternative = min(alternatives, key=provisional.__getitem__)
     best = min(provisional.values())
     finalists = {
         config
         for config, latency in provisional.items()
-        if latency <= best * 1.10 or config in {native, fastest_generated}
+        if latency <= best * 1.10 or config in {native, fastest_alternative}
     }
     finalist_kernels = [candidate for candidate in kernels if candidate[0] in finalists]
     samples = {config: [] for config in finalists}
@@ -865,14 +916,18 @@ def _affine_swiglu_persistent_key(values, gate_weight, group_size, bits):
             "input_features": values.shape[-1],
             "mlx": mx.__version__,
             "output_features": gate_weight.shape[0],
+            "rows": _token_bucket(values.size // values.shape[-1]),
             "source": stable_digest(
                 {
+                    "compiled": inspect.getsource(_mlx_compiled_affine_swiglu),
                     "lowering": inspect.getsource(lower_affine_swiglu_qmv),
+                    "native": inspect.getsource(_native_affine_swiglu),
                     "nax": inspect.getsource(_compile_nax_affine_swiglu_qmv),
                     "scalar": inspect.getsource(affine_swiglu_qmv.fn),
                 }
             ),
             "switch_margin": _SWITCH_MARGIN,
+            "tuner": 2,
         }
     )
 
@@ -924,23 +979,11 @@ def mlx_affine_swiglu(
     bits=4,
     autotune=True,
 ):
-    """Dispatch affine SwiGLU to native MLX, scalar, or M5 NAX kernels."""
+    """Dispatch affine SwiGLU to eager/compiled MLX, scalar, or M5 NAX kernels."""
     if group_size != 64 or bits != 4:
         raise ValueError("affine SwiGLU currently requires 4-bit weights with group size 64")
     if gate_biases is None or up_biases is None:
         raise ValueError("affine SwiGLU requires affine quantization biases")
-    if values.size != values.shape[-1]:
-        return _native_affine_swiglu(
-            values,
-            gate_weight,
-            gate_scales,
-            gate_biases,
-            up_weight,
-            up_scales,
-            up_biases,
-            group_size,
-            bits,
-        )
     if (
         values.dtype != gate_scales.dtype
         or values.dtype != gate_biases.dtype
@@ -950,6 +993,7 @@ def mlx_affine_swiglu(
     ):
         raise ValueError("affine SwiGLU requires matching gate/up weights and parameters")
     schedule_key = (
+        _token_bucket(values.size // values.shape[-1]),
         values.shape[-1],
         gate_weight.shape[0],
         str(values.dtype),
@@ -1004,11 +1048,12 @@ def mlx_affine_swiglu_dispatches():
     """Return in-process affine SwiGLU schedule decisions."""
     return tuple(
         {
-            "input_features": key[0],
-            "output_features": key[1],
-            "dtype": key[2],
-            "group_size": key[3],
-            "bits": key[4],
+            "row_bucket": key[0],
+            "input_features": key[1],
+            "output_features": key[2],
+            "dtype": key[3],
+            "group_size": key[4],
+            "bits": key[5],
             "algorithm": config.algorithm,
             "decode_dtype": config.decode_dtype,
             "implementation": config.implementation,

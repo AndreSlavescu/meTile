@@ -21,7 +21,11 @@ from metile.backends.mlx import (
     mlx_rms_norm_dispatches,
 )
 from metile.backends.mlx_quantized import mlx_affine_swiglu_dispatches
-from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+from metile.integrations.mlx_lm import (
+    MLXLMPlan,
+    apply_metile_to_mlx_lm,
+    autotune_metile_for_mlx_lm,
+)
 
 
 def _arguments():
@@ -40,13 +44,16 @@ def _arguments():
     parser.add_argument("--disable-rmsnorm", action="store_true")
     parser.add_argument("--disable-graph-fusion", action="store_true")
     parser.add_argument("--disable-quantized-mlp", action="store_true")
+    parser.add_argument("--disable-model-autotune", action="store_true")
+    parser.add_argument("--plan-decode-steps", type=int, default=8)
+    parser.add_argument("--plan-trials", type=int, default=5)
     parser.add_argument("--skip-verify", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-json", type=Path)
     return parser.parse_args()
 
 
-def _generate(model, tokenizer, prompt, arguments, patched):
+def _generate(model, tokenizer, prompt, arguments, patched, plan):
     patch = (
         apply_metile_to_mlx_lm(
             model=model,
@@ -54,11 +61,13 @@ def _generate(model, tokenizer, prompt, arguments, patched):
             rms_norm=not arguments.disable_rmsnorm,
             graph_fusion=not arguments.disable_graph_fusion,
             quantized_mlp=not arguments.disable_quantized_mlp,
+            plan=plan,
         )
         if patched
         else None
     )
     start = time.perf_counter()
+    first_token_elapsed = None
     response = None
     try:
         for next_response in stream_generate(
@@ -69,15 +78,17 @@ def _generate(model, tokenizer, prompt, arguments, patched):
             prefill_step_size=arguments.prefill_step_size,
         ):
             response = next_response
+            if first_token_elapsed is None:
+                first_token_elapsed = time.perf_counter() - start
     finally:
         if patch is not None:
             patch.restore()
     if response is None:
         raise RuntimeError("MLX-LM generation returned no timing response")
-    return response, time.perf_counter() - start
+    return response, time.perf_counter() - start, first_token_elapsed
 
 
-def _verify_model(model, prompt, arguments):
+def _verify_model(model, prompt, arguments, plan):
     tokens = mx.array(prompt[: min(len(prompt), 128)])[None]
     baseline_cache = make_prompt_cache(model)
     patched_cache = make_prompt_cache(model)
@@ -92,6 +103,7 @@ def _verify_model(model, prompt, arguments):
         rms_norm=not arguments.disable_rmsnorm,
         graph_fusion=not arguments.disable_graph_fusion,
         quantized_mlp=not arguments.disable_quantized_mlp,
+        plan=plan,
     ):
         patched_prefix = model(tokens[:, :-1], cache=patched_cache)
         mx.eval(patched_prefix)
@@ -188,9 +200,10 @@ def _write_json_result(
     results,
     medians,
     dispatches,
+    plan,
 ):
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "revision": _git_revision(),
         "model": arguments.model,
@@ -207,6 +220,8 @@ def _write_json_result(
             "trials": arguments.trials,
             "prefill_step_size": arguments.prefill_step_size,
             "delay_seconds": arguments.delay,
+            "plan_decode_steps": arguments.plan_decode_steps,
+            "plan_trials": arguments.plan_trials,
             "seed": arguments.seed,
         },
         "features": {
@@ -214,7 +229,9 @@ def _write_json_result(
             "rms_norm": not arguments.disable_rmsnorm,
             "graph_fusion": not arguments.disable_graph_fusion,
             "quantized_mlp": not arguments.disable_quantized_mlp,
+            "model_autotune": not arguments.disable_model_autotune,
         },
+        "selected_plan": plan.as_dict(),
         "verification": verification,
         "samples": {
             name: [
@@ -222,8 +239,9 @@ def _write_json_result(
                     "decode_tokens_per_second": decode,
                     "prefill_tokens_per_second": prefill,
                     "elapsed_seconds": elapsed,
+                    "time_to_first_token_seconds": ttft,
                 }
-                for decode, prefill, elapsed in samples
+                for decode, prefill, elapsed, ttft in samples
             ]
             for name, samples in results.items()
         },
@@ -243,14 +261,34 @@ def main():
     mx.random.seed(arguments.seed)
     prompt = mx.random.randint(0, vocab_size, (arguments.prompt_tokens,)).tolist()
 
+    requested_plan = MLXLMPlan(
+        attention=not arguments.disable_attention,
+        rms_norm=not arguments.disable_rmsnorm,
+        graph_fusion=not arguments.disable_graph_fusion,
+        quantized_mlp=not arguments.disable_quantized_mlp,
+    )
+    if arguments.disable_model_autotune:
+        plan = requested_plan
+    else:
+        print("Autotuning the MLX-LM feature plan...")
+        plan = autotune_metile_for_mlx_lm(
+            model,
+            mx.array(prompt)[None],
+            **requested_plan.as_dict(),
+            decode_steps=arguments.plan_decode_steps,
+            trials=arguments.plan_trials,
+        )
+    enabled = ", ".join(name for name, active in plan.as_dict().items() if active) or "native MLX"
+    print(f"Selected model plan: {enabled}")
+
     verification = None
     if not arguments.skip_verify:
-        verification = _verify_model(model, prompt, arguments)
+        verification = _verify_model(model, prompt, arguments, plan)
 
     print("Warming MLX baseline...")
-    _generate(model, tokenizer, prompt, arguments, patched=False)
+    _generate(model, tokenizer, prompt, arguments, patched=False, plan=plan)
     print("Compiling and autotuning meTile MLX kernels...")
-    _generate(model, tokenizer, prompt, arguments, patched=True)
+    _generate(model, tokenizer, prompt, arguments, patched=True, plan=plan)
 
     results = {"MLX": [], "MLX + meTile": []}
     for trial in range(arguments.trials):
@@ -258,25 +296,36 @@ def main():
         for patched in order:
             if arguments.delay:
                 time.sleep(arguments.delay)
-            response, elapsed = _generate(model, tokenizer, prompt, arguments, patched)
+            response, elapsed, ttft = _generate(
+                model,
+                tokenizer,
+                prompt,
+                arguments,
+                patched,
+                plan,
+            )
             name = "MLX + meTile" if patched else "MLX"
             results[name].append(
                 (
                     float(response.generation_tps),
                     float(response.prompt_tps),
                     float(elapsed),
+                    float(ttft),
                 )
             )
             print(
                 f"Trial {trial + 1} {name:12s}: "
                 f"decode={response.generation_tps:.2f} tok/s, "
                 f"prefill={response.prompt_tps:.2f} tok/s, total={elapsed:.3f}s"
+                f", TTFT={ttft * 1e3:.1f}ms"
             )
 
     baseline = statistics.median(sample[0] for sample in results["MLX"])
     metile_decode = statistics.median(sample[0] for sample in results["MLX + meTile"])
     baseline_total = statistics.median(sample[2] for sample in results["MLX"])
     metile_total = statistics.median(sample[2] for sample in results["MLX + meTile"])
+    baseline_ttft = statistics.median(sample[3] for sample in results["MLX"])
+    metile_ttft = statistics.median(sample[3] for sample in results["MLX + meTile"])
     medians = {
         "mlx_decode_tokens_per_second": baseline,
         "metile_decode_tokens_per_second": metile_decode,
@@ -284,12 +333,19 @@ def main():
         "mlx_elapsed_seconds": baseline_total,
         "metile_elapsed_seconds": metile_total,
         "end_to_end_speedup": baseline_total / metile_total,
+        "mlx_time_to_first_token_seconds": baseline_ttft,
+        "metile_time_to_first_token_seconds": metile_ttft,
+        "ttft_speedup": baseline_ttft / metile_ttft,
     }
     dispatches = _selected_dispatches()
     print("\nMedian results")
     print(f"MLX decode:          {baseline:.2f} tok/s")
     print(f"MLX + meTile decode: {metile_decode:.2f} tok/s ({metile_decode / baseline:.3f}x)")
     print(f"End-to-end speedup:  {baseline_total / metile_total:.3f}x")
+    print(
+        f"TTFT:                {baseline_ttft * 1e3:.1f}ms -> "
+        f"{metile_ttft * 1e3:.1f}ms ({baseline_ttft / metile_ttft:.3f}x)"
+    )
     print("\nSelected attention schedules")
     for dispatch in dispatches["attention"]:
         print(
@@ -324,6 +380,7 @@ def main():
             results,
             medians,
             dispatches,
+            plan,
         )
 
 

@@ -42,6 +42,9 @@ def _arguments():
     parser.add_argument("--disable-rmsnorm", action="store_true")
     parser.add_argument("--disable-graph-fusion", action="store_true")
     parser.add_argument("--disable-quantized-mlp", action="store_true")
+    parser.add_argument("--disable-model-autotune", action="store_true")
+    parser.add_argument("--plan-decode-steps", type=int, default=8)
+    parser.add_argument("--plan-trials", type=int, default=5)
     return parser.parse_args()
 
 
@@ -63,6 +66,10 @@ def _backend_command(arguments, model, output):
         str(arguments.delay),
         "--seed",
         str(arguments.seed),
+        "--plan-decode-steps",
+        str(arguments.plan_decode_steps),
+        "--plan-trials",
+        str(arguments.plan_trials),
         "--output-json",
         str(output),
     ]
@@ -72,6 +79,7 @@ def _backend_command(arguments, model, output):
         "disable_rmsnorm",
         "disable_graph_fusion",
         "disable_quantized_mlp",
+        "disable_model_autotune",
     ):
         if getattr(arguments, name):
             command.append("--" + name.replace("_", "-"))
