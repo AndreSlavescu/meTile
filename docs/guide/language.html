@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Memory Model" href="memory.html"><link rel="prev" title="Your First Kernel" href="../getting-started/first-kernel.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Memory Model" href="memory.html"><link rel="prev" title="Compiler Architecture" href="architecture.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Language Reference - meTile</title>
@@ -196,14 +196,18 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
 <li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
@@ -558,9 +562,10 @@ Enables producer/consumer patterns.</p>
 <h2>Tile Scheduling<a class="headerlink" href="#tile-scheduling" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.tile_swizzle">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tile_swizzle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pid_m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pid_n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pattern</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'morton'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tile_swizzle" title="Link to this definition">¶</a></dt>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tile_swizzle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pid_m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pid_n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pattern</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tile_swizzle" title="Link to this definition">¶</a></dt>
 <dd><p>Apply a tile scheduling pattern for better cache locality in 2D grids.
-Supported patterns: <code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code> (Z-order), <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>.</p>
+Supported patterns: <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hilbert&quot;</span></code> (4x4), <code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code> (2x2
+Z-order), <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>, and <code class="docutils literal notranslate"><span class="pre">&quot;linear&quot;</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pid_m</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_swizzle</span><span class="p">(</span>
     <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
     <span class="n">pattern</span><span class="o">=</span><span class="s2">&quot;morton&quot;</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
@@ -586,14 +591,14 @@ Supported patterns: <code class="docutils literal notranslate"><span class="pre"
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="../getting-started/first-kernel.html">
+          <a class="prev-page" href="architecture.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Your First Kernel</div>
+                <div class="title">Compiler Architecture</div>
                 
               </div>
             </a>

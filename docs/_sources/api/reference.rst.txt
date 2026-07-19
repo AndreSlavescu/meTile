@@ -116,6 +116,8 @@ Control Flow
      - Description
    * - ``metile.tile_range(start, end, step)``
      - Tiling loop (K-dimension iteration, multi-pass algorithms)
+   * - ``metile.scalar(value, dtype=None)``
+     - Explicit scalar SSA value for loop-carried recurrences
 
 
 Math Operations
@@ -131,6 +133,8 @@ All operate element-wise on scalars and tiles:
      - Description
    * - ``metile.exp(x)``
      - Exponential
+   * - ``metile.fast_exp(x)``
+     - Exponential using Metal's fast-math intrinsic
    * - ``metile.log(x)``
      - Natural logarithm
    * - ``metile.sqrt(x)``
@@ -181,6 +185,10 @@ Simdgroup Operations
      - XOR-based lane exchange within a simdgroup
    * - ``metile.simd_broadcast(value, lane)``
      - Broadcast from one lane to all lanes
+   * - ``metile.simd_sum(value)``
+     - Native sum across the current simdgroup
+   * - ``metile.simd_max(value)``
+     - Native maximum across the current simdgroup
    * - ``metile.barrier()``
      - Threadgroup memory barrier
    * - ``metile.shared(size, dtype)``
@@ -197,7 +205,7 @@ Tile Scheduling
    * - API
      - Description
    * - ``metile.tile_swizzle(pid_m, pid_n, pattern, block_size)``
-     - Apply tile scheduling pattern (``"morton"``, ``"diagonal"``)
+     - Apply ``"auto"``, ``"hilbert"``, ``"morton"``, ``"diagonal"``, or ``"linear"`` scheduling
 
 
 Autotuning
@@ -213,5 +221,22 @@ Autotuning
      - Decorator for automatic parameter search
    * - ``metile.Config(**constexprs)``
      - A set of constexpr values to benchmark
+
+
+Block Scaling
+-------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - API
+     - Description
+   * - ``metile.BlockScaledWeight.quantize(weight, format="mxfp4")``
+     - Quantize a KxN weight to MXFP4 or MXFP8 with E8M0 group scales
+   * - ``metile.block_scaled_matmul(activations, weight, output=None)``
+     - Run the automatically tuned fused block-scaled MPP kernel
+   * - ``metile.prepare_block_scaled_matmul(activations, weight, output)``
+     - Return a reusable dispatcher for the selected block-scaled tile family
    * - ``autotuned[grid].prepare(*args, **kwargs)``
      - Autotune once and return a fast dispatcher

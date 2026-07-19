@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Layer Normalization" href="layernorm.html"><link rel="prev" title="Softmax" href="softmax.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Layer Normalization" href="layernorm.html"><link rel="prev" title="Decode Attention" href="attention.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Matrix Multiply (GEMM) - meTile</title>
@@ -196,14 +196,18 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
 </ul>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="vector-add.html">Vector Addition</a></li>
 <li class="toctree-l1"><a class="reference internal" href="softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="attention.html">Decode Attention</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layernorm.html">Layer Normalization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
@@ -293,6 +297,8 @@
 </section>
 <section id="how-it-works">
 <h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">¶</a></h2>
+<a class="reference internal image-reference" href="../_images/gemm-tiling.svg"><img alt="GEMM matrices partitioned into program-owned output tiles with a register-resident K reduction loop" src="../_images/gemm-tiling.svg" style="width: 100%;" />
+</a>
 <ol class="arabic simple">
 <li><p>Each program instance owns a <code class="docutils literal notranslate"><span class="pre">BLOCK_M</span> <span class="pre">x</span> <span class="pre">BLOCK_N</span></code> tile of the output matrix C.</p></li>
 <li><p>It initializes a register-resident accumulator with <code class="docutils literal notranslate"><span class="pre">metile.zeros</span></code>.</p></li>
@@ -304,7 +310,8 @@
 <ul class="simple">
 <li><p><strong>M1/M2/M3</strong>: <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;float,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code> with cooperative loads through
 threadgroup memory</p></li>
-<li><p><strong>M4+</strong>: <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> tensor_ops with register-resident <code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code></p></li>
+<li><p><strong>Metal 4-capable GPU/toolchain</strong>: <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> tensor_ops with register-resident
+<code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code></p></li>
 </ul>
 </section>
 <section id="fused-gemm-relu">
@@ -329,8 +336,9 @@ They run on register-resident data with zero extra memory traffic:</p>
 </section>
 <section id="tile-swizzle-for-cache-locality">
 <h2>Tile Swizzle for Cache Locality<a class="headerlink" href="#tile-swizzle-for-cache-locality" title="Link to this heading">¶</a></h2>
-<p>For large matrices, the order in which tiles are processed affects L2 cache hit rates.
-Use <code class="docutils literal notranslate"><span class="pre">tile_swizzle</span></code> to apply Morton (Z-order) scheduling:</p>
+<p>For large matrices, the order in which tiles are processed affects cache hit rates.
+The compiler can specialize linear, grouped-2/4/8, diagonal, Morton (Z-order), and
+4x4 Hilbert traversals. Use <code class="docutils literal notranslate"><span class="pre">tile_swizzle</span></code> to force a schedule:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">matmul_swizzled</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span>
                     <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
@@ -347,6 +355,9 @@ Use <code class="docutils literal notranslate"><span class="pre">tile_swizzle</s
     <span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">pattern=&quot;auto&quot;</span></code> runs the schedule-algebra pass. For a statically known launch
+grid it emits only the selected branch-free coordinate decoder. Explicit Hilbert
+and Morton schedules safely fall back on grids that cannot be tiled bijectively.</p>
 </section>
 <section id="autotuning">
 <h2>Autotuning<a class="headerlink" href="#autotuning" title="Link to this heading">¶</a></h2>
@@ -392,14 +403,14 @@ Use <code class="docutils literal notranslate"><span class="pre">tile_swizzle</s
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="softmax.html">
+          <a class="prev-page" href="attention.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Softmax</div>
+                <div class="title">Decode Attention</div>
                 
               </div>
             </a>

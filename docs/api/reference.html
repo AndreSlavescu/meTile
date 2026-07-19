@@ -196,14 +196,18 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
@@ -436,6 +440,9 @@
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_range(start,</span> <span class="pre">end,</span> <span class="pre">step)</span></code></p></td>
 <td><p>Tiling loop (K-dimension iteration, multi-pass algorithms)</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.scalar(value,</span> <span class="pre">dtype=None)</span></code></p></td>
+<td><p>Explicit scalar SSA value for loop-carried recurrences</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -458,25 +465,28 @@
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.exp(x)</span></code></p></td>
 <td><p>Exponential</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.log(x)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.fast_exp(x)</span></code></p></td>
+<td><p>Exponential using Metal’s fast-math intrinsic</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.log(x)</span></code></p></td>
 <td><p>Natural logarithm</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.sqrt(x)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.sqrt(x)</span></code></p></td>
 <td><p>Square root</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.abs(x)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.abs(x)</span></code></p></td>
 <td><p>Absolute value</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tanh(x)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tanh(x)</span></code></p></td>
 <td><p>Hyperbolic tangent</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.where(cond,</span> <span class="pre">x,</span> <span class="pre">y)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.where(cond,</span> <span class="pre">x,</span> <span class="pre">y)</span></code></p></td>
 <td><p>Conditional select</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.maximum(a,</span> <span class="pre">b)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.maximum(a,</span> <span class="pre">b)</span></code></p></td>
 <td><p>Element-wise max</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.minimum(a,</span> <span class="pre">b)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.minimum(a,</span> <span class="pre">b)</span></code></p></td>
 <td><p>Element-wise min</p></td>
 </tr>
 </tbody>
@@ -534,6 +544,12 @@
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.simd_broadcast(value,</span> <span class="pre">lane)</span></code></p></td>
 <td><p>Broadcast from one lane to all lanes</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.simd_sum(value)</span></code></p></td>
+<td><p>Native sum across the current simdgroup</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.simd_max(value)</span></code></p></td>
+<td><p>Native maximum across the current simdgroup</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code></p></td>
 <td><p>Threadgroup memory barrier</p></td>
 </tr>
@@ -559,7 +575,7 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_swizzle(pid_m,</span> <span class="pre">pid_n,</span> <span class="pre">pattern,</span> <span class="pre">block_size)</span></code></p></td>
-<td><p>Apply tile scheduling pattern (<code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>)</p></td>
+<td><p>Apply <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hilbert&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;linear&quot;</span></code> scheduling</p></td>
 </tr>
 </tbody>
 </table>
@@ -585,7 +601,34 @@
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Config(**constexprs)</span></code></p></td>
 <td><p>A set of constexpr values to benchmark</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">autotuned[grid].prepare(*args,</span> <span class="pre">**kwargs)</span></code></p></td>
+</tbody>
+</table>
+</div>
+</section>
+<section id="block-scaling">
+<h2>Block Scaling<a class="headerlink" href="#block-scaling" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-given docutils container">
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>API</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.BlockScaledWeight.quantize(weight,</span> <span class="pre">format=&quot;mxfp4&quot;)</span></code></p></td>
+<td><p>Quantize a KxN weight to MXFP4 or MXFP8 with E8M0 group scales</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.block_scaled_matmul(activations,</span> <span class="pre">weight,</span> <span class="pre">output=None)</span></code></p></td>
+<td><p>Run the automatically tuned fused block-scaled MPP kernel</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.prepare_block_scaled_matmul(activations,</span> <span class="pre">weight,</span> <span class="pre">output)</span></code></p></td>
+<td><p>Return a reusable dispatcher for the selected block-scaled tile family</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">autotuned[grid].prepare(*args,</span> <span class="pre">**kwargs)</span></code></p></td>
 <td><p>Autotune once and return a fast dispatcher</p></td>
 </tr>
 </tbody>
@@ -654,6 +697,7 @@
 <li><a class="reference internal" href="#simdgroup-operations">Simdgroup Operations</a></li>
 <li><a class="reference internal" href="#tile-scheduling">Tile Scheduling</a></li>
 <li><a class="reference internal" href="#autotuning">Autotuning</a></li>
+<li><a class="reference internal" href="#block-scaling">Block Scaling</a></li>
 </ul>
 </li>
 </ul>

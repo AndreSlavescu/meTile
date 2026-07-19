@@ -11,16 +11,17 @@ The Two Backends
 
 meTile automatically selects the best backend for your hardware when compiling GEMM kernels:
 
-**Simdgroup Matrix (M1/M2/M3)**
+**Simdgroup Matrix**
    Uses ``simdgroup_matrix<float, 8, 8>``, Apple's 8x8 matrix multiply-accumulate
    primitive. Each simdgroup (32 threads) collaboratively computes an 8x8 tile.
    The compiler tiles the output across multiple simdgroups and uses threadgroup
    (shared) memory to stage data.
 
-**Metal 4 Tensor Ops (M4+)**
+**Metal 4 Tensor Ops**
    Uses ``matmul2d`` with ``cooperative_tensor``, Metal 4's hardware matrix multiply
-   descriptors. Each simdgroup independently loads data from device memory into
-   register-resident cooperative tensors and runs the MMA. No threadgroup memory needed.
+   descriptors. On supported GPU/toolchain combinations, each simdgroup can load
+   data from device memory into register-resident cooperative tensors and run the MMA.
+   The tuned M5 path also supports explicit NAX fragment load/MMA/store operations.
 
 You write the same kernel code for both. The ``lower()`` function in the compiler inspects
 your hardware and chooses the right path.
@@ -115,7 +116,20 @@ meTile supports several scheduling patterns:
 **Linear**:
    Simple row-major assignment. No locality optimization.
 
-The compiler applies Morton scheduling by default. You can override it:
+**Grouped-2/4/8**:
+   Visits a short group of neighboring M tiles before advancing N, increasing reuse
+   of the same B region for shapes where that order wins.
+
+**Morton**:
+   Visits complete 2x2 panels in Z order.
+
+**Hilbert**:
+   Visits complete 4x4 panels along a Hilbert curve with unit-distance steps
+   inside each panel.
+
+The compiler represents each schedule as a finite permutation, removes candidates
+that are equivalent under shape-preserving symmetries, and searches the remaining
+representatives. You can override it:
 
 .. code-block:: python
 
@@ -123,3 +137,61 @@ The compiler applies Morton scheduling by default. You can override it:
        metile.program_id(0), metile.program_id(1),
        pattern="morton", block_size=2,
    )
+
+
+Composable NAX Fragment Lowering
+--------------------------------
+
+The M5 register path does not emit a whole GEMM template. Initial lowering produces
+compact NAX setup, reduction, epilogue, and store operations. The
+``decompose_nax_fragments`` Metal IR pass expands them into independently transformable
+operations for tile/lane layout, accumulator initialization, vector fragment loads,
+cooperative-tensor packing, native ``matmul2d`` MMA, per-fragment element-wise apply,
+and fragment stores. GELU, SiLU, ReLU, and other detected chains therefore remain
+register-resident on the direct NAX path rather than forcing a slower lowering family.
+
+The autotuner can therefore vary reduction epochs and preload two adjacent K fragments
+before issuing their MMAs without changing the frontend kernel. Epoch pointers reduce
+address arithmetic, static aligned dimensions remove scalar buffer bindings, and the
+runtime measures one- and two-fragment representations per problem shape. A separate
+candidate skips only the redundant first epoch barrier while preserving the fences that
+bound compiler scheduling and register live ranges between epochs. Another candidate
+moves those fences to the tails of non-final epochs, which gives the Metal compiler a
+different but equivalent live-range boundary for sustained reductions. The preload
+form is retained only for dense GEMM; measurements show that applying it to fused MXFP
+decode increases register pressure. Block-scaled lowering instead keeps decoded weights
+single-step-live while optionally pairing two K steps and reusing their common E8M0
+scale fragments. This reduces scale traffic and loop overhead without retaining both
+decoded weight fragments across an MMA.
+
+
+Block-Scaled Register Fragments
+-------------------------------
+
+MXFP4 and MXFP8 matmul lowering is composed from Metal IR operations for schedule
+selection, vectorized E2M1/E4M3 plus E8M0 decoding, fragment MMA, and stores. The
+autotuner compares conventional threadgroup staging with a direct M5 path that keeps
+decoded fragments and accumulators in registers. No dense weight tensor is
+materialized in global memory. Float and bfloat right-fragment representations
+are both measured because bfloat lowers register footprint on sustained M5 workloads
+while float can remain faster for launch-limited shapes. One- and two-step reduction
+forms are measured independently because paired scale reuse wins at small and medium K
+but can reduce occupancy on larger problems.
+
+Affine Uint4 Register Fragments
+-------------------------------
+
+Affine weight-only lowering uses the same fragment IR rather than a dedicated whole-kernel
+template. ``MNaxLoadAffineParameters`` reuses one FP16 scale/bias vector across a 64-value
+K group, ``MNaxLoadAffineFragment`` decodes K-major uint4 nibbles directly into half
+cooperative-tensor inputs, and masked left loads/stores specialize the one-row decode case.
+``MNaxBinaryFragment`` composes gate and up accumulators with SwiGLU while they remain in
+registers. The MLX backend can therefore compare scalar output-major execution, native MLX,
+and this NAX representation without changing fusion legality or the frontend model graph.
+
+One-row gated projections can instead select a sequential fragment lifetime. The lowering
+uses ``MNaxSpillFragment`` and ``MNaxReloadFragment`` around
+``MNaxAccumulatorReset`` rather than owning a second kernel template. Per-lane fragments are
+transposed in threadgroup scratch as ``element * 32 + lane`` so every SIMDgroup memory
+instruction reaches all 32 banks without conflict. Only the two live output fragments are
+computed; the masked rows that cannot contribute to a one-token result never receive an MMA.

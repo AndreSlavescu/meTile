@@ -196,14 +196,18 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Tile Operations &amp; Hardware Mapping</a></li>
 <li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
@@ -261,14 +265,15 @@ hardware instructions.</p>
 <h2>The Two Backends<a class="headerlink" href="#the-two-backends" title="Link to this heading">¶</a></h2>
 <p>meTile automatically selects the best backend for your hardware when compiling GEMM kernels:</p>
 <dl class="simple">
-<dt><strong>Simdgroup Matrix (M1/M2/M3)</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;float,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code>, Apple’s 8x8 matrix multiply-accumulate
+<dt><strong>Simdgroup Matrix</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;float,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code>, Apple’s 8x8 matrix multiply-accumulate
 primitive. Each simdgroup (32 threads) collaboratively computes an 8x8 tile.
 The compiler tiles the output across multiple simdgroups and uses threadgroup
 (shared) memory to stage data.</p>
 </dd>
-<dt><strong>Metal 4 Tensor Ops (M4+)</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> with <code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code>, Metal 4’s hardware matrix multiply
-descriptors. Each simdgroup independently loads data from device memory into
-register-resident cooperative tensors and runs the MMA. No threadgroup memory needed.</p>
+<dt><strong>Metal 4 Tensor Ops</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> with <code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code>, Metal 4’s hardware matrix multiply
+descriptors. On supported GPU/toolchain combinations, each simdgroup can load
+data from device memory into register-resident cooperative tensors and run the MMA.
+The tuned M5 path also supports explicit NAX fragment load/MMA/store operations.</p>
 </dd>
 </dl>
 <p>You write the same kernel code for both. The <code class="docutils literal notranslate"><span class="pre">lower()</span></code> function in the compiler inspects
@@ -354,14 +359,75 @@ meTile supports several scheduling patterns:</p>
 </dd>
 <dt><strong>Linear</strong>:</dt><dd><p>Simple row-major assignment. No locality optimization.</p>
 </dd>
+<dt><strong>Grouped-2/4/8</strong>:</dt><dd><p>Visits a short group of neighboring M tiles before advancing N, increasing reuse
+of the same B region for shapes where that order wins.</p>
+</dd>
+<dt><strong>Morton</strong>:</dt><dd><p>Visits complete 2x2 panels in Z order.</p>
+</dd>
+<dt><strong>Hilbert</strong>:</dt><dd><p>Visits complete 4x4 panels along a Hilbert curve with unit-distance steps
+inside each panel.</p>
+</dd>
 </dl>
-<p>The compiler applies Morton scheduling by default. You can override it:</p>
+<p>The compiler represents each schedule as a finite permutation, removes candidates
+that are equivalent under shape-preserving symmetries, and searches the remaining
+representatives. You can override it:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pid_m</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_swizzle</span><span class="p">(</span>
     <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
     <span class="n">pattern</span><span class="o">=</span><span class="s2">&quot;morton&quot;</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="composable-nax-fragment-lowering">
+<h2>Composable NAX Fragment Lowering<a class="headerlink" href="#composable-nax-fragment-lowering" title="Link to this heading">¶</a></h2>
+<p>The M5 register path does not emit a whole GEMM template. Initial lowering produces
+compact NAX setup, reduction, epilogue, and store operations. The
+<code class="docutils literal notranslate"><span class="pre">decompose_nax_fragments</span></code> Metal IR pass expands them into independently transformable
+operations for tile/lane layout, accumulator initialization, vector fragment loads,
+cooperative-tensor packing, native <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> MMA, per-fragment element-wise apply,
+and fragment stores. GELU, SiLU, ReLU, and other detected chains therefore remain
+register-resident on the direct NAX path rather than forcing a slower lowering family.</p>
+<p>The autotuner can therefore vary reduction epochs and preload two adjacent K fragments
+before issuing their MMAs without changing the frontend kernel. Epoch pointers reduce
+address arithmetic, static aligned dimensions remove scalar buffer bindings, and the
+runtime measures one- and two-fragment representations per problem shape. A separate
+candidate skips only the redundant first epoch barrier while preserving the fences that
+bound compiler scheduling and register live ranges between epochs. Another candidate
+moves those fences to the tails of non-final epochs, which gives the Metal compiler a
+different but equivalent live-range boundary for sustained reductions. The preload
+form is retained only for dense GEMM; measurements show that applying it to fused MXFP
+decode increases register pressure. Block-scaled lowering instead keeps decoded weights
+single-step-live while optionally pairing two K steps and reusing their common E8M0
+scale fragments. This reduces scale traffic and loop overhead without retaining both
+decoded weight fragments across an MMA.</p>
+</section>
+<section id="block-scaled-register-fragments">
+<h2>Block-Scaled Register Fragments<a class="headerlink" href="#block-scaled-register-fragments" title="Link to this heading">¶</a></h2>
+<p>MXFP4 and MXFP8 matmul lowering is composed from Metal IR operations for schedule
+selection, vectorized E2M1/E4M3 plus E8M0 decoding, fragment MMA, and stores. The
+autotuner compares conventional threadgroup staging with a direct M5 path that keeps
+decoded fragments and accumulators in registers. No dense weight tensor is
+materialized in global memory. Float and bfloat right-fragment representations
+are both measured because bfloat lowers register footprint on sustained M5 workloads
+while float can remain faster for launch-limited shapes. One- and two-step reduction
+forms are measured independently because paired scale reuse wins at small and medium K
+but can reduce occupancy on larger problems.</p>
+</section>
+<section id="affine-uint4-register-fragments">
+<h2>Affine Uint4 Register Fragments<a class="headerlink" href="#affine-uint4-register-fragments" title="Link to this heading">¶</a></h2>
+<p>Affine weight-only lowering uses the same fragment IR rather than a dedicated whole-kernel
+template. <code class="docutils literal notranslate"><span class="pre">MNaxLoadAffineParameters</span></code> reuses one FP16 scale/bias vector across a 64-value
+K group, <code class="docutils literal notranslate"><span class="pre">MNaxLoadAffineFragment</span></code> decodes K-major uint4 nibbles directly into half
+cooperative-tensor inputs, and masked left loads/stores specialize the one-row decode case.
+<code class="docutils literal notranslate"><span class="pre">MNaxBinaryFragment</span></code> composes gate and up accumulators with SwiGLU while they remain in
+registers. The MLX backend can therefore compare scalar output-major execution, native MLX,
+and this NAX representation without changing fusion legality or the frontend model graph.</p>
+<p>One-row gated projections can instead select a sequential fragment lifetime. The lowering
+uses <code class="docutils literal notranslate"><span class="pre">MNaxSpillFragment</span></code> and <code class="docutils literal notranslate"><span class="pre">MNaxReloadFragment</span></code> around
+<code class="docutils literal notranslate"><span class="pre">MNaxAccumulatorReset</span></code> rather than owning a second kernel template. Per-lane fragments are
+transposed in threadgroup scratch as <code class="docutils literal notranslate"><span class="pre">element</span> <span class="pre">*</span> <span class="pre">32</span> <span class="pre">+</span> <span class="pre">lane</span></code> so every SIMDgroup memory
+instruction reaches all 32 banks without conflict. Only the two live output fragments are
+computed; the masked rows that cannot contribute to a one-token result never receive an MMA.</p>
 </section>
 </section>
 
@@ -426,6 +492,9 @@ meTile supports several scheduling patterns:</p>
 <li><a class="reference internal" href="#compiler-constexprs">Compiler Constexprs</a></li>
 <li><a class="reference internal" href="#fused-epilogues">Fused Epilogues</a></li>
 <li><a class="reference internal" href="#tile-scheduling">Tile Scheduling</a></li>
+<li><a class="reference internal" href="#composable-nax-fragment-lowering">Composable NAX Fragment Lowering</a></li>
+<li><a class="reference internal" href="#block-scaled-register-fragments">Block-Scaled Register Fragments</a></li>
+<li><a class="reference internal" href="#affine-uint4-register-fragments">Affine Uint4 Register Fragments</a></li>
 </ul>
 </li>
 </ul>

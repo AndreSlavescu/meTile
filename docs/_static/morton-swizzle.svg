@@ -1,150 +1,88 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" font-family="'Comfortaa', 'Nunito', 'Varela Round', system-ui, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title description">
+  <title id="title">Linear and Morton tile schedules</title>
+  <desc id="description">Two four by four tile grids compare linear row-major scheduling with Morton Z-order. Morton visits complete two by two neighborhoods so adjacent launches can reuse nearby A rows and B columns in cache.</desc>
   <defs>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&amp;display=swap');
-    </style>
-    <marker id="marr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-      <path d="M 0 1 L 8 5 L 0 9 z" fill="#2563eb"/>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 1L8 5L0 9Z" fill="#496b91"/>
     </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 1L8 5L0 9Z" fill="#36734c"/>
+    </marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #20242b; }
+      .heading { font-size: 27px; font-weight: 700; }
+      .subtitle { font-size: 13px; fill: #505866; }
+      .panel-title { font-size: 17px; font-weight: 700; }
+      .panel-body { font-size: 12px; fill: #4b5563; }
+      .order { font-size: 13px; font-weight: 700; }
+      .axis { font-size: 10px; font-weight: 700; letter-spacing: 0.7px; fill: #596273; }
+      .callout-title { font-size: 14px; font-weight: 700; }
+      .callout-body { font-size: 12px; fill: #4b5563; }
+      .panel { stroke: #282d35; stroke-width: 1.4; }
+      .cell { stroke: #687384; stroke-width: 1; }
+      .linear-path { fill: none; stroke: #496b91; stroke-width: 3; marker-end: url(#arrow-blue); }
+      .morton-path { fill: none; stroke: #36734c; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; marker-end: url(#arrow-green); }
+    </style>
   </defs>
 
-  <rect width="720" height="440" fill="#fff"/>
+  <rect width="1200" height="680" fill="#ffffff"/>
+  <text x="40" y="48" class="heading">Tile scheduling: linear vs Morton</text>
+  <text x="40" y="70" class="subtitle">The launch order changes cache locality without changing the set of output tiles.</text>
+  <line x1="40" y1="88" x2="1160" y2="88" stroke="#b4bcc7" stroke-width="1"/>
 
-  <text x="360" y="32" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Tile Scheduling: Morton vs Linear</text>
+  <g id="linear-schedule">
+    <rect x="40" y="112" width="520" height="430" rx="4" fill="#edf4fb" class="panel"/>
+    <text x="60" y="142" class="panel-title">Linear row-major</text>
+    <text x="60" y="163" class="panel-body">Complete one output row, then restart at the next row.</text>
+    <text x="60" y="188" class="axis">TILE ORDER</text>
 
-  <!-- 4 colors, one per 2x2 block group -->
-  <!-- Block A (tiles 0-3):  #ef9a9a red    -->
-  <!-- Block B (tiles 4-7):  #90caf9 blue   -->
-  <!-- Block C (tiles 8-11): #a5d6a7 green  -->
-  <!-- Block D (tiles 12-15): #fff59d yellow -->
+    <g transform="translate(120 195)">
+      <rect width="360" height="320" fill="#ffffff" class="panel"/>
+      <g fill="#dcecf8">
+        <rect x="0" y="0" width="90" height="80" class="cell"/><rect x="90" y="0" width="90" height="80" class="cell"/><rect x="180" y="0" width="90" height="80" class="cell"/><rect x="270" y="0" width="90" height="80" class="cell"/>
+        <rect x="0" y="80" width="90" height="80" class="cell"/><rect x="90" y="80" width="90" height="80" class="cell"/><rect x="180" y="80" width="90" height="80" class="cell"/><rect x="270" y="80" width="90" height="80" class="cell"/>
+        <rect x="0" y="160" width="90" height="80" class="cell"/><rect x="90" y="160" width="90" height="80" class="cell"/><rect x="180" y="160" width="90" height="80" class="cell"/><rect x="270" y="160" width="90" height="80" class="cell"/>
+        <rect x="0" y="240" width="90" height="80" class="cell"/><rect x="90" y="240" width="90" height="80" class="cell"/><rect x="180" y="240" width="90" height="80" class="cell"/><rect x="270" y="240" width="90" height="80" class="cell"/>
+      </g>
+      <path d="M28 55H330" class="linear-path"/>
+      <path d="M28 135H330" class="linear-path"/>
+      <path d="M28 215H330" class="linear-path"/>
+      <path d="M28 295H330" class="linear-path"/>
+      <g class="order">
+        <text x="12" y="22">0</text><text x="102" y="22">1</text><text x="192" y="22">2</text><text x="282" y="22">3</text>
+        <text x="12" y="102">4</text><text x="102" y="102">5</text><text x="192" y="102">6</text><text x="282" y="102">7</text>
+        <text x="12" y="182">8</text><text x="102" y="182">9</text><text x="192" y="182">10</text><text x="282" y="182">11</text>
+        <text x="12" y="262">12</text><text x="102" y="262">13</text><text x="192" y="262">14</text><text x="282" y="262">15</text>
+      </g>
+    </g>
+  </g>
 
-  <!-- ====== Left: Linear ====== -->
-  <text x="155" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Linear (row-major)</text>
+  <g id="morton-schedule">
+    <rect x="640" y="112" width="520" height="430" rx="4" fill="#e7f2e4" class="panel"/>
+    <text x="660" y="142" class="panel-title">Morton Z-order</text>
+    <text x="660" y="163" class="panel-body">Complete each 2 × 2 neighborhood before advancing.</text>
+    <text x="660" y="188" class="axis">TILE ORDER</text>
 
-  <rect x="40" y="82" width="230" height="230" rx="10" fill="#fff" stroke="#333" stroke-width="2"/>
+    <g transform="translate(720 195)">
+      <rect width="360" height="320" fill="#ffffff" class="panel"/>
+      <g>
+        <rect x="0" y="0" width="90" height="80" fill="#dcefdc" class="cell"/><rect x="90" y="0" width="90" height="80" fill="#dcefdc" class="cell"/><rect x="180" y="0" width="90" height="80" fill="#f7ebbd" class="cell"/><rect x="270" y="0" width="90" height="80" fill="#f7ebbd" class="cell"/>
+        <rect x="0" y="80" width="90" height="80" fill="#dcefdc" class="cell"/><rect x="90" y="80" width="90" height="80" fill="#dcefdc" class="cell"/><rect x="180" y="80" width="90" height="80" fill="#f7ebbd" class="cell"/><rect x="270" y="80" width="90" height="80" fill="#f7ebbd" class="cell"/>
+        <rect x="0" y="160" width="90" height="80" fill="#e7e0f2" class="cell"/><rect x="90" y="160" width="90" height="80" fill="#e7e0f2" class="cell"/><rect x="180" y="160" width="90" height="80" fill="#dcecf8" class="cell"/><rect x="270" y="160" width="90" height="80" fill="#dcecf8" class="cell"/>
+        <rect x="0" y="240" width="90" height="80" fill="#e7e0f2" class="cell"/><rect x="90" y="240" width="90" height="80" fill="#e7e0f2" class="cell"/><rect x="180" y="240" width="90" height="80" fill="#dcecf8" class="cell"/><rect x="270" y="240" width="90" height="80" fill="#dcecf8" class="cell"/>
+      </g>
+      <polyline points="45,52 135,52 45,132 135,132 225,52 315,52 225,132 315,132 45,212 135,212 45,292 135,292 225,212 315,212 225,292 315,292" class="morton-path"/>
+      <g class="order">
+        <text x="12" y="22">0</text><text x="102" y="22">1</text><text x="192" y="22">4</text><text x="282" y="22">5</text>
+        <text x="12" y="102">2</text><text x="102" y="102">3</text><text x="192" y="102">6</text><text x="282" y="102">7</text>
+        <text x="12" y="182">8</text><text x="102" y="182">9</text><text x="192" y="182">12</text><text x="282" y="182">13</text>
+        <text x="12" y="262">10</text><text x="102" y="262">11</text><text x="192" y="262">14</text><text x="282" y="262">15</text>
+      </g>
+    </g>
+  </g>
 
-  <!-- Row 0 -->
-  <rect x="48" y="90" width="52" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="74" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">0</text>
-
-  <rect x="104" y="90" width="52" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="130" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">1</text>
-
-  <rect x="160" y="90" width="52" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="186" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">2</text>
-
-  <rect x="216" y="90" width="46" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="239" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">3</text>
-
-  <!-- Row 1 -->
-  <rect x="48" y="146" width="52" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="74" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">4</text>
-
-  <rect x="104" y="146" width="52" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="130" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">5</text>
-
-  <rect x="160" y="146" width="52" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="186" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">6</text>
-
-  <rect x="216" y="146" width="46" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="239" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">7</text>
-
-  <!-- Row 2 -->
-  <rect x="48" y="202" width="52" height="52" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="74" y="233" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">8</text>
-
-  <rect x="104" y="202" width="52" height="52" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="130" y="233" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">9</text>
-
-  <rect x="160" y="202" width="52" height="52" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="186" y="233" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">10</text>
-
-  <rect x="216" y="202" width="46" height="52" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="239" y="233" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">11</text>
-
-  <!-- Row 3 -->
-  <rect x="48" y="258" width="52" height="46" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="74" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">12</text>
-
-  <rect x="104" y="258" width="52" height="46" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="130" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">13</text>
-
-  <rect x="160" y="258" width="52" height="46" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="186" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">14</text>
-
-  <rect x="216" y="258" width="46" height="46" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="239" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">15</text>
-
-  <text x="155" y="332" text-anchor="middle" font-size="11" fill="#888">tiles read in row order,</text>
-  <text x="155" y="348" text-anchor="middle" font-size="11" fill="#888">poor L2 reuse for A and B</text>
-
-  <!-- ====== Right: Morton ====== -->
-  <text x="555" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Morton (Z-order)</text>
-
-  <rect x="440" y="82" width="230" height="230" rx="10" fill="#fff" stroke="#333" stroke-width="2"/>
-
-  <!-- Row 0: tiles 0,1 (red), 4,5 (blue) -->
-  <rect x="448" y="90" width="52" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="474" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">0</text>
-
-  <rect x="504" y="90" width="52" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="530" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">1</text>
-
-  <rect x="560" y="90" width="52" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="586" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">4</text>
-
-  <rect x="616" y="90" width="46" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="639" y="121" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">5</text>
-
-  <!-- Row 1: tiles 2,3 (red), 6,7 (blue) -->
-  <rect x="448" y="146" width="52" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="474" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">2</text>
-
-  <rect x="504" y="146" width="52" height="52" rx="6" fill="#ef9a9a" stroke="#333" stroke-width="1"/>
-  <text x="530" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">3</text>
-
-  <rect x="560" y="146" width="52" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="586" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">6</text>
-
-  <rect x="616" y="146" width="46" height="52" rx="6" fill="#90caf9" stroke="#333" stroke-width="1"/>
-  <text x="639" y="177" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">7</text>
-
-  <!-- Row 2: tiles 8,9 (green), 12,13 (yellow) -->
-  <rect x="448" y="202" width="52" height="52" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="474" y="233" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">8</text>
-
-  <rect x="504" y="202" width="52" height="52" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="530" y="233" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">9</text>
-
-  <rect x="560" y="202" width="52" height="52" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="586" y="233" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">12</text>
-
-  <rect x="616" y="202" width="46" height="52" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="639" y="233" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">13</text>
-
-  <!-- Row 3: tiles 10,11 (green), 14,15 (yellow) -->
-  <rect x="448" y="258" width="52" height="46" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="474" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">10</text>
-
-  <rect x="504" y="258" width="52" height="46" rx="6" fill="#a5d6a7" stroke="#333" stroke-width="1"/>
-  <text x="530" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">11</text>
-
-  <rect x="560" y="258" width="52" height="46" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="586" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">14</text>
-
-  <rect x="616" y="258" width="46" height="46" rx="6" fill="#fff59d" stroke="#333" stroke-width="1"/>
-  <text x="639" y="286" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">15</text>
-
-  <!-- Z-path arrows in first 2x2 block -->
-  <line x1="474" y1="126" x2="524" y2="126" stroke="#2563eb" stroke-width="2" marker-end="url(#marr)"/>
-  <line x1="530" y1="132" x2="480" y2="158" stroke="#2563eb" stroke-width="2" marker-end="url(#marr)"/>
-  <line x1="474" y1="182" x2="524" y2="182" stroke="#2563eb" stroke-width="2" marker-end="url(#marr)"/>
-
-  <text x="555" y="332" text-anchor="middle" font-size="11" fill="#888">2x2 blocks processed together,</text>
-  <text x="555" y="348" text-anchor="middle" font-size="11" fill="#888">neighbors share A-rows and B-cols in L2</text>
-
-  <!-- ====== Bottom explanation ====== -->
-  <rect x="100" y="370" width="520" height="56" rx="12" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-  <text x="360" y="394" text-anchor="middle" font-size="12" font-weight="bold" fill="#2563eb">Why Morton?</text>
-  <text x="360" y="414" text-anchor="middle" font-size="11" fill="#555">Tiles 0,1,2,3 share two A-rows and two B-columns in L2 cache. Less memory traffic.</text>
+  <rect x="40" y="570" width="1120" height="76" rx="4" fill="#f4f5f7" class="panel"/>
+  <text x="60" y="599" class="callout-title">Why locality improves</text>
+  <text x="60" y="620" class="callout-body">A complete 2 × 2 Morton panel reuses two nearby A-row regions and two nearby B-column regions before moving on.</text>
+  <text x="60" y="640" class="callout-body">The runtime still measures Morton against linear, grouped, diagonal, and Hilbert schedules.</text>
 </svg>

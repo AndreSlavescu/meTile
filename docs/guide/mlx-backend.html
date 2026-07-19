@@ -1,0 +1,880 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Vector Addition" href="../examples/vector-add.html"><link rel="prev" title="Compute-Graph Fusion" href="graph-fusion.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>MLX-LM Backend - meTile</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f0f0f0;
+  --color-code-foreground: black;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">meTile</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  <span class="sidebar-brand-text">meTile</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/blob/main/docs/guide/mlx-backend.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/edit/main/docs/guide/mlx-backend.rst" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="mlx-lm-backend">
+<h1>MLX-LM Backend<a class="headerlink" href="#mlx-lm-backend" title="Link to this heading">¶</a></h1>
+<p>meTile can embed generated Metal bodies in MLX’s lazy graph without copying through
+NumPy or a separate <code class="docutils literal notranslate"><span class="pre">MTLBuffer</span></code>. Install the optional integration dependencies:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[mlx-lm]&quot;</span>
+</pre></div>
+</div>
+<p>Apply the reversible model patch after or before loading an MLX-LM model:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">mlx_lm</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.integrations.mlx_lm</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">apply_metile_to_mlx_lm</span><span class="p">,</span>
+    <span class="n">autotune_metile_for_mlx_lm</span><span class="p">,</span>
+    <span class="n">prepare_mlx_lm_affine_prefill</span><span class="p">,</span>
+    <span class="n">prepare_mlx_lm_compressed_attention</span><span class="p">,</span>
+    <span class="n">prepare_mlx_lm_compressed_down</span><span class="p">,</span>
+    <span class="n">prepare_mlx_lm_compressed_gate_up</span><span class="p">,</span>
+    <span class="n">prepare_mlx_lm_compressed_vocab</span><span class="p">,</span>
+    <span class="n">prepare_mlx_lm_dense_mlp</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;mlx-community/Llama-3.2-1B-Instruct-4bit&quot;</span><span class="p">)</span>
+<span class="n">affine_prefill</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_affine_prefill</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">patch</span> <span class="o">=</span> <span class="n">apply_metile_to_mlx_lm</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">affine_prefill</span><span class="o">=</span><span class="n">affine_prefill</span><span class="p">)</span>
+
+<span class="c1"># Generation independently tunes attention, RMSNorm, graph, and MLP primitives.</span>
+<span class="n">patch</span><span class="o">.</span><span class="n">restore</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>The handle is also a context manager. <code class="docutils literal notranslate"><span class="pre">attention=False</span></code>, <code class="docutils literal notranslate"><span class="pre">rms_norm=False</span></code>,
+<code class="docutils literal notranslate"><span class="pre">graph_fusion=False</span></code>, or <code class="docutils literal notranslate"><span class="pre">quantized_mlp=False</span></code> disables each patch target
+independently. Affine prefill is explicit because it creates an additional packed view of
+the prepared projections.</p>
+<p>For a dense checkpoint, prepare the exact gate/up backend instead:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;mlx-community/Qwen2.5-1.5B-Instruct-bf16&quot;</span><span class="p">)</span>
+<span class="n">dense_mlp</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_dense_mlp</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">patch</span> <span class="o">=</span> <span class="n">apply_metile_to_mlx_lm</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">dense_mlp</span><span class="o">=</span><span class="n">dense_mlp</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>For an opt-in, high-fidelity decode path, AOT-quantize only the dense down projections and let
+the model-level tuner retain native BF16 whenever the candidate misses a fidelity or performance
+guard:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">mlx.core</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">mx</span>
+
+<span class="n">compressed_down</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_down</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;affine8&quot;</span><span class="p">)</span>
+<span class="n">compressed_gate_up</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_gate_up</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">compressed_vocab</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_vocab</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">compressed_attention</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_attention</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">sample_tokens</span> <span class="o">=</span> <span class="n">mx</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;Explain tiled matrix multiplication.&quot;</span><span class="p">)])</span>
+<span class="n">plan</span> <span class="o">=</span> <span class="n">autotune_metile_for_mlx_lm</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="n">sample_tokens</span><span class="p">,</span>
+    <span class="n">quantized_mlp</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">compressed_down</span><span class="o">=</span><span class="n">compressed_down</span><span class="p">,</span>
+    <span class="n">compressed_gate_up</span><span class="o">=</span><span class="n">compressed_gate_up</span><span class="p">,</span>
+    <span class="n">compressed_vocab</span><span class="o">=</span><span class="n">compressed_vocab</span><span class="p">,</span>
+    <span class="n">compressed_attention</span><span class="o">=</span><span class="n">compressed_attention</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">patch</span> <span class="o">=</span> <span class="n">apply_metile_to_mlx_lm</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">compressed_down</span><span class="o">=</span><span class="n">compressed_down</span><span class="p">,</span>
+    <span class="n">compressed_gate_up</span><span class="o">=</span><span class="n">compressed_gate_up</span><span class="p">,</span>
+    <span class="n">compressed_vocab</span><span class="o">=</span><span class="n">compressed_vocab</span><span class="p">,</span>
+    <span class="n">compressed_attention</span><span class="o">=</span><span class="n">compressed_attention</span><span class="p">,</span>
+    <span class="n">plan</span><span class="o">=</span><span class="n">plan</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Affine INT8 is not bit-exact. The strict policy requires an unchanged next token, KL divergence
+at most 0.001, mean logit error at most 0.05, and max logit error at most 0.5. MXFP8 requires
+<code class="docutils literal notranslate"><span class="pre">allow_approximate=True</span></code> and uses a separate, looser policy. Both formats preserve the original
+BF16 weights, and multi-row prefill always executes the original transformer block. Cache-aware
+calibration uses an 8-step exponential/binary search with bounded non-monotonic boundary audits,
+then requires the winner to pass a 32-step holdout and re-audits the largest full-horizon regions
+before timing. Sensitive projections remain
+BF16; compatible affine-INT8 weights patch only their own
+<code class="docutils literal notranslate"><span class="pre">down_proj</span></code> instances. The low-description-length mask persists by model, calibration tokens,
+device, MLX version, format, and backend source identity. Affine group sizes 32, 64, and 128 are
+available for explicit representation studies. The default <code class="docutils literal notranslate"><span class="pre">group_size=&quot;auto&quot;</span></code> races every
+dimension-compatible group on the actual one-row projection shape with rotated timing order and
+four synchronized dispatches per sample. Bandwidth-dominated MLP and vocabulary projections use
+the throughput objective; sensitivity-balanced attention chooses the lowest-error group within
+2.5 percent of peak speed. Layer-grouped gate/up and attention candidates then calibrate every
+group sequentially and minimize predicted mixed cost: surviving compressed layers use measured
+affine-INT8 time, while sensitive fallback layers use measured native BF16 time. The runtime
+persists that model/prompt/device/shape/source decision. MXFP8 remains an explicit approximate option rather
+than entering the strict affine tournament.</p>
+<p>Gate/up compression is an independent, layer-grouped plan feature. Calibration keeps each
+SwiGLU gate/up pair together, while down calibration remains independent. The compute-graph
+planner therefore measures native MLX, gate/up-only, down-only, and their composition instead of
+hard-coding a full MLP template. Multi-row calls retain native BF16. On Qwen 3 8B, all 36 gate/up
+pairs and all 36 attention layers selected affine group 128 and composed with vocabulary
+compression. Seven measurement pairs recorded 1.601x decode and 1.604x end-to-end; every
+confirmation decode pair exceeded 1.44x. The structured result is committed at
+<code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-mlx-lm-bf16-models.json</span></code>.</p>
+<p>Vocabulary compression is another independent plan feature. It patches either a tied embedding’s
+<code class="docutils literal notranslate"><span class="pre">as_linear</span></code> projection or an untied <code class="docutils literal notranslate"><span class="pre">lm_head</span></code> only for one-row decode; embedding lookup and
+multi-row prefill remain native. The strict token/KL/logit guard and model-level tournament decide
+whether it composes with gate/up, down, both, or neither.</p>
+<p>Attention-projection compression groups <code class="docutils literal notranslate"><span class="pre">q_proj</span></code>, <code class="docutils literal notranslate"><span class="pre">k_proj</span></code>, <code class="docutils literal notranslate"><span class="pre">v_proj</span></code>, and <code class="docutils literal notranslate"><span class="pre">o_proj</span></code> by
+transformer layer, preserves projection biases, and patches only one-row decode. It participates
+independently in the model-plan lattice. On Qwen 2.5 3B, strict calibration selected 34 attention
+layers at affine group 32 alongside 34 down and 33 gate/up layers.</p>
+<section id="dispatch-policy">
+<h2>Dispatch Policy<a class="headerlink" href="#dispatch-policy" title="Link to this heading">¶</a></h2>
+<a class="reference internal image-reference" href="../_images/runtime-dispatch.svg"><img alt="Guarded native and generated kernel selection in the meTile MLX runtime" src="../_images/runtime-dispatch.svg" style="width: 100%;" />
+</a>
+<p>Native MLX is an explicit autotune candidate. Attention and RMSNorm use a 5 percent
+primitive guard, graph fusion uses 10 percent, generated SwiGLU uses 3 percent, and the
+exact BF16/FP16 down-projection/residual QMV uses 1.5 percent before model-level confirmation.
+These family-specific guard bands account for command-graph composition effects that a
+standalone kernel benchmark cannot observe. Decisions persist by device architecture, MLX
+version, dtype, shape bucket, source, and candidate family.</p>
+<p>Decode attention supports BF16/FP16/FP32 MHA, GQA, and MQA with a one-token query. Prefill,
+attention masks, sinks, quantized KV caches, unsupported dimensions, and unsupported
+dtypes retain MLX-LM’s original implementation. RMSNorm supports BF16/FP16/FP32 values and
+weights with FP32 accumulation.</p>
+<p>The integration also captures the canonical Llama and Qwen2 residual-add followed by RMSNorm
+as a high-level compute DAG. The graph fusion pass uses an exact neighborhood min-cut and
+globally selects cut-representable region-conflict components, preserves the residual as a
+second output, and measures the fused multi-output kernel against the original MLX graph. The
+first supported call initializes this tournament; later MLX winners return directly to the
+untouched transformer block.</p>
+<p>Affine 4-bit models add eager MLX and an M5-native <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> kernel over an AOT K-major
+repack to the same policy. The repack preserves the original affine nibbles, scales, and
+biases; it does not requantize model weights. Ragged prefill rows tune both tile axes across
+32-, 64-, and 128-row NAX workgroups and Morton, grouped, Hilbert, and linear schedules against
+native MLX. Loads and stores remain row-masked for incomplete tiles. Only prepared projection
+instances use the specialized class, and the first row below the configured threshold restores
+the original class. Steady-state
+decode therefore does not traverse a wrapper. Exact compiled-MLX SwiGLU candidates use a 0.5
+percent switch margin, while generated kernels retain the stricter 3 percent margin. Quantized
+decode also evaluates a scratch-spilled SwiGLU schedule that shortens gate/up accumulator
+lifetimes before the elementwise epilogue. The M5-native variant removes the dead second
+16-row <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> FMA for one-token decode, spills gate fragments through a bank-transposed
+threadgroup layout, resets and reuses the same two accumulators for up, then reloads one gate
+fragment at a time. Quantized-only plans keep this decode tournament; combined affine-prefill
+plans keep it independently available for one-row decode. The selected gate/up implementation
+is composed with an affine down-projection/residual epilogue that tunes block width, outputs per
+SIMD-group, and FP16/FP32 decode. A warmed shape-specialized executor binds those decisions and
+weights once, removing repeated Python dispatch construction. Multi-row calls skip this
+decode-only block path and preserve the original MLX-LM implementation.</p>
+<p>Dense BF16/FP16 models AOT-prepare K-major gate/up views and, when memory permits, an interleaved
+output-major <code class="docutils literal notranslate"><span class="pre">[N,</span> <span class="pre">K,</span> <span class="pre">2]</span></code> gate/up view. One-row decode races exact SIMD-group QMV schedules that
+match MLX’s four-value lane partition and explicit shuffle-down reduction order. Gate and up dot
+products share each activation load, then apply the typed SwiGLU epilogue before the only output
+write. The lattice covers one, two, and four outputs per SIMD-group; one, two, four, and eight
+SIMD-groups per threadgroup; and one- or two-block K unrolling. Unrolled schedules preserve the
+original lane partition and reduction order, including an aligned tail for odd block counts. A
+generated QMV must be bit-exact and at least 1.5 percent faster than MLX in both the main tournament
+and a separate 127-round holdout before selection.</p>
+<p>The resulting hidden row feeds a separately composable exact down-projection QMV. Its typed store
+adds the transformer residual without materializing the unfused projection result. One-, two-,
+and four-SIMD-group schedules race native <code class="docutils literal notranslate"><span class="pre">values</span> <span class="pre">&#64;</span> <span class="pre">weight.T</span> <span class="pre">+</span> <span class="pre">residual</span></code> and must pass the same
+bit-equality and 1.5 percent primitive guard.
+The model planner treats gate/up dispatch and the down/residual block rewrite as independent
+features. A prefill or paired-QMV win therefore does not require the residual schedule to win,
+and a residual decode win does not enable the gate/up wrapper by implication.
+Residual-only plans call the model’s original gate/up projections before the generated exact
+down/residual store, so their timing and fidelity evidence cannot include an unselected schedule.</p>
+<p>Multi-row calls race native MLX, two exact composable NAX projections with MLX’s elementwise
+epilogue, and a fused dual-GEMM NAX kernel with register-resident SwiGLU. The fused lowering
+reuses activation fragments for both GEMMs and stores only the final hidden tile. Its BF16
+sigmoid, SiLU product, and gate/up product use the same typed low-precision boundaries as MLX’s
+Metal functor, making the result bit-exact. If a primitive or model-level fidelity/performance
+guard fails, dispatch retains the projected or native representation instead.</p>
+<p>Dense preparation also enforces a working-set budget before allocating transposes. By default,
+model weights plus all repacked views must remain below 80 percent of MLX’s recommended working
+set. The paired decode view is omitted independently when it would exceed that ceiling. Large
+checkpoints therefore fall back before allocation rather than entering memory-pressure thrashing.
+Decode-only affine-INT8 families use a separate 90 percent ceiling and stage group candidates
+sequentially, allowing larger safe compositions while retaining BF16 fallbacks for sensitive
+layers.</p>
+<p>Model-level tuning rejects plans that change the next token or exceed KL-divergence,
+mean-logit-error, or max-logit-error bounds. Surviving plans need a paired TTFT, total-latency, or
+sustained decode win while preserving bounded decode and total latency. A decode win requires at
+least 1 percent median throughput and wins in at least two-thirds of paired trials.
+Plans capable of changing prefill use a 0.5 percent TTFT confirmation floor;
+self-deoptimizing prefill-only plans use a 1 percent decode noise floor. Explicit backend
+signatures invalidate model plans whenever
+primitive candidates, source, or selection policy changes. The selected feature plan and
+primitive schedules persist with device, MLX version, shape, source, and tuner-policy identities.
+Before persistence, every generated winner is retested on a separate holdout with at least 32
+decode steps and seven paired trials. Complete-generation benchmark confirmation applies the
+0.5 percent TTFT floor to plans capable of changing prefill and normally requires two-thirds of
+their TTFT pairs within the 2 percent regression bound. A plan with at least a 5 percent decode
+win may instead pass the stability check when at least two-thirds of complete-generation pairs
+have no end-to-end regression.
+Measured plans are validated jointly on a separate holdout. The shortlist preserves MDL and
+decode leaders, the maximal compatible compression plan, and a greedy ladder composed from the
+fastest compression basis features. The model-plan lattice uses coverage-preserving successive
+halving: all compositions receive one round, at most eight broad leaders receive three, and only
+the resulting finalists receive five. A long-horizon shortlist larger than three first gives every
+plan three 32-step trials, then extends the native baseline and top two leaders to seven. Each stage
+reuses one prepared native autoregressive trajectory, and later stages do not repeat fidelity checks
+already passed inside the same search. Compressed projection patches cannot run during multi-row
+prefill, so decode-only plans rank on decode and total latency rather than unrelated prompt-TTFT
+noise. Complete-generation confirmation therefore exempts those plans from the unrelated TTFT
+floor while retaining paired decode and total-latency requirements. A failed performance holdout
+is retried twice; each attempt still uses at least 32 decode steps and seven paired trials.
+Eligible projection calibration first finds prefix and suffix fidelity boundaries logarithmically,
+then spends a fixed 16-evaluation budget growing the winner into a non-contiguous subset. Attention
+retains its interval mask because standalone-maximal attention subsets can block faster
+multi-feature compositions. Each interval direction is capped at 13 probes, and full-horizon
+validation revisits only the top boundary and a local four-layer window before a conservative
+fallback. Search remains bounded rather than exponential.
+Benchmark records report model-plan autotune time independently from AOT preparation,
+complete-generation confirmation, and steady-state measurement. They also identify the plan
+workload as a native autoregressive decode trajectory.</p>
+</section>
+<section id="block-scaled-mlx-primitive">
+<h2>Block-Scaled MLX Primitive<a class="headerlink" href="#block-scaled-mlx-primitive" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">MLXBlockScaledWeight</span></code> provides a zero-copy MLX backend for K-major MXFP4 and MXFP8 weights:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.mlx_block_scaled</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">MLXBlockScaledWeight</span><span class="p">,</span>
+    <span class="n">mlx_block_scaled_matmul</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">weight</span> <span class="o">=</span> <span class="n">MLXBlockScaledWeight</span><span class="o">.</span><span class="n">quantize</span><span class="p">(</span><span class="n">dense_k_by_n</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;mxfp8&quot;</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">mlx_block_scaled_matmul</span><span class="p">(</span><span class="n">activations</span><span class="p">,</span> <span class="n">weight</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The compiler composes E8M0 scale decode, E2M1 or E4M3 value decode, register fragments,
+native <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code>, ragged-row masks, and a schedule pass. The runtime measures occupancy-
+oriented 32-, 64-, and 128-row tiles with linear, grouped, Morton, and Hilbert traversals.
+Generated inputs and outputs specialize to native Metal <code class="docutils literal notranslate"><span class="pre">half</span></code> or <code class="docutils literal notranslate"><span class="pre">bfloat</span></code> so FP16 and BF16
+model graphs use the same guarded schedule family without intermediate casts.
+<code class="docutils literal notranslate"><span class="pre">MLXBlockScaledWeight</span></code> retains both the compiler’s K-major representation and MLX’s native
+packed representation. The autotuner verifies numerical compatibility, races both at the MLX
+graph boundary, requires ten-percent headroom before switching away from MLX, and persists the
+winner by device, MLX version, shape, format, source, and policy identity.</p>
+<p>The paired benchmark prints the selected representation alongside synchronized medians:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">METILE_DISABLE_DISK_CACHE=1 python benchmarks/block_scaled_gemm.py 2048</span>
+</pre></div>
+</div>
+<p>Dense BF16 models use native Metal <code class="docutils literal notranslate"><span class="pre">bfloat</span></code> inputs and outputs while keeping attention and
+RMSNorm accumulation in FP32. The same primitive and model-level guards retain native MLX when
+the generated kernel does not clear its switching margin.</p>
+</section>
+<section id="model-benchmark">
+<h2>Model Benchmark<a class="headerlink" href="#model-benchmark" title="Link to this heading">¶</a></h2>
+<p>The benchmark loads actual MLX-LM models, verifies bounded logit fidelity, tunes a persistent
+model-level feature plan, adds a configurable cooldown, and records prefill/decode throughput,
+TTFT, total time, environment metadata, raw samples, and every selected dispatch. When the
+selected plan is native MLX, both labels share each native sample instead of graphing system
+noise.</p>
+<p>The committed M5 32 GB suite uses a 128-token prompt, 256 generated tokens, five
+end-to-end confirmation pairs, and nine continuous measurement pairs:</p>
+<a class="reference internal image-reference" href="../_images/mlx-model-throughput.png"><img alt="Native MLX and MLX with meTile median prefill and decode throughput across four 4-bit language models" src="../_images/mlx-model-throughput.png" style="width: 100%;" />
+</a>
+<a class="reference internal image-reference" href="../_images/mlx-model-latency.png"><img alt="Native MLX and MLX with meTile TTFT and end-to-end latency across four 4-bit language models" src="../_images/mlx-model-latency.png" style="width: 100%;" />
+</a>
+<div class="table-wrapper docutils container" id="id1">
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">M5 model-level medians</span><a class="headerlink" href="#id1" title="Link to this table">¶</a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>MLX decode</p></th>
+<th class="head"><p>MLX + meTile</p></th>
+<th class="head"><p>Native TTFT</p></th>
+<th class="head"><p>Decode</p></th>
+<th class="head"><p>Prefill</p></th>
+<th class="head"><p>TTFT speedup</p></th>
+<th class="head"><p>End-to-end</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Llama 3.2 1B 4-bit</p></td>
+<td><p>151.36 tok/s</p></td>
+<td><p>150.98 tok/s</p></td>
+<td><p>102.0 ms</p></td>
+<td><p>0.998x</p></td>
+<td><p>1.339x</p></td>
+<td><p>1.135x</p></td>
+<td><p>1.004x</p></td>
+</tr>
+<tr class="row-odd"><td><p>Llama 3.2 3B 4-bit</p></td>
+<td><p>61.35 tok/s</p></td>
+<td><p>61.35 tok/s</p></td>
+<td><p>153.9 ms</p></td>
+<td><p>1.000x</p></td>
+<td><p>1.000x</p></td>
+<td><p>1.000x</p></td>
+<td><p>1.000x</p></td>
+</tr>
+<tr class="row-even"><td><p>Qwen 2.5 0.5B 4-bit</p></td>
+<td><p>309.19 tok/s</p></td>
+<td><p>304.62 tok/s</p></td>
+<td><p>70.8 ms</p></td>
+<td><p>0.994x</p></td>
+<td><p>1.275x</p></td>
+<td><p>1.072x</p></td>
+<td><p>1.001x</p></td>
+</tr>
+<tr class="row-odd"><td><p>Qwen 2.5 1.5B 4-bit</p></td>
+<td><p>118.54 tok/s</p></td>
+<td><p>119.65 tok/s</p></td>
+<td><p>130.6 ms</p></td>
+<td><p>1.001x</p></td>
+<td><p>1.331x</p></td>
+<td><p>1.170x</p></td>
+<td><p>1.013x</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Three workloads selected generated affine prefill; Llama 3.2 3B retained native MLX. Table
+speedups are medians of paired ratios, while chart bars are absolute medians. The raw result is committed at
+<code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-mlx-lm-models.json</span></code>.</p>
+<p>Reproduce the complete suite and regenerate both figures:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[benchmarks]&quot;</span>
+
+python<span class="w"> </span>benchmarks/mlx_lm_suite.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--prompt-tokens<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--generation-tokens<span class="w"> </span><span class="m">256</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--trials<span class="w"> </span><span class="m">9</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--delay<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--plan-trials<span class="w"> </span><span class="m">7</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--confirmation-trials<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output<span class="w"> </span>benchmarks/results/m5-mlx-lm-models.json
+
+python<span class="w"> </span>benchmarks/render_mlx_lm_results.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>benchmarks/results/m5-mlx-lm-models.json
+</pre></div>
+</div>
+<section id="benchmark-precision-classes">
+<h3>Benchmark Precision Classes<a class="headerlink" href="#benchmark-precision-classes" title="Link to this heading">¶</a></h3>
+<p>Model results belong to one of three distinct classes: same weight representation, matched
+quantization on both backends, or compiler-selected mixed precision. Only the first two are
+apples-to-apples kernel comparisons. The focused fused result below is exact BF16 versus BF16.
+The seven-model capacity suite is a mixed-precision deployment comparison: native MLX reads the
+source BF16 weights, while the selected meTile plan uses separately prepared affine-INT8 copies
+for chosen one-row decode projections. No matched affine-INT8 control suite is committed yet, so
+the capacity gains do not establish that generated BF16 kernels beat native MLX.</p>
+<p>Schema-19 benchmark records encode this distinction in <code class="docutils literal notranslate"><span class="pre">precision_comparison</span></code>. The chart
+renderer rejects inconsistent precision metadata rather than silently assigning a class.</p>
+</section>
+<section id="matched-primitive-checkpoints">
+<h3>Matched Primitive Checkpoints<a class="headerlink" href="#matched-primitive-checkpoints" title="Link to this heading">¶</a></h3>
+<p>Two isolated Qwen 2.5 0.5B layer-0 SwiGLU checkpoints compare the same weight representation on
+both sides. These measurements validate kernel dispatch rather than end-to-end model speed.</p>
+<div class="table-wrapper colwidths-given docutils container" id="id2">
+<table class="docutils align-default" id="id2">
+<caption><span class="caption-text">Matched-representation primitive results</span><a class="headerlink" href="#id2" title="Link to this table">¶</a></caption>
+<colgroup>
+<col style="width: 26.0%" />
+<col style="width: 18.0%" />
+<col style="width: 18.0%" />
+<col style="width: 14.0%" />
+<col style="width: 24.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Representation</p></th>
+<th class="head"><p>Native MLX</p></th>
+<th class="head"><p>meTile</p></th>
+<th class="head"><p>Speedup</p></th>
+<th class="head"><p>Fidelity</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>BF16</p></td>
+<td><p>357.75 us</p></td>
+<td><p>350.79 us</p></td>
+<td><p>1.020x</p></td>
+<td><p>Bitwise exact</p></td>
+</tr>
+<tr class="row-odd"><td><p>Affine INT8, group 64</p></td>
+<td><p>273.90 us</p></td>
+<td><p>267.35 us</p></td>
+<td><p>1.024x</p></td>
+<td><p>Mean 0.000348, max 0.007813</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The BF16 winner is a generated paired SIMD-group QMV with two-block K unrolling. The affine-INT8
+winner uses identical packed group-64 weights for native <code class="docutils literal notranslate"><span class="pre">mx.quantized_matmul</span></code> and generated
+meTile. In the real autoregressive model context, a fused compressed gate/up implementation
+measured 10.39 ms versus 9.38 ms for the projected implementation. The runtime therefore retained
+the faster projected path rather than promoting the isolated-kernel result.</p>
+<p>Raw records are committed at <code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-dense-bf16-swiglu-qwen05.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-affine8-swiglu-qwen05.json</span></code>. Reproduce them with
+<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">benchmarks/dense_bf16_swiglu.py</span></code> and <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">benchmarks/affine8_swiglu.py</span></code>.</p>
+</section>
+<section id="exact-bf16-benchmark">
+<h3>Exact BF16 Benchmark<a class="headerlink" href="#exact-bf16-benchmark" title="Link to this heading">¶</a></h3>
+<p>An exact fused Qwen 2.5 1.5B BF16 plan was accepted by nine full-generation confirmation
+pairs. Confirmation medians were 1.028x prefill, 1.022x TTFT, 1.012x total, and 1.001x decode.
+The following nine alternating measurement pairs recorded a 1.060x prefill-throughput gain
+(1493.93 to 1555.80 tok/s); decode, TTFT, and total latency remained effectively neutral.
+Verification reported the same token and zero KL, mean-logit error, and max-logit error.</p>
+<a class="reference internal image-reference" href="../_images/mlx-bf16-dense-throughput.png"><img alt="Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 throughput" src="../_images/mlx-bf16-dense-throughput.png" style="width: 100%;" />
+</a>
+<a class="reference internal image-reference" href="../_images/mlx-bf16-dense-latency.png"><img alt="Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 latency" src="../_images/mlx-bf16-dense-latency.png" style="width: 100%;" />
+</a>
+<p>The focused structured result is committed at
+<code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-mlx-lm-bf16-dense-qwen15.json</span></code>.</p>
+</section>
+<section id="bf16-source-mixed-precision-capacity-benchmark">
+<h3>BF16-Source Mixed-Precision Capacity Benchmark<a class="headerlink" href="#bf16-source-mixed-precision-capacity-benchmark" title="Link to this heading">¶</a></h3>
+<p>The companion capacity run covers seven BF16 source checkpoints from 0.5B through 8B parameters.
+The runtime composes guarded affine-INT8 gate/up, down, attention, and vocabulary projections over a
+128-token prompt and 128 generated tokens, seven model-plan trials, seven complete-generation
+confirmation pairs, seven measurement pairs, a one-second paired cooldown, and a 30-second
+cooldown between model subprocesses. Peak memory is the MLX allocator peak reported by
+<code class="docutils literal notranslate"><span class="pre">mx.get_peak_memory()</span></code>, not whole-system usage.</p>
+<a class="reference internal image-reference" href="../_images/mlx-bf16-model-throughput.png"><img alt="Native MLX BF16-source and meTile affine-INT8-decode throughput across seven language models" src="../_images/mlx-bf16-model-throughput.png" style="width: 100%;" />
+</a>
+<a class="reference internal image-reference" href="../_images/mlx-bf16-model-latency.png"><img alt="Native MLX BF16-source and meTile affine-INT8-decode latency across seven language models" src="../_images/mlx-bf16-model-latency.png" style="width: 100%;" />
+</a>
+<div class="table-wrapper docutils container" id="id3">
+<table class="docutils align-default" id="id3">
+<caption><span class="caption-text">M5 BF16-source mixed-precision medians and allocator peaks</span><a class="headerlink" href="#id3" title="Link to this table">¶</a></caption>
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Peak</p></th>
+<th class="head"><p>Native BF16 decode</p></th>
+<th class="head"><p>meTile mixed decode</p></th>
+<th class="head"><p>Decode</p></th>
+<th class="head"><p>TTFT</p></th>
+<th class="head"><p>End-to-end</p></th>
+<th class="head"><p>Plan</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Qwen 2.5 0.5B BF16</p></td>
+<td><p>1.54 GiB</p></td>
+<td><p>115.78 tok/s</p></td>
+<td><p>174.38 tok/s</p></td>
+<td><p>1.507x</p></td>
+<td><p>1.025x</p></td>
+<td><p>1.436x</p></td>
+<td><p>down suffix 19 + gate/up suffix 19 + vocab</p></td>
+</tr>
+<tr class="row-odd"><td><p>Llama 3.2 1B BF16</p></td>
+<td><p>3.61 GiB</p></td>
+<td><p>50.59 tok/s</p></td>
+<td><p>69.40 tok/s</p></td>
+<td><p>1.373x</p></td>
+<td><p>1.046x</p></td>
+<td><p>1.346x</p></td>
+<td><p>gate/up suffix 14 + vocab</p></td>
+</tr>
+<tr class="row-even"><td><p>Qwen 2.5 1.5B BF16</p></td>
+<td><p>4.41 GiB</p></td>
+<td><p>40.14 tok/s</p></td>
+<td><p>67.49 tok/s</p></td>
+<td><p>1.684x</p></td>
+<td><p>1.219x</p></td>
+<td><p>1.640x</p></td>
+<td><p>down all 28 + gate/up suffix 27 + vocab</p></td>
+</tr>
+<tr class="row-odd"><td><p>Qwen 2.5 3B BF16</p></td>
+<td><p>8.74 GiB</p></td>
+<td><p>19.79 tok/s</p></td>
+<td><p>34.46 tok/s</p></td>
+<td><p>1.748x</p></td>
+<td><p>1.095x</p></td>
+<td><p>1.690x</p></td>
+<td><p>down prefix 34 + gate/up suffix 33 + attention suffix 34 + vocab</p></td>
+</tr>
+<tr class="row-even"><td><p>Llama 3.2 3B BF16</p></td>
+<td><p>9.07 GiB</p></td>
+<td><p>18.59 tok/s</p></td>
+<td><p>28.63 tok/s</p></td>
+<td><p>1.491x</p></td>
+<td><p>1.179x</p></td>
+<td><p>1.479x</p></td>
+<td><p>gate/up suffix 26 (g32) + attention suffix 26 (g64) + vocab</p></td>
+</tr>
+<tr class="row-odd"><td><p>Qwen 2.5 7B BF16</p></td>
+<td><p>21.05 GiB</p></td>
+<td><p>8.97 tok/s</p></td>
+<td><p>13.95 tok/s</p></td>
+<td><p>1.554x</p></td>
+<td><p>1.183x</p></td>
+<td><p>1.509x</p></td>
+<td><p>down prefix 26 (g128) + gate/up prefix 26 (g128)</p></td>
+</tr>
+<tr class="row-even"><td><p>Qwen 3 8B BF16</p></td>
+<td><p>20.98 GiB</p></td>
+<td><p>7.84 tok/s</p></td>
+<td><p>12.57 tok/s</p></td>
+<td><p>1.601x</p></td>
+<td><p>1.253x</p></td>
+<td><p>1.604x</p></td>
+<td><p>all 36 gate/up (g128) + attention (g128) + vocab</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>All seven checkpoints selected a compressed decode path on this workload. Their paired decode gains range from
+1.373x to 1.748x, and paired end-to-end gains range from 1.346x to 1.690x. Every selected plan
+preserved the next token and passed the strict affine-INT8 logit bounds. AOT preparation preserves
+the original BF16 weights, creates affine-INT8 copies for selected one-row decode projections, and
+executes them through MLX <code class="docutils literal notranslate"><span class="pre">mx.quantized_matmul</span></code>. Prompt execution remains native BF16. These are
+therefore quality-gated mixed-precision end-to-end results, not BF16-versus-BF16 kernel results.
+Prompt-throughput bars describe the complete runtime rather than a changed prefill kernel. Chart
+bars use absolute medians; table speedups are paired ratios. The largest allocator
+peak was 21.05 GiB. A 14B BF16 checkpoint is roughly 29.5 GB before macOS, KV-cache,
+allocator-scratch, and compressed-weight allocations, so 8B is the largest safe capacity tier on
+this 32 GiB machine. The structured result is committed at
+<code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-mlx-lm-bf16-models.json</span></code>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">METILE_DISABLE_DISK_CACHE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>python<span class="w"> </span>benchmarks/mlx_lm_suite.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--suite<span class="w"> </span>bf16<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--offline<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--prompt-tokens<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--generation-tokens<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--trials<span class="w"> </span><span class="m">7</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--plan-trials<span class="w"> </span><span class="m">7</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--confirmation-trials<span class="w"> </span><span class="m">7</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--delay<span class="w"> </span><span class="m">1</span>.0<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--model-delay<span class="w"> </span><span class="m">30</span>.0<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--disable-dense-mlp<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-down-format<span class="w"> </span>affine8<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-down-group-size<span class="w"> </span>auto<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-gate-up<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-gate-up-group-size<span class="w"> </span>auto<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-vocab<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-vocab-group-size<span class="w"> </span>auto<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-attention<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--compressed-attention-group-size<span class="w"> </span>auto<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output<span class="w"> </span>benchmarks/results/m5-mlx-lm-bf16-models.json
+
+python<span class="w"> </span>benchmarks/render_mlx_lm_results.py<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>benchmarks/results/m5-mlx-lm-bf16-models.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--throughput-output<span class="w"> </span>docs/_static/mlx-bf16-model-throughput.png<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--latency-output<span class="w"> </span>docs/_static/mlx-bf16-model-latency.png
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--disable-attention</span></code>, <code class="docutils literal notranslate"><span class="pre">--disable-rmsnorm</span></code>, <code class="docutils literal notranslate"><span class="pre">--disable-graph-fusion</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--disable-quantized-mlp</span></code>, or <code class="docutils literal notranslate"><span class="pre">--disable-affine-prefill</span></code> with either the single-model
+or suite runner for ablation runs. <code class="docutils literal notranslate"><span class="pre">--offline</span></code> makes the suite use already cached checkpoints. The structured
+result lists every native/generated schedule decision so a throughput result cannot
+silently attribute an MLX fallback to meTile.</p>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../examples/vector-add.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Vector Addition</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="graph-fusion.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Compute-Graph Fusion</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Andre Slavescu
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">MLX-LM Backend</a><ul>
+<li><a class="reference internal" href="#dispatch-policy">Dispatch Policy</a></li>
+<li><a class="reference internal" href="#block-scaled-mlx-primitive">Block-Scaled MLX Primitive</a></li>
+<li><a class="reference internal" href="#model-benchmark">Model Benchmark</a><ul>
+<li><a class="reference internal" href="#benchmark-precision-classes">Benchmark Precision Classes</a></li>
+<li><a class="reference internal" href="#matched-primitive-checkpoints">Matched Primitive Checkpoints</a></li>
+<li><a class="reference internal" href="#exact-bf16-benchmark">Exact BF16 Benchmark</a></li>
+<li><a class="reference internal" href="#bf16-source-mixed-precision-capacity-benchmark">BF16-Source Mixed-Precision Capacity Benchmark</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=8a448e45"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>

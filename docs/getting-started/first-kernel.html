@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Language Reference" href="../guide/language.html"><link rel="prev" title="Installation" href="install.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Compiler Architecture" href="../guide/architecture.html"><link rel="prev" title="Installation" href="install.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Your First Kernel - meTile</title>
@@ -196,14 +196,18 @@
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Your First Kernel</a></li>
 </ul>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
@@ -327,6 +331,8 @@ is compiled on first call and cached for subsequent calls with the same constexp
 </section>
 <section id="the-compilation-pipeline">
 <h2>The Compilation Pipeline<a class="headerlink" href="#the-compilation-pipeline" title="Link to this heading">¶</a></h2>
+<p>This section follows the kernel-local path. See <a class="reference internal" href="../guide/architecture.html"><span class="doc">Compiler Architecture</span></a> for
+the complete graph-discovery, fusion, code-generation, and guarded-runtime flow.</p>
 <p>When you call <code class="docutils literal notranslate"><span class="pre">add[grid](...)</span></code>, meTile:</p>
 <ol class="arabic simple">
 <li><p><strong>Traces</strong> the Python function with symbolic values to build a Tile IR</p></li>
@@ -360,12 +366,12 @@ is compiled on first call and cached for subsequent calls with the same constexp
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="../guide/language.html">
+          <a class="next-page" href="../guide/architecture.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Language Reference</div>
+                <div class="title">Compiler Architecture</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>

@@ -1,0 +1,195 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 660" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif">
+  <title id="title">Proof-carrying algorithm discovery</title>
+  <desc id="description">A left-to-right compiler flow that recognizes an exact attention graph, constructs a weighted online-softmax reduction law, checks identity, associativity, and pair-list homomorphism obligations in a restricted theory, then either emits a certified FlashAttention rewrite or preserves the original graph and falls back safely.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#202020"/>
+    </marker>
+    <style>
+      .panel { stroke: #202020; stroke-width: 1.35; }
+      .box { fill: #ffffff; stroke: #202020; stroke-width: 1.15; }
+      .blue { fill: #dceefb; }
+      .violet { fill: #eadff5; }
+      .amber { fill: #f8e9bd; }
+      .green { fill: #dcefdc; }
+      .red { fill: #f6dddd; }
+      .gray { fill: #f2f2f2; }
+      .ink { fill: #202020; }
+      .muted { fill: #555555; }
+      .line { fill: none; stroke: #202020; stroke-width: 1.25; }
+      .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="660" fill="#ffffff"/>
+
+  <text x="640" y="31" text-anchor="middle" class="ink" font-size="20" font-weight="700">Proof-carrying algorithm discovery</text>
+
+  <!-- Exact graph region -->
+  <rect x="26" y="78" width="244" height="454" class="panel blue"/>
+  <text x="43" y="102" class="ink" font-size="13" font-weight="700">1. Exact compute region</text>
+  <text x="43" y="118" class="muted" font-size="9.5">typed DAG · private intermediates</text>
+
+  <rect x="43" y="134" width="210" height="333" class="box"/>
+  <text x="55" y="153" class="muted" font-size="9" font-weight="700">ATTENTION PATTERN</text>
+
+  <rect x="71" y="169" width="42" height="25" rx="12" class="box blue"/>
+  <rect x="124" y="169" width="42" height="25" rx="12" class="box blue"/>
+  <text x="92" y="186" text-anchor="middle" class="ink" font-size="10" font-weight="700">Q</text>
+  <text x="145" y="186" text-anchor="middle" class="ink" font-size="10" font-weight="700">K</text>
+  <path d="M 92 194 V 205 H 108 V 215" class="line"/>
+  <path d="M 145 194 V 205 H 132 V 215" class="line"/>
+
+  <rect x="78" y="215" width="84" height="31" class="box blue"/>
+  <text x="120" y="235" text-anchor="middle" class="ink" font-size="10.5" font-weight="700">Q · Kᵀ</text>
+  <line x1="120" y1="246" x2="120" y2="264" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="72" y="267" width="96" height="31" class="box amber"/>
+  <text x="120" y="286" text-anchor="middle" class="ink" font-size="9.5">scale</text>
+  <line x1="120" y1="298" x2="120" y2="316" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="72" y="319" width="96" height="31" class="box amber"/>
+  <text x="120" y="338" text-anchor="middle" class="ink" font-size="9.5">causal mask?</text>
+  <line x1="120" y1="350" x2="120" y2="368" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="72" y="371" width="96" height="31" class="box violet"/>
+  <text x="120" y="390" text-anchor="middle" class="ink" font-size="9.5">softmax [−1]</text>
+  <line x1="168" y1="386" x2="190" y2="386" class="line"/>
+  <rect x="190" y="371" width="31" height="31" class="box blue"/>
+  <text x="205.5" y="391" text-anchor="middle" class="ink" font-size="12" font-weight="700">×</text>
+  <rect x="190" y="324" width="31" height="25" rx="12" class="box blue"/>
+  <text x="205.5" y="341" text-anchor="middle" class="ink" font-size="10" font-weight="700">V</text>
+  <line x1="205.5" y1="349" x2="205.5" y2="368" class="line" marker-end="url(#arrow)"/>
+  <line x1="205.5" y1="402" x2="205.5" y2="420" class="line" marker-end="url(#arrow)"/>
+  <rect x="179" y="423" width="53" height="25" rx="12" class="box"/>
+  <text x="205.5" y="440" text-anchor="middle" class="ink" font-size="9.5">output</text>
+
+  <rect x="43" y="480" width="210" height="34" class="box gray"/>
+  <text x="55" y="494" class="muted" font-size="8.5">shape · dtype · axis · privacy</text>
+  <text x="55" y="506" class="muted" font-size="8.5">must match exactly</text>
+
+  <!-- Reduction-law candidate -->
+  <line x1="270" y1="305" x2="304" y2="305" class="line" marker-end="url(#arrow)"/>
+  <text x="287" y="295" text-anchor="middle" class="muted" font-size="8.5">match</text>
+
+  <rect x="307" y="78" width="270" height="454" class="panel violet"/>
+  <text x="324" y="102" class="ink" font-size="13" font-weight="700">2. Finite reduction law</text>
+  <text x="324" y="118" class="muted" font-size="9.5">candidate list homomorphism</text>
+
+  <rect x="324" y="134" width="236" height="78" class="box"/>
+  <text x="337" y="153" class="muted" font-size="9" font-weight="700">SUMMARY STATE</text>
+  <text x="442" y="177" text-anchor="middle" class="ink mono" font-size="11" font-weight="700">Σ = (m, ℓ, o)</text>
+  <text x="442" y="196" text-anchor="middle" class="ink mono" font-size="9.5">lift(s, v) = (s, 1, v)</text>
+
+  <rect x="324" y="225" width="236" height="178" class="box"/>
+  <text x="337" y="245" class="muted" font-size="9" font-weight="700">MERGE  A ⊗ B</text>
+  <text x="337" y="274" class="ink mono" font-size="9.5">m = max(mₐ, mᵦ)</text>
+  <text x="337" y="299" class="ink mono" font-size="9.5">α = exp(mₐ − m)</text>
+  <text x="337" y="319" class="ink mono" font-size="9.5">β = exp(mᵦ − m)</text>
+  <text x="337" y="344" class="ink mono" font-size="9.5">ℓ = αℓₐ + βℓᵦ</text>
+  <text x="337" y="369" class="ink mono" font-size="9.5">o = αoₐ + βoᵦ</text>
+  <line x1="337" y1="381" x2="547" y2="381" class="line" stroke-width="0.7"/>
+  <text x="442" y="395" text-anchor="middle" class="ink mono" font-size="9.5">finalize(Σ) = o / ℓ</text>
+
+  <rect x="324" y="416" width="236" height="51" class="box gray"/>
+  <text x="337" y="436" class="ink" font-size="9.5" font-weight="700">ReductionLaw interface</text>
+  <text x="337" y="453" class="muted" font-size="8.5">identity · lift · merge · summarize · finalize</text>
+
+  <text x="324" y="492" class="muted" font-size="9">one representation for</text>
+  <text x="324" y="509" class="ink" font-size="9.5">sum · max · normalization · attention · scans</text>
+
+  <!-- Certificate checker -->
+  <line x1="577" y1="305" x2="611" y2="305" class="line" marker-end="url(#arrow)"/>
+  <text x="594" y="295" text-anchor="middle" class="muted" font-size="8.5">law</text>
+
+  <rect x="614" y="78" width="302" height="454" class="panel amber"/>
+  <text x="631" y="102" class="ink" font-size="13" font-weight="700">3. Certificate checker</text>
+  <text x="631" y="118" class="muted" font-size="9.5">normalize both sides, then compare</text>
+
+  <rect x="631" y="134" width="268" height="72" class="box"/>
+  <text x="647" y="154" class="ink" font-size="9.5" font-weight="700">Identity</text>
+  <text x="647" y="177" class="ink mono" font-size="9.5">identity ⊗ S = S</text>
+  <text x="647" y="193" class="ink mono" font-size="9.5">S ⊗ identity = S</text>
+
+  <rect x="631" y="218" width="268" height="72" class="box"/>
+  <text x="647" y="238" class="ink" font-size="9.5" font-weight="700">Generated associativity</text>
+  <text x="647" y="267" class="ink mono" font-size="9.5">(A ⊗ B) ⊗ C = A ⊗ (B ⊗ C)</text>
+
+  <rect x="631" y="302" width="268" height="72" class="box"/>
+  <text x="647" y="322" class="ink" font-size="9.5" font-weight="700">Pair / list homomorphism</text>
+  <text x="647" y="351" class="ink mono" font-size="9.2">h(xs ++ ys) = h(xs) ⊗ h(ys)</text>
+
+  <line x1="765" y1="206" x2="765" y2="215" class="line" marker-end="url(#arrow)"/>
+  <line x1="765" y1="290" x2="765" y2="299" class="line" marker-end="url(#arrow)"/>
+  <line x1="765" y1="374" x2="765" y2="394" class="line" marker-end="url(#arrow)"/>
+
+  <rect x="647" y="397" width="236" height="74" class="box amber"/>
+  <text x="765" y="417" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">Restricted symbolic theory</text>
+  <text x="765" y="438" text-anchor="middle" class="ink" font-size="8.8">commutative semiring + max monoid</text>
+  <text x="765" y="454" text-anchor="middle" class="ink mono" font-size="8.8">exp(x + y) = exp(x) exp(y)</text>
+
+  <line x1="765" y1="471" x2="765" y2="488" class="line" marker-end="url(#arrow)"/>
+  <rect x="676" y="491" width="178" height="25" class="box gray"/>
+  <text x="765" y="508" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">ReductionCertificate</text>
+
+  <!-- Decision and outcomes -->
+  <line x1="916" y1="305" x2="937" y2="305" class="line" marker-end="url(#arrow)"/>
+  <polygon points="962,274 993,305 962,336 931,305" class="panel gray"/>
+  <text x="962" y="302" text-anchor="middle" class="ink" font-size="8" font-weight="700">all</text>
+  <text x="962" y="312" text-anchor="middle" class="ink" font-size="8" font-weight="700">equal?</text>
+
+  <path d="M 993 305 H 1012 V 179 H 1031" class="line" marker-end="url(#arrow)"/>
+  <text x="1003" y="224" class="muted" font-size="8.5">yes</text>
+
+  <rect x="1034" y="95" width="220" height="194" class="panel green"/>
+  <text x="1051" y="119" class="ink" font-size="12" font-weight="700">Certified rewrite</text>
+  <text x="1051" y="135" class="muted" font-size="8.8">replace the matched region atomically</text>
+
+  <rect x="1051" y="151" width="82" height="28" class="box"/>
+  <text x="1092" y="169" text-anchor="middle" class="ink mono" font-size="8.8" font-weight="700">Q · K · V</text>
+  <line x1="1133" y1="165" x2="1147" y2="165" class="line" marker-end="url(#arrow)"/>
+  <rect x="1150" y="145" width="88" height="40" class="box green"/>
+  <text x="1194" y="162" text-anchor="middle" class="ink mono" font-size="7.8" font-weight="700">flash_</text>
+  <text x="1194" y="174" text-anchor="middle" class="ink mono" font-size="7.8" font-weight="700">attention</text>
+
+  <rect x="1051" y="203" width="187" height="34" class="box"/>
+  <text x="1144.5" y="217" text-anchor="middle" class="ink" font-size="8.6">online summary</text>
+  <text x="1144.5" y="229" text-anchor="middle" class="muted" font-size="8.2">no score / probability matrix</text>
+
+  <rect x="1051" y="250" width="187" height="22" class="box gray"/>
+  <text x="1144.5" y="265" text-anchor="middle" class="ink" font-size="8.5">certificate attached to graph op</text>
+
+  <path d="M 962 336 V 417 H 1031" class="line" marker-end="url(#arrow)"/>
+  <text x="971" y="397" class="muted" font-size="8.5">no</text>
+
+  <rect x="1034" y="322" width="220" height="194" class="panel red"/>
+  <text x="1051" y="346" class="ink" font-size="12" font-weight="700">Refuse and fall back</text>
+  <text x="1051" y="362" class="muted" font-size="8.8">do not emit a speculative algorithm</text>
+
+  <rect x="1051" y="380" width="187" height="47" class="box"/>
+  <text x="1144.5" y="399" text-anchor="middle" class="ink" font-size="9" font-weight="700">Preserve original DAG</text>
+  <text x="1144.5" y="415" text-anchor="middle" class="muted" font-size="8.2">exact graph semantics remain intact</text>
+
+  <line x1="1144" y1="427" x2="1144" y2="446" class="line" marker-end="url(#arrow)"/>
+  <rect x="1051" y="449" width="187" height="47" class="box gray"/>
+  <text x="1144.5" y="468" text-anchor="middle" class="ink" font-size="9" font-weight="700">Native / runtime candidate</text>
+  <text x="1144.5" y="484" text-anchor="middle" class="muted" font-size="8.2">including the MLX path</text>
+
+  <!-- General discovery recipe -->
+  <text x="221" y="569" class="ink" font-size="11" font-weight="700">General discovery interface</text>
+  <rect x="221" y="584" width="132" height="33" class="panel blue"/>
+  <rect x="387" y="584" width="132" height="33" class="panel violet"/>
+  <rect x="553" y="584" width="132" height="33" class="panel amber"/>
+  <rect x="719" y="584" width="132" height="33" class="panel gray"/>
+  <rect x="885" y="584" width="174" height="33" class="panel green"/>
+  <text x="287" y="605" text-anchor="middle" class="ink" font-size="9.5">graph pattern</text>
+  <text x="453" y="605" text-anchor="middle" class="ink" font-size="9.5">summary state</text>
+  <text x="619" y="605" text-anchor="middle" class="ink" font-size="9.5">merge law</text>
+  <text x="785" y="605" text-anchor="middle" class="ink" font-size="9.5">proof obligations</text>
+  <text x="972" y="605" text-anchor="middle" class="ink" font-size="9.5">proof-carrying rewrite</text>
+  <line x1="353" y1="600.5" x2="381" y2="600.5" class="line" marker-end="url(#arrow)"/>
+  <line x1="519" y1="600.5" x2="547" y2="600.5" class="line" marker-end="url(#arrow)"/>
+  <line x1="685" y1="600.5" x2="713" y2="600.5" class="line" marker-end="url(#arrow)"/>
+  <line x1="851" y1="600.5" x2="879" y2="600.5" class="line" marker-end="url(#arrow)"/>
+  <text x="640" y="639" text-anchor="middle" class="muted" font-size="9">attention is one instance; the same contract supports other streaming reductions and future synthesized algorithms</text>
+</svg>
