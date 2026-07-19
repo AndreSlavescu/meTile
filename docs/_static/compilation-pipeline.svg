@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 900" role="img" aria-labelledby="title description">
   <title id="title">meTile compiler and guarded runtime architecture</title>
-  <desc id="description">A left-to-right compiler diagram. High-level compute graphs pass through proof-carrying FlashAttention discovery and exact max-flow fusion, while Python kernel programs trace into Tile IR. Both paths enter composable optimization and linear, Morton, or Hilbert schedule search, lower through M5-aware Metal IR to MSL and the Metal toolchain, then race generated candidates against a preserved native MLX candidate under guarded runtime dispatch. A dedicated bottom gutter carries measured tuning feedback without crossing the compiler flow.</desc>
+  <desc id="description">A left-to-right compiler diagram. High-level compute graphs pass through proof-carrying FlashAttention discovery and cut-exact fusion selection, while Python kernel programs trace into Tile IR. Both paths enter composable optimization and linear, Morton, or Hilbert schedule search, lower through M5-aware Metal IR to MSL and the Metal toolchain, then race generated candidates against a preserved native MLX candidate under guarded runtime dispatch. A dedicated bottom gutter carries measured tuning feedback without crossing the compiler flow.</desc>
   <defs>
     <style>
       text {
@@ -78,8 +78,8 @@
 
   <g id="graph-fusion">
     <rect x="504" y="156" width="202" height="128" rx="5" fill="#f6e1e6" class="box"/>
-    <text x="518" y="181" class="title">Exact graph fusion</text>
-    <text x="518" y="204" class="small">max-flow / min-cut selection</text>
+    <text x="518" y="181" class="title">Cut-exact graph fusion</text>
+    <text x="518" y="204" class="small">global bipartite min-cut</text>
     <text x="518" y="224" class="small">legality + resource limits</text>
     <text x="518" y="244" class="small">profitable disjoint regions</text>
     <text x="518" y="266" class="mono tiny">flash_attn · add+rms_norm</text>
@@ -146,7 +146,7 @@
     <rect x="766" y="454" width="224" height="98" rx="3" class="subbox"/>
     <text x="778" y="474" class="label" font-weight="700">Kernel families</text>
     <text x="778" y="494" class="tiny">online / FlashAttention · GEMM</text>
-    <text x="778" y="512" class="tiny">normalization · quantized MLP</text>
+    <text x="778" y="512" class="tiny">normalization · affine MLP / attn / vocab</text>
     <text x="778" y="536" class="tiny" font-weight="700">M5 NAX / MPP · MXFP4 / MXFP8</text>
   </g>
 

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1540 800" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif">
   <title id="title">meTile guarded runtime dispatch</title>
-  <desc id="description">A clean left-to-right flow diagram of meTile runtime selection. A persistent cache uses a device, source, and shape key. Cache hits bypass tuning through a dedicated upper route. Cache misses compare native MLX with generated meTile candidates, reject incompatible generated results, run eleven provisional rounds and a thirty-one round finalist tournament, and require five or ten percent speedups before switching from native MLX. A separate upper route writes the winner back to the cache. The selected result dispatches through zero-copy MLX or prepared batched Metal execution.</desc>
+  <desc id="description">A clean left-to-right flow diagram of meTile runtime selection. A persistent cache uses a device, source, and shape key. Cache hits bypass tuning through a dedicated upper route. Cache misses compare native MLX with generated schedules and composable affine gate-up, down-projection, attention-projection, and vocabulary plans, reject incompatible results, run staged mask calibration, three provisional rounds, and seven finalist pairs, then validate winners on a thirty-two-step, seven-pair holdout. A separate upper route writes the winner back to the cache. The selected result dispatches through zero-copy MLX or prepared batched Metal execution.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 1L8 5L0 9Z" fill="#273142"/>
@@ -69,7 +69,7 @@
   <text x="461" y="330" class="small">framework primitive / exact graph</text>
   <rect x="447" y="351" width="206" height="49" rx="2" fill="#ece5f6" class="inner"/>
   <text x="461" y="371" class="label">Generated meTile</text>
-  <text x="461" y="388" class="small">blocks · layouts · fused Metal</text>
+  <text x="461" y="388" class="small">schedules · affine MLP / attn / vocab</text>
   <path d="M670 340H708" class="edge"/>
 
   <rect x="710" y="300" width="170" height="80" rx="3" fill="#f7e6e9" class="box"/>
@@ -82,14 +82,14 @@
   <rect x="920" y="220" width="290" height="240" rx="2" fill="#f4f4f1" class="box"/>
   <text x="938" y="242" class="caps">AUTOTUNER</text>
   <rect x="940" y="258" width="250" height="68" rx="2" class="inner"/>
-  <text x="956" y="280" class="label">11 provisional rounds</text>
+  <text x="956" y="280" class="label">3 provisional rounds</text>
   <text x="956" y="299" class="body">rotating, reversed round-robin</text>
-  <text x="956" y="316" class="small">within 10% + native + fastest generated</text>
+  <text x="956" y="316" class="small">within 3% + native + feature basis</text>
 
   <rect x="940" y="360" width="250" height="68" rx="2" fill="#e8f1e4" class="box"/>
-  <text x="956" y="382" class="label">31 finalist rounds</text>
-  <text x="956" y="401" class="body">interleaved, synchronized median</text>
-  <text x="956" y="418" class="small">wall latency when short · GPU time when sustained</text>
+  <text x="956" y="382" class="label">7 finalist pairs</text>
+  <text x="956" y="401" class="body">interleaved cache-aware medians</text>
+  <text x="956" y="418" class="small">group + mask search · 32-step audit</text>
 
   <path d="M1190 292H1200V394H1192" class="edge"/>
   <path d="M940 394H930V292H938" class="edge-muted"/>
@@ -99,12 +99,12 @@
 
   <rect x="1250" y="260" width="240" height="160" rx="3" fill="#e6f1df" class="box"/>
   <text x="1267" y="283" class="caps">GUARDED CHOICE</text>
-  <text x="1267" y="309" class="label">5% switch margin</text>
-  <text x="1267" y="327" class="small">primitive / discovered attention</text>
-  <text x="1267" y="354" class="label">10% switch margin</text>
-  <text x="1267" y="372" class="small">graph fusion / quantized MLP</text>
+  <text x="1267" y="309" class="label">Family margins 1–10%</text>
+  <text x="1267" y="327" class="small">primitive · fusion · exact plans</text>
+  <text x="1267" y="354" class="label">Strict model fidelity</text>
+  <text x="1267" y="372" class="small">gate/up · down · attn · vocab</text>
   <line x1="1267" y1="383" x2="1473" y2="383" stroke="#879181" stroke-width="1"/>
-  <text x="1267" y="402" class="body">below margin → native MLX fallback</text>
+  <text x="1267" y="402" class="body">regression → native MLX fallback</text>
 
   <!-- Selection persistence and dispatch -->
   <path d="M1370 420V483" class="edge"/>

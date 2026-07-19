@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,7 @@ DEFAULT_BF16_MODELS = (
     "mlx-community/Qwen2.5-3B-Instruct-bf16",
     "mlx-community/Llama-3.2-3B-Instruct-bf16",
     "mlx-community/Qwen2.5-7B-Instruct-bf16",
+    "mlx-community/Qwen3-8B-bf16",
 )
 MODEL_SUITES = {
     "4bit": DEFAULT_4BIT_MODELS,
@@ -31,6 +33,18 @@ DEFAULT_OUTPUTS = {
     "4bit": Path("benchmarks/results/m5-mlx-lm-models.json"),
     "bf16": Path("benchmarks/results/m5-mlx-lm-bf16-models.json"),
 }
+
+
+def _compressed_down_group_size(value):
+    if value == "auto":
+        return value
+    try:
+        group_size = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("group size must be auto, 32, 64, or 128") from error
+    if group_size not in {32, 64, 128}:
+        raise argparse.ArgumentTypeError("group size must be auto, 32, 64, or 128")
+    return group_size
 
 
 def _arguments():
@@ -51,6 +65,12 @@ def _arguments():
     parser.add_argument("--trials", type=int, default=9)
     parser.add_argument("--prefill-step-size", type=int, default=2048)
     parser.add_argument("--delay", type=float, default=0.0)
+    parser.add_argument(
+        "--model-delay",
+        type=float,
+        default=10.0,
+        help="Cooldown between model subprocesses to reduce thermal order effects",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--skip-verify", action="store_true")
@@ -60,6 +80,35 @@ def _arguments():
     parser.add_argument("--disable-quantized-mlp", action="store_true")
     parser.add_argument("--disable-affine-prefill", action="store_true")
     parser.add_argument("--disable-dense-mlp", action="store_true")
+    parser.add_argument(
+        "--compressed-down-format",
+        choices=("none", "affine8", "mxfp8"),
+        default="none",
+    )
+    parser.add_argument(
+        "--compressed-down-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
+    parser.add_argument("--allow-approximate-compressed-down", action="store_true")
+    parser.add_argument("--compressed-gate-up", action="store_true")
+    parser.add_argument(
+        "--compressed-gate-up-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
+    parser.add_argument("--compressed-vocab", action="store_true")
+    parser.add_argument(
+        "--compressed-vocab-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
+    parser.add_argument("--compressed-attention", action="store_true")
+    parser.add_argument(
+        "--compressed-attention-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
     parser.add_argument("--disable-model-autotune", action="store_true")
     parser.add_argument("--plan-decode-steps", type=int, default=8)
     parser.add_argument("--plan-trials", type=int, default=7)
@@ -124,11 +173,48 @@ def _backend_command(arguments, model, output):
     ):
         if name in disabled:
             command.append("--" + name.replace("_", "-"))
+    compressed_down_format = getattr(arguments, "compressed_down_format", "none")
+    if compressed_down_format != "none":
+        command.extend(("--compressed-down-format", compressed_down_format))
+        command.extend(
+            (
+                "--compressed-down-group-size",
+                str(getattr(arguments, "compressed_down_group_size", "auto")),
+            )
+        )
+    if getattr(arguments, "allow_approximate_compressed_down", False):
+        command.append("--allow-approximate-compressed-down")
+    if getattr(arguments, "compressed_gate_up", False):
+        command.append("--compressed-gate-up")
+        command.extend(
+            (
+                "--compressed-gate-up-group-size",
+                str(getattr(arguments, "compressed_gate_up_group_size", "auto")),
+            )
+        )
+    if getattr(arguments, "compressed_vocab", False):
+        command.append("--compressed-vocab")
+        command.extend(
+            (
+                "--compressed-vocab-group-size",
+                str(getattr(arguments, "compressed_vocab_group_size", "auto")),
+            )
+        )
+    if getattr(arguments, "compressed_attention", False):
+        command.append("--compressed-attention")
+        command.extend(
+            (
+                "--compressed-attention-group-size",
+                str(getattr(arguments, "compressed_attention_group_size", "auto")),
+            )
+        )
     return command
 
 
 def main():
     arguments = _arguments()
+    if arguments.model_delay < 0:
+        raise ValueError("model delay must be non-negative")
     models = tuple(arguments.models or MODEL_SUITES[arguments.suite])
     suite_output = arguments.output or DEFAULT_OUTPUTS[arguments.suite]
     environment = os.environ.copy()
@@ -139,6 +225,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix="metile-mlx-lm-suite-") as directory:
         directory = Path(directory)
         for index, model in enumerate(models):
+            if index and arguments.model_delay:
+                print(
+                    f"\nCooling down for {arguments.model_delay:.1f}s before the next model...",
+                    flush=True,
+                )
+                time.sleep(arguments.model_delay)
             model_output = directory / f"model-{index}.json"
             print(f"\n=== {model} ===", flush=True)
             subprocess.run(
@@ -149,9 +241,10 @@ def main():
             results.append(json.loads(model_output.read_text()))
 
     suite = {
-        "schema_version": 3,
+        "schema_version": 5,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "suite": arguments.suite,
+        "model_delay_seconds": arguments.model_delay,
         "models": results,
     }
     suite_output.parent.mkdir(parents=True, exist_ok=True)

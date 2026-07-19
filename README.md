@@ -198,7 +198,12 @@ and quantized-MLP switches:
 from mlx_lm import load
 from metile.integrations.mlx_lm import (
     apply_metile_to_mlx_lm,
+    autotune_metile_for_mlx_lm,
     prepare_mlx_lm_affine_prefill,
+    prepare_mlx_lm_compressed_attention,
+    prepare_mlx_lm_compressed_down,
+    prepare_mlx_lm_compressed_gate_up,
+    prepare_mlx_lm_compressed_vocab,
     prepare_mlx_lm_dense_mlp,
 )
 
@@ -218,12 +223,85 @@ dense_mlp = prepare_mlx_lm_dense_mlp(model)
 patch = apply_metile_to_mlx_lm(model=model, dense_mlp=dense_mlp)
 ```
 
+For an opt-in high-fidelity decode path, the model tuner can AOT-quantize only dense
+down projections to affine INT8 while retaining every BF16 weight as the native fallback:
+
+```python
+import mlx.core as mx
+
+compressed_down = prepare_mlx_lm_compressed_down(model, format="affine8")
+compressed_gate_up = prepare_mlx_lm_compressed_gate_up(model)
+compressed_vocab = prepare_mlx_lm_compressed_vocab(model)
+compressed_attention = prepare_mlx_lm_compressed_attention(model)
+sample_tokens = mx.array([tokenizer.encode("Explain tiled matrix multiplication.")])
+plan = autotune_metile_for_mlx_lm(
+    model,
+    sample_tokens,
+    quantized_mlp=False,
+    compressed_down=compressed_down,
+    compressed_gate_up=compressed_gate_up,
+    compressed_vocab=compressed_vocab,
+    compressed_attention=compressed_attention,
+)
+patch = apply_metile_to_mlx_lm(
+    model=model,
+    compressed_down=compressed_down,
+    compressed_gate_up=compressed_gate_up,
+    compressed_vocab=compressed_vocab,
+    compressed_attention=compressed_attention,
+    plan=plan,
+)
+```
+
+This path is not bit-exact: selection requires the same next token plus strict KL and logit-error
+bounds. MXFP8 down projection is available only with an explicit approximation opt-in. Multi-row
+prefill always executes the original BF16 block. Before timing, cache-aware calibration uses an
+8-step exponential/binary search with bounded non-monotonic boundary audits, then requires the
+winner to pass a 32-step holdout and audits the largest full-horizon regions again. Sensitive projections stay in BF16, while the surviving
+affine-INT8 mask is patched directly onto its ``down_proj`` instances.
+The low-description-length mask persists by model, calibration tokens, device, MLX version,
+format, and backend source identity. Affine group size defaults to `"auto"`: the AOT tuner
+races every dimension-compatible group among 32, 64, and 128 on the actual one-row projection
+shape, rotates measurement order, and averages four synchronized dispatches per sample. The
+micro-tuner seeds bandwidth-dominated MLP and vocabulary families with peak throughput and
+attention with the lowest-error group within 2.5% of peak speed. Layer-grouped gate/up and
+attention candidates then calibrate every group sequentially and minimize their predicted mixed
+cost: surviving compressed layers use the measured affine-INT8 time while sensitive fallback
+layers use the measured native BF16 time. The model/prompt/device/shape decision persists with
+MLX and backend-source identities. MXFP8 stays
+an explicit approximate option rather than participating in this strict tournament.
+
+Gate/up compression is a separate layer-grouped plan feature. Its calibration keeps each SwiGLU
+gate/up pair together, while down-projection calibration remains independent. The compute-graph
+planner therefore measures native MLX, gate/up-only, down-only, and their composition instead of
+hard-coding a full MLP template. Multi-row calls always retain native BF16. On Qwen 3 8B, all 36
+gate/up pairs and all 36 attention layers selected affine group 128 and composed with vocabulary
+compression. Seven measurement pairs recorded 1.601x decode and 1.604x end-to-end; every
+confirmation decode pair exceeded 1.44x. Raw samples and guards are in
+`benchmarks/results/m5-mlx-lm-bf16-models.json`.
+
+Vocabulary compression is another independent plan feature. It patches either a tied embedding's
+``as_linear`` projection or an untied ``lm_head`` only for one-row decode; embedding lookup and
+multi-row prefill remain native. The same strict token/KL/logit policy and model-level tournament
+decide whether it composes with gate/up, down, both, or neither.
+
+Attention-projection compression groups ``q_proj``, ``k_proj``, ``v_proj``, and ``o_proj`` by
+transformer layer, preserves projection biases, and patches only one-row decode. The model tuner
+composes it independently with MLP and vocabulary candidates. On Qwen 2.5 3B, strict calibration
+selected 34 attention layers at affine group 32 alongside 34 down and 33 gate/up layers.
+
 The dispatcher benchmarks native MLX alongside generated blocks. Attention and RMSNorm
 require at least 5% primitive-level headroom before crossing the framework boundary;
 otherwise the call stays on MLX. A high-level compute DAG also discovers multi-output
 residual-add/RMSNorm fusion using an exact max-flow/min-cut pass and a stricter 10% switch
 margin. Unsupported attention modes, masks, sinks, quantized KV caches, and dtypes fall
 back exactly. Attention and RMSNorm support BF16/FP16/FP32 and accumulate in FP32.
+
+Fusion candidates that overlap form a weighted conflict graph. The compiler decomposes it
+and solves every bipartite component globally through the exact min-cut reduction for
+maximum-weight independent set, avoiding greedy choices that can discard a more profitable
+pair of regions. General non-bipartite set-packing components retain a deterministic legal
+fallback because they are not representable by one s-t cut.
 
 For affine 4-bit model weights, AOT preparation preserves the original quantized values while
 transposing packed nibbles and scale/bias groups into a K-major NAX view. Ragged prefill rows
@@ -235,16 +313,64 @@ decode remains independently eligible for the guarded down/residual path in cano
 and Qwen2 blocks. Unsupported or multi-row calls immediately use the original block, while a
 warmed decode executor bypasses repeated compatibility and kernel-construction work. Model
 plans require matching next tokens, bounded KL divergence, bounded mean/max logit error, a
-measured TTFT or end-to-end win, and bounded decode/total behavior. Decode-sensitive plans keep
-the stricter 0.5% confirmation floor; self-deoptimizing prefill-only plans use a 1% noise floor.
+measured TTFT, end-to-end, or sustained decode win, and bounded decode/total behavior.
+Plans capable of changing prefill keep the stricter 0.5% TTFT confirmation floor. A decode win
+requires at least 1% median throughput, wins in at least two-thirds of paired trials, and passing
+the applicable TTFT and total-regression checks. Self-deoptimizing prefill-only plans use a 1%
+decode noise floor.
+Generated model-plan winners are retested jointly on a separate holdout with at least 32 decode
+steps and seven paired trials before the plan is cached. The holdout preserves measured MDL and
+decode leaders, the maximal compatible compression plan, and a greedy ladder composed from the
+fastest compression basis features. Search uses coverage-preserving successive halving: every
+legal composition receives one timing round, at most eight broad metric leaders advance to three
+rounds, and only the resulting finalists advance to five. When the long-horizon shortlist exceeds
+three plans, every finalist first receives three 32-step trials before the native baseline and top
+two leaders complete seven. Stages reuse one prepared native autoregressive trajectory and do not
+repeat fidelity checks for a candidate that already passed in the same search. Candidate timing
+therefore explores the complete composition lattice without paying the full trial count for every
+plan. Because the compressed patches are unreachable during multi-row
+prefill, decode-only plans rank on decode and total latency rather than unrelated prompt-TTFT
+noise. Complete-generation confirmation therefore applies the 0.5% TTFT floor only to plans
+capable of changing prefill; decode-only plans must still win paired decode or total measurements
+and pass the end-to-end regression floors. A failed holdout is retried twice before the runtime
+falls back.
+Eligible projection calibration first finds prefix and suffix fidelity boundaries logarithmically,
+then spends a fixed 16-evaluation budget growing the winner into a non-contiguous subset. Attention
+retains its interval mask because standalone-maximal attention subsets can block faster multi-feature
+compositions. Each interval direction is capped at 13 probes, and full-horizon validation revisits
+only the top boundary and a local four-layer window before a conservative fallback. This admits
+safe non-contiguous projections without making search exponential.
 
 Dense preparation retains MLX's output-major weights and creates K-major gate/up views only
-when the projected working set stays below 80% of MLX's recommended limit. The compiler shares
-activation fragments across two NAX GEMMs, keeps both accumulators register-resident, and applies
-SwiGLU before the tile is stored. BF16 sigmoid, SiLU, and multiply boundaries mirror MLX's typed
-Metal functor, so the fused path is bit-exact rather than merely tolerance-compatible. The model
-tuner races this fusion, exact composable projection kernels, and native MLX; one-row decode
-self-deoptimizes back to the original MLP class.
+when the projected working set stays below 80% of MLX's recommended limit. When the same guard
+also permits an interleaved ``[N, K, 2]`` gate/up view, one-row decode races exact output-major
+SIMD-group QMV schedules that reproduce MLX's four-value lane partition and shuffle-down
+reduction order. The compiler shares activation fragments across both dot products and applies
+the typed SwiGLU epilogue before its only output write. The schedule lattice covers one, two, and
+four outputs per SIMD-group; one, two, four, and eight SIMD-groups per threadgroup; and one- or
+two-block K unrolling. Unrolled schedules retain the original lane partition and reduction order,
+including an aligned tail for odd block counts. Candidates must be bit-exact against MLX and at
+least 1.5% faster in the main tournament and a separate 127-round holdout before dispatch can
+select them.
+
+Decode-only affine-INT8 families are staged sequentially under a separate 90% ceiling so larger
+compositions can fit without crossing MLX's recommended working-set limit. Calibration may keep
+only a prefix or suffix of layers, and unsupported or fidelity-sensitive projections remain BF16.
+
+The selected gate/up result then feeds a separately composable exact down-projection QMV. Its
+typed store adds the transformer residual without materializing the unfused projection result.
+The runtime races one, two, and four SIMD-groups per threadgroup against native
+``values @ weight.T + residual`` and requires bit equality plus 1.5% primitive headroom.
+Gate/up dispatch and the down/residual block rewrite are independent model-plan features, so a
+prefill or paired-QMV win is not suppressed by a neutral residual schedule, and vice versa.
+Residual-only plans execute the model's original gate/up projections before the exact generated
+store, preventing an unselected gate/up schedule from leaking into the measurement.
+
+Multi-row calls race the two composable NAX projections and fused dual-GEMM lowering. The fused
+path keeps both accumulators register-resident and applies SwiGLU before the tile is stored. BF16
+sigmoid, SiLU, and multiply boundaries mirror MLX's typed Metal functor, so it is bit-exact rather
+than merely tolerance-compatible. The model tuner races every representation against native MLX;
+the runtime retains native execution whenever a primitive or complete model plan misses its guard.
 
 The optional MLX primitive backend also accepts MXFP4 and MXFP8 K-major weights. It emits
 register-fragment block-scale decode plus NAX ``matmul2d`` directly into the MLX lazy graph,
@@ -289,7 +415,40 @@ python benchmarks/render_mlx_lm_results.py \
   benchmarks/results/m5-mlx-lm-models.json
 ```
 
-### Dense BF16 Benchmarks
+### Benchmark Precision Classes
+
+Model results are reported in three distinct classes: same weight representation, matched
+quantization on both backends, and compiler-selected mixed precision. Only the first two are
+apples-to-apples kernel comparisons. The focused fused result below is exact BF16 versus BF16.
+The seven-model capacity suite is a mixed-precision deployment comparison: native MLX reads the
+source BF16 weights, while the selected meTile plan uses separately prepared affine-INT8 copies
+for chosen one-row decode projections. No matched affine-INT8 control suite is committed yet, so
+the capacity gains must not be presented as evidence that generated BF16 kernels beat native MLX.
+
+New schema-19 benchmark records encode this distinction in `precision_comparison`, and the chart
+renderer rejects inconsistent precision metadata instead of silently assigning a comparison class.
+
+### Matched Primitive Checkpoints
+
+Two isolated Qwen 2.5 0.5B layer-0 SwiGLU checkpoints compare the same weight representation on
+both sides. They validate kernel dispatch, not end-to-end model speed:
+
+| Representation | Native MLX | meTile | Speedup | Fidelity |
+|---|---:|---:|---:|---|
+| BF16 | 357.75 us | 350.79 us | 1.020x | Bitwise exact |
+| Affine INT8, group 64 | 273.90 us | 267.35 us | 1.024x | Mean 0.000348, max 0.007813 |
+
+The BF16 winner is a generated paired SIMD-group QMV with two-block K unrolling. The affine-INT8
+winner uses identical packed group-64 weights for native `mx.quantized_matmul` and generated meTile.
+In the real autoregressive model context, a fused compressed gate/up implementation measured
+10.39 ms versus 9.38 ms for the projected implementation, so the runtime correctly retained the
+faster projected path rather than promoting the isolated-kernel result.
+
+Raw records are in `benchmarks/results/m5-dense-bf16-swiglu-qwen05.json` and
+`benchmarks/results/m5-affine8-swiglu-qwen05.json`. Reproduce them with
+`python benchmarks/dense_bf16_swiglu.py` and `python benchmarks/affine8_swiglu.py`.
+
+### Exact BF16 Benchmark
 
 The focused Qwen 2.5 1.5B run selected the exact fused dense plan. Nine alternating measurement
 pairs improved prefill throughput from 1493.93 to 1555.80 tok/s (1.060x paired) while decode,
@@ -304,39 +463,59 @@ verification was bit-exact (zero KL, mean error, and max error):
 Raw alternating trials, confirmation pairs, fidelity, memory, and the selected Morton/grouped
 schedules are in `benchmarks/results/m5-mlx-lm-bf16-dense-qwen15.json`.
 
-The BF16 capacity suite covers six dense checkpoints from 0.5B through 7B parameters. It uses
-the same guarded dispatcher with native Metal `bfloat` kernels, a 128-token prompt, 64 generated
-tokens, five model-plan trials, five confirmation trials, five measurement trials, and a
-0.1-second cooldown. `mx.get_peak_memory()` reports MLX allocator peak memory rather than total
-system memory:
+### BF16-Source Mixed-Precision Capacity Benchmark
+
+The capacity suite covers seven BF16 source checkpoints from 0.5B through 8B parameters. It lets
+the runtime compose guarded affine-INT8 gate/up, down, attention, and vocabulary-projection
+candidates with a 128-token prompt, 128 generated tokens,
+seven model-plan trials, seven complete-generation confirmation pairs, seven measurement pairs,
+a one-second paired cooldown, and a 30-second cooldown between model subprocesses.
+`mx.get_peak_memory()` reports MLX allocator peak memory rather than total system memory:
 
 | Throughput | Latency |
 |:--:|:--:|
-| ![Native MLX and MLX with meTile BF16 prefill and decode throughput across six models](docs/_static/mlx-bf16-model-throughput.png) | ![Native MLX and MLX with meTile BF16 TTFT and end-to-end latency across six models](docs/_static/mlx-bf16-model-latency.png) |
+| ![Native MLX BF16-source and meTile affine-INT8-decode throughput across seven models](docs/_static/mlx-bf16-model-throughput.png) | ![Native MLX BF16-source and meTile affine-INT8-decode latency across seven models](docs/_static/mlx-bf16-model-latency.png) |
 
-| Model | MLX peak | Decode | Prefill | TTFT | End-to-end | Selected model plan |
-|---|---:|---:|---:|---:|---:|---|
-| Qwen 2.5 0.5B BF16 | 1.50 GiB | 114.67 tok/s | 4818.96 tok/s | 103.2 ms | 0.67 s | Native MLX |
-| Llama 3.2 1B BF16 | 3.47 GiB | 48.61 tok/s | 2116.26 tok/s | 128.1 ms | 1.46 s | Native MLX |
-| Qwen 2.5 1.5B BF16 | 4.49 GiB | 38.41 tok/s | 1544.66 tok/s | 163.3 ms | 1.84 s | Native MLX |
-| Qwen 2.5 3B BF16 | 8.96 GiB | 19.22 tok/s | 749.46 tok/s | 239.7 ms | 3.60 s | Native MLX |
-| Llama 3.2 3B BF16 | 8.79 GiB | 18.33 tok/s | 715.88 tok/s | 247.9 ms | 3.75 s | Native MLX |
-| Qwen 2.5 7B BF16 | 14.38 GiB | 8.73 tok/s | 331.63 tok/s | 470.9 ms | 7.81 s | Native MLX |
+| Model | MLX peak | Native BF16 decode | meTile mixed decode | Decode | TTFT | End-to-end | Selected plan |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Qwen 2.5 0.5B BF16 | 1.54 GiB | 115.78 tok/s | 174.38 tok/s | 1.507x | 1.025x | 1.436x | down suffix 19 + gate/up suffix 19 + vocab |
+| Llama 3.2 1B BF16 | 3.61 GiB | 50.59 tok/s | 69.40 tok/s | 1.373x | 1.046x | 1.346x | gate/up suffix 14 + vocab |
+| Qwen 2.5 1.5B BF16 | 4.41 GiB | 40.14 tok/s | 67.49 tok/s | 1.684x | 1.219x | 1.640x | down all 28 + gate/up suffix 27 + vocab |
+| Qwen 2.5 3B BF16 | 8.74 GiB | 19.79 tok/s | 34.46 tok/s | 1.748x | 1.095x | 1.690x | down prefix 34 + gate/up suffix 33 + attention suffix 34 + vocab |
+| Llama 3.2 3B BF16 | 9.07 GiB | 18.59 tok/s | 28.63 tok/s | 1.491x | 1.179x | 1.479x | gate/up suffix 26 (g32) + attention suffix 26 (g64) + vocab |
+| Qwen 2.5 7B BF16 | 21.05 GiB | 8.97 tok/s | 13.95 tok/s | 1.554x | 1.183x | 1.509x | down prefix 26 (g128) + gate/up prefix 26 (g128) |
+| Qwen 3 8B BF16 | 20.98 GiB | 7.84 tok/s | 12.57 tok/s | 1.601x | 1.253x | 1.604x | all 36 gate/up (g128) + attention (g128) + vocab |
 
-Every full-model plan retained native MLX because no BF16 feature combination cleared the
-model-level TTFT or end-to-end guard. The equal bars are therefore deliberate shared native
-samples, not rounded or noise-derived speedups. Verification produced identical next tokens and
-zero measured logit error for all six selected plans. The 7B checkpoint peaked at 14.38 GiB on
-the 32 GB M5; its 7.08 GiB dense repack was rejected before allocation because it would exceed
-the guarded 19.97 GiB working-set budget. Raw samples, memory,
-verification, and primitive dispatches are committed in
+All seven checkpoints selected a compressed decode path on this workload, improving paired decode throughput by
+1.373x to 1.748x and end-to-end latency by 1.346x to 1.690x. Every selected plan preserved the
+next token and stayed below KL 0.001, mean logit error 0.05, and max logit error 0.5. The optimized
+projections are decode-only: AOT preparation preserves the original BF16 weights, creates affine-
+INT8 copies for the selected projections, and executes them through MLX `mx.quantized_matmul`.
+Prompt execution remains native BF16. Consequently, these are quality-gated mixed-precision
+end-to-end results, not BF16-versus-BF16 kernel results. Prompt-throughput bars are complete-runtime
+measurements, not a claim that the BF16 prefill kernel changed. Chart bars use
+absolute medians, while table speedups use the paired ratios recorded by the benchmark. The
+largest allocator peak was 21.05 GiB. A 14B BF16 checkpoint is roughly 29.5 GB before
+macOS, KV-cache, allocator-scratch, and compressed-weight allocations, so the 8B tier is the
+largest safe capacity target for this 32 GiB machine. Raw samples, confirmation pairs, calibration masks,
+memory, fidelity, and dispatches are committed in
 `benchmarks/results/m5-mlx-lm-bf16-models.json`.
+New benchmark records also capture model-plan autotune time independently from preparation,
+confirmation, and steady-state generation, and identify the plan workload as a native
+autoregressive decode trajectory.
 
 ```bash
 METILE_DISABLE_DISK_CACHE=1 python benchmarks/mlx_lm_suite.py \
   --suite bf16 --offline \
-  --prompt-tokens 128 --generation-tokens 64 \
-  --trials 5 --plan-trials 5 --confirmation-trials 5 --delay 0.1
+  --prompt-tokens 128 --generation-tokens 128 \
+  --trials 7 --plan-trials 7 --confirmation-trials 7 \
+  --delay 1.0 --model-delay 30.0 \
+  --disable-dense-mlp \
+  --compressed-down-format affine8 --compressed-down-group-size auto \
+  --compressed-gate-up --compressed-gate-up-group-size auto \
+  --compressed-vocab --compressed-vocab-group-size auto \
+  --compressed-attention --compressed-attention-group-size auto \
+  --output benchmarks/results/m5-mlx-lm-bf16-models.json
 
 python benchmarks/render_mlx_lm_results.py \
   benchmarks/results/m5-mlx-lm-bf16-models.json \

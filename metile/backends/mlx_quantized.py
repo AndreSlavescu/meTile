@@ -17,9 +17,11 @@ from kernels.affine_qmv import (
     affine_swiglu_scratch_qmv,
 )
 from metile.backends.mlx import (
+    _mlx_compiler_dtype,
     _mlx_dtype_to_numpy,
     _mlx_kernel_body,
     _replace_identifier,
+    _specialize_mlx_source,
     _token_bucket,
 )
 from metile.codegen.msl_emitter import emit
@@ -42,13 +44,14 @@ _affine_weight_cache = {}
 _compiled_affine_swiglu = None
 _compiled_affine_residual_qmv = None
 _affine_cache_lock = threading.RLock()
-_affine_cache_path = cache_root() / "mlx-affine-swiglu-autotune-v5.json"
-_affine_residual_cache_path = cache_root() / "mlx-affine-residual-autotune-v2.json"
+_affine_cache_path = cache_root() / "mlx-affine-swiglu-autotune-v7.json"
+_affine_residual_cache_path = cache_root() / "mlx-affine-residual-autotune-v3.json"
 _SWITCH_MARGIN = 0.03
 _COMPILED_SWITCH_MARGIN = 0.005
 _RESIDUAL_SWITCH_MARGIN = 0.01
-_AFFINE_SWIGLU_TUNER_VERSION = 5
-_AFFINE_RESIDUAL_TUNER_VERSION = 2
+_AFFINE_SWIGLU_TUNER_VERSION = 7
+_AFFINE_RESIDUAL_TUNER_VERSION = 3
+_AFFINE_TUNING_BATCH = 8
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,20 @@ _AFFINE_RESIDUAL_CONFIGS = tuple(
         )
     ]
 )
+
+
+def _affine_swiglu_configs(dtype, bits):
+    if bits == 4:
+        return _AFFINE_SWIGLU_CONFIGS
+    return tuple(
+        config
+        for config in _AFFINE_SWIGLU_CONFIGS
+        if config.algorithm in {"mlx", "mlx_compiled"}
+        or (
+            config.implementation in {"scalar", "scratch"}
+            and (str(dtype) != "mlx.core.bfloat16" or config.decode_dtype == "f32")
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -418,7 +435,7 @@ def _compile_affine_qmv(
 ):
     import mlx.core as mx
 
-    numpy_dtype = _mlx_dtype_to_numpy(dtype)
+    numpy_dtype = _mlx_compiler_dtype(dtype)
     outputs_per_threadgroup = block // 32 * outputs_per_simdgroup
     if outputs_per_simdgroup < 1 or output_features % outputs_per_threadgroup:
         raise ValueError("output features must tile the affine QMV threadgroups")
@@ -457,7 +474,7 @@ def _compile_affine_qmv(
         OUTPUTS_PER_SIMDGROUP=outputs_per_simdgroup,
         HALF_DECODE=decode_dtype == "f16",
     )
-    source = _mlx_kernel_body(compiled.msl_source)
+    source = _mlx_kernel_body(_specialize_mlx_source(compiled.msl_source, dtype))
     source = _replace_identifier(source, "K", f"{input_features}")
     source = _replace_identifier(source, "N", f"{output_features}")
     operation = mx.fast.metal_kernel(
@@ -490,7 +507,7 @@ def _compile_affine_swiglu_qmv(
 ):
     import mlx.core as mx
 
-    numpy_dtype = _mlx_dtype_to_numpy(dtype)
+    numpy_dtype = _mlx_compiler_dtype(dtype)
     outputs_per_threadgroup = block // 32 * outputs_per_simdgroup
     if outputs_per_simdgroup < 1 or output_features % outputs_per_threadgroup:
         raise ValueError("output features must tile the affine SwiGLU threadgroups")
@@ -537,7 +554,7 @@ def _compile_affine_swiglu_qmv(
         OUTPUTS_PER_SIMDGROUP=outputs_per_simdgroup,
         HALF_DECODE=decode_dtype == "f16",
     )
-    source = _mlx_kernel_body(compiled.msl_source)
+    source = _mlx_kernel_body(_specialize_mlx_source(compiled.msl_source, dtype))
     source = _replace_identifier(source, "K", f"{input_features}")
     source = _replace_identifier(source, "N", f"{output_features}")
     operation = mx.fast.metal_kernel(
@@ -577,7 +594,7 @@ def _compile_affine_swiglu_scratch_qmv(
 ):
     import mlx.core as mx
 
-    numpy_dtype = _mlx_dtype_to_numpy(dtype)
+    numpy_dtype = _mlx_compiler_dtype(dtype)
     outputs_per_threadgroup = block // 32 * outputs_per_simdgroup
     if outputs_per_simdgroup < 1 or output_features % outputs_per_threadgroup:
         raise ValueError("output features must tile the scratch SwiGLU threadgroups")
@@ -625,7 +642,7 @@ def _compile_affine_swiglu_scratch_qmv(
         OUTPUTS_PER_SIMDGROUP=outputs_per_simdgroup,
         HALF_DECODE=decode_dtype == "f16",
     )
-    source = _mlx_kernel_body(compiled.msl_source)
+    source = _mlx_kernel_body(_specialize_mlx_source(compiled.msl_source, dtype))
     source = _replace_identifier(source, "K", f"{input_features}")
     source = _replace_identifier(source, "N", f"{output_features}")
     operation = mx.fast.metal_kernel(
@@ -1234,8 +1251,9 @@ def _tune_affine_dispatches(configs, make_dispatch, choose_config):
             ordered.reverse()
         for config, dispatch, _ in ordered:
             start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+            for _ in range(_AFFINE_TUNING_BATCH):
+                mx.eval(dispatch())
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / _AFFINE_TUNING_BATCH)
 
     provisional = {
         config: statistics.median(config_samples) for config, config_samples in samples.items()
@@ -1263,8 +1281,9 @@ def _tune_affine_dispatches(configs, make_dispatch, choose_config):
             ordered.reverse()
         for config, dispatch, _ in ordered:
             start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+            for _ in range(_AFFINE_TUNING_BATCH):
+                mx.eval(dispatch())
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / _AFFINE_TUNING_BATCH)
     return choose_config(
         [
             (statistics.median(samples[config]), description_bits, config)
@@ -1285,7 +1304,7 @@ def _tune_affine_swiglu(
     bits,
 ):
     return _tune_affine_dispatches(
-        _AFFINE_SWIGLU_CONFIGS,
+        _affine_swiglu_configs(values.dtype, bits),
         lambda config: _affine_swiglu_dispatch(
             config,
             values,
@@ -1334,7 +1353,9 @@ def mlx_affine_swiglu_backend_signature():
             "compiled": inspect.getsource(_mlx_compiled_affine_swiglu),
             "compiled_switch_margin": _COMPILED_SWITCH_MARGIN,
             "configs": [vars(config) for config in _AFFINE_SWIGLU_CONFIGS],
+            "config_filter": inspect.getsource(_affine_swiglu_configs),
             "dispatch": inspect.getsource(mlx_affine_swiglu),
+            "executor": inspect.getsource(mlx_affine_swiglu_executor),
             "fidelity": inspect.getsource(_affine_swiglu_compatible),
             "lowering": inspect.getsource(lower_affine_swiglu_qmv),
             "native": inspect.getsource(_native_affine_swiglu),
@@ -1350,10 +1371,13 @@ def mlx_affine_swiglu_backend_signature():
             "residual_tuner": _AFFINE_RESIDUAL_TUNER_VERSION,
             "runtime_executor": inspect.getsource(mlx_affine_mlp_executor),
             "scalar": inspect.getsource(affine_swiglu_qmv.fn),
+            "scalar_compile": inspect.getsource(_compile_affine_swiglu_qmv),
             "scratch": inspect.getsource(affine_swiglu_scratch_qmv.fn),
+            "scratch_compile": inspect.getsource(_compile_affine_swiglu_scratch_qmv),
             "selection": inspect.getsource(_choose_affine_swiglu_config),
             "switch_margin": _SWITCH_MARGIN,
             "tune": inspect.getsource(_tune_affine_swiglu),
+            "tuning_batch": _AFFINE_TUNING_BATCH,
             "tuner": _AFFINE_SWIGLU_TUNER_VERSION,
         }
     )
@@ -1366,7 +1390,7 @@ def _affine_swiglu_persistent_key(values, gate_weight, group_size, bits):
         {
             "architecture": mx.device_info().get("architecture"),
             "bits": bits,
-            "configs": [vars(config) for config in _AFFINE_SWIGLU_CONFIGS],
+            "configs": [vars(config) for config in _affine_swiglu_configs(values.dtype, bits)],
             "dtype": str(values.dtype),
             "group_size": group_size,
             "input_features": values.shape[-1],
@@ -1588,8 +1612,8 @@ def mlx_affine_swiglu(
     autotune=True,
 ):
     """Dispatch affine SwiGLU to eager/compiled MLX, scalar, or M5 NAX kernels."""
-    if group_size != 64 or bits != 4:
-        raise ValueError("affine SwiGLU currently requires 4-bit weights with group size 64")
+    if not ((bits == 4 and group_size == 64) or (bits == 8 and group_size in {32, 64, 128})):
+        raise ValueError("affine SwiGLU requires 4-bit group-64 or 8-bit group-32/64/128 weights")
     if gate_biases is None or up_biases is None:
         raise ValueError("affine SwiGLU requires affine quantization biases")
     if (
@@ -1652,6 +1676,53 @@ def mlx_affine_swiglu(
     return dispatch()
 
 
+def mlx_affine_swiglu_executor(
+    sample_values,
+    gate_weight,
+    gate_scales,
+    gate_biases,
+    up_weight,
+    up_scales,
+    up_biases,
+    *,
+    group_size=64,
+    bits=4,
+):
+    """Autotune once and return the selected shape-specialized SwiGLU callable."""
+    mlx_affine_swiglu(
+        sample_values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        group_size=group_size,
+        bits=bits,
+    )
+    schedule_key = (
+        _token_bucket(sample_values.size // sample_values.shape[-1]),
+        sample_values.shape[-1],
+        gate_weight.shape[0],
+        str(sample_values.dtype),
+        group_size,
+        bits,
+    )
+    executor, _ = _make_affine_swiglu_executor(
+        _affine_swiglu_schedule_cache[schedule_key],
+        sample_values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        group_size,
+        bits,
+    )
+    return executor
+
+
 def mlx_affine_mlp_executor(
     sample_values,
     gate_weight,
@@ -1669,7 +1740,7 @@ def mlx_affine_mlp_executor(
     bits=4,
 ):
     """Autotune once and return a shape-specialized affine MLP callable."""
-    hidden = mlx_affine_swiglu(
+    swiglu_executor = mlx_affine_swiglu_executor(
         sample_values,
         gate_weight,
         gate_scales,
@@ -1680,14 +1751,7 @@ def mlx_affine_mlp_executor(
         group_size=group_size,
         bits=bits,
     )
-    swiglu_key = (
-        _token_bucket(sample_values.size // sample_values.shape[-1]),
-        sample_values.shape[-1],
-        gate_weight.shape[0],
-        str(sample_values.dtype),
-        group_size,
-        bits,
-    )
+    hidden = swiglu_executor(sample_values)
     residual_key = (
         hidden.shape[-1],
         down_weight.shape[0],
@@ -1707,18 +1771,6 @@ def mlx_affine_mlp_executor(
         sample_residual,
         group_size=group_size,
         bits=bits,
-    )
-    swiglu_executor, _ = _make_affine_swiglu_executor(
-        _affine_swiglu_schedule_cache[swiglu_key],
-        sample_values,
-        gate_weight,
-        gate_scales,
-        gate_biases,
-        up_weight,
-        up_scales,
-        up_biases,
-        group_size,
-        bits,
     )
     residual_executor, _ = _make_affine_residual_executor(
         _affine_residual_schedule_cache[residual_key],
@@ -1767,6 +1819,7 @@ __all__ = [
     "mlx_affine_swiglu",
     "mlx_affine_swiglu_backend_signature",
     "mlx_affine_swiglu_dispatches",
+    "mlx_affine_swiglu_executor",
     "mlx_affine_swiglu_qmv",
     "mlx_affine_swiglu_qmv_nax",
     "repack_mlx_affine_weight",

@@ -58,10 +58,23 @@ memory removes a CPU/device copy rather than turning global storage into scratch
 Max-Flow Selection
 ------------------
 
-Each legal rewrite neighborhood becomes an s-t cut network. Keeping a producer separate
-cuts an edge weighted by launch and intermediate-materialization cost. Fusing it cuts a
-target-resource edge. Infinite-capacity edges encode legality constraints. The source-side
-vertices in the residual graph form the selected region.
+Each legal producer/consumer neighborhood becomes an s-t cut network. Keeping a producer
+separate cuts an edge weighted by launch and intermediate-materialization cost. Fusing it
+cuts a target-resource edge. Infinite-capacity edges encode legality constraints. The
+source-side vertices in the residual graph form the candidate region.
+
+Candidate regions then form a weighted conflict graph: two vertices conflict when their
+regions share an operation. The planner decomposes this graph into connected components.
+Every bipartite component is selected globally and exactly by reducing maximum-weight
+independent set to minimum-weight vertex cover and then to one s-t cut. Candidate benefit
+becomes terminal capacity and overlap becomes an infinite-capacity edge. This avoids the
+local failure mode where one attractive middle region blocks two outer regions whose
+combined benefit is larger.
+
+An arbitrary non-bipartite conflict component is weighted set packing and is not generally
+representable by a single s-t cut. Those components retain a deterministic benefit-ordered
+fallback rather than claiming that max-flow solves an NP-hard objective. Legality and
+non-overlap are preserved in both paths.
 
 The in-tree solvers are deterministic and exact. ``FlowNetwork`` stores an immutable
 capacity graph and builds a fresh residual graph per solve, which makes differential

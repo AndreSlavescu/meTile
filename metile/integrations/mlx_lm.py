@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import gc
 import inspect
 import os
 import statistics
@@ -8,6 +10,7 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass, field
+from itertools import combinations
 
 from metile.backends.mlx import (
     _mlx_attention_decode_unchecked,
@@ -23,10 +26,20 @@ from metile.backends.mlx_affine import (
     mlx_affine_matmul,
     mlx_affine_matmul_dispatches,
 )
+from metile.backends.mlx_compressed_down import (
+    MLXCompressedDownWeight,
+    mlx_compressed_down_backend_signature,
+    tune_mlx_affine8_group_size,
+)
 from metile.backends.mlx_dense import (
     MLXDenseWeight,
     mlx_dense_backend_signature,
     mlx_dense_matmul_dispatches,
+)
+from metile.backends.mlx_dense_residual import (
+    mlx_dense_residual_backend_signature,
+    mlx_dense_residual_dispatches,
+    mlx_dense_residual_qmv,
 )
 from metile.backends.mlx_dense_swiglu import (
     mlx_dense_swiglu,
@@ -41,6 +54,7 @@ from metile.backends.mlx_quantized import (
     mlx_affine_swiglu,
     mlx_affine_swiglu_backend_signature,
     mlx_affine_swiglu_dispatches,
+    mlx_affine_swiglu_executor,
 )
 from metile.compiler.schedule_search import choose_mdl_tie
 from metile.ir.graph_ir import GraphBuilder, TensorSpec
@@ -50,15 +64,61 @@ _graph_executable_cache = {}
 _quantized_mlp_executor_cache = {}
 _mlx_lm_plan_cache = {}
 _mlx_lm_plan_lock = threading.RLock()
-_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v13.json"
+_compressed_down_calibration_lock = threading.RLock()
+_compressed_gate_up_calibration_lock = threading.RLock()
+_compressed_gate_up_group_lock = threading.RLock()
+_compressed_gate_up_implementation_lock = threading.RLock()
+_compressed_attention_calibration_lock = threading.RLock()
+_compressed_attention_group_lock = threading.RLock()
+_compressed_vocab_calibration_lock = threading.RLock()
+_compressed_down_calibration_cache_path = cache_root() / "mlx-compressed-down-calibration-v4.json"
+_compressed_gate_up_calibration_cache_path = (
+    cache_root() / "mlx-compressed-gate-up-calibration-v4.json"
+)
+_compressed_gate_up_group_cache_path = cache_root() / "mlx-compressed-gate-up-group-v1.json"
+_compressed_gate_up_implementation_cache_path = (
+    cache_root() / "mlx-compressed-gate-up-implementation-v1.json"
+)
+_compressed_attention_calibration_cache_path = (
+    cache_root() / "mlx-compressed-attention-calibration-v2.json"
+)
+_compressed_attention_group_cache_path = cache_root() / "mlx-compressed-attention-group-v1.json"
+_compressed_vocab_calibration_cache_path = cache_root() / "mlx-compressed-vocab-calibration-v2.json"
+_mlx_lm_plan_cache_path = cache_root() / "mlx-lm-plan-autotune-v47.json"
 _MODEL_SWITCH_MARGIN = 0.01
+_MODEL_DECODE_SWITCH_MARGIN = 0.01
+_MODEL_STRONG_DECODE_SWITCH_MARGIN = 0.05
+_MODEL_STRONG_DECODE_TTFT_REGRESSION_MARGIN = 0.015
 _MODEL_TTFT_SWITCH_MARGIN = 0.02
 _MODEL_REGRESSION_MARGIN = 0.005
+_MODEL_VALIDATION_MIN_DECODE_STEPS = 32
+_MODEL_VALIDATION_MIN_TRIALS = 7
+_MODEL_VALIDATION_ATTEMPTS = 3
+_MODEL_VALIDATION_MAX_SURVIVORS = 3
+_MODEL_VALIDATION_SCREEN_TRIALS = 3
+_MODEL_SCREEN_MAX_FINALISTS = 8
+_MODEL_SCREEN_RELATIVE_MARGIN = 0.08
+_MODEL_SCREEN_ROUNDS = 1
+_MODEL_PROVISIONAL_MAX_FINALISTS = 10
+_MODEL_PROVISIONAL_RELATIVE_MARGIN = 0.03
+_MODEL_PROVISIONAL_ROUNDS = 3
+_MODEL_SEARCH_MIN_DECODE_STEPS = 16
 _MODEL_KL_LIMIT = 1e-3
 _MODEL_MEAN_LOGIT_ERROR_LIMIT = 0.02
 _MODEL_MAX_LOGIT_ERROR_LIMIT = 0.25
 _MODEL_BF16_MEAN_LOGIT_ERROR_LIMIT = 0.04
 _MODEL_BF16_MAX_LOGIT_ERROR_LIMIT = 0.5
+_COMPRESSED_AFFINE8_KL_LIMIT = 1e-3
+_COMPRESSED_AFFINE8_MEAN_LOGIT_ERROR_LIMIT = 0.05
+_COMPRESSED_AFFINE8_MAX_LOGIT_ERROR_LIMIT = 0.5
+_COMPRESSED_APPROXIMATE_KL_LIMIT = 0.05
+_COMPRESSED_APPROXIMATE_MEAN_LOGIT_ERROR_LIMIT = 0.3
+_COMPRESSED_APPROXIMATE_MAX_LOGIT_ERROR_LIMIT = 2.0
+_COMPRESSED_CALIBRATION_SEARCH_DECODE_STEPS = 8
+_COMPRESSED_GATE_UP_FUSION_MARGIN = 0.01
+_COMPRESSED_INTERVAL_DIRECTION_BUDGET = 13
+_COMPRESSED_WORKING_SET_FRACTION = 0.9
+_COMPRESSED_SUBSET_AUGMENTATION_BUDGET = 16
 _QUANTIZED_MLP_MIN_ROWS = 32
 _SUPPORTED_GATED_MLP_MODULES = frozenset(
     {
@@ -78,10 +138,36 @@ class MLXLMPlan:
     quantized_mlp: bool = True
     affine_prefill: bool = False
     dense_mlp: bool = False
+    dense_residual: bool = False
+    compressed_down: bool = False
+    compressed_gate_up: bool = False
+    compressed_vocab: bool = False
+    compressed_attention: bool = False
 
     @property
     def feature_count(self):
         return sum(vars(self).values())
+
+    @property
+    def is_decode_only_compression(self):
+        return any(
+            (
+                self.compressed_down,
+                self.compressed_gate_up,
+                self.compressed_vocab,
+                self.compressed_attention,
+            )
+        ) and not any(
+            (
+                self.attention,
+                self.rms_norm,
+                self.graph_fusion,
+                self.quantized_mlp,
+                self.affine_prefill,
+                self.dense_mlp,
+                self.dense_residual,
+            )
+        )
 
     def as_dict(self):
         return dict(vars(self))
@@ -164,14 +250,15 @@ class MLXAffinePrefill:
 
 @dataclass
 class MLXDenseMLP:
-    """AOT K-major gate/up weights for dense MLX-LM SwiGLU blocks."""
+    """AOT K-major and optional interleaved weights for dense SwiGLU blocks."""
 
     model: object
-    weights: dict[int, tuple[object, MLXDenseWeight, MLXDenseWeight]]
-    min_rows: int = 32
+    weights: dict[int, tuple[object, MLXDenseWeight, MLXDenseWeight, object]]
+    min_rows: int = 1
     repack_bytes: int = 0
     implementation: str = "projected"
     patched_classes: dict[int, type] = field(default_factory=dict)
+    paired_weights: dict[int, tuple[object, object]] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.implementation not in {"fused", "native", "projected"}:
@@ -180,6 +267,10 @@ class MLXDenseMLP:
     def weights_for(self, module):
         entry = self.weights.get(id(module))
         return entry[1:] if entry is not None and entry[0] is module else None
+
+    def paired_weight_for(self, module):
+        entry = self.paired_weights.get(id(module))
+        return entry[1] if entry is not None and entry[0] is module else None
 
     @property
     def mlp_count(self):
@@ -192,7 +283,8 @@ class MLXDenseMLP:
             return patched
         original_class = type(module)
         original_call = original_class.__call__
-        gate_weight, up_weight = self.weights_for(module)
+        gate_weight, up_weight, _ = self.weights_for(module)
+        paired_weight = self.paired_weight_for(module)
         min_rows = self.min_rows
         prepared = self
 
@@ -205,7 +297,16 @@ class MLXDenseMLP:
                 if prepared.implementation == "native":
                     return original_call(self, values)
                 if prepared.implementation == "fused":
-                    hidden = mlx_dense_swiglu(values, gate_weight, up_weight)
+                    hidden = (
+                        mlx_dense_swiglu(values, gate_weight, up_weight)
+                        if paired_weight is None
+                        else mlx_dense_swiglu(
+                            values,
+                            gate_weight,
+                            up_weight,
+                            paired_weight=paired_weight,
+                        )
+                    )
                 else:
                     hidden = mlx_dense_swiglu_projected(values, gate_weight, up_weight)
                 return self.down_proj(hidden)
@@ -216,11 +317,363 @@ class MLXDenseMLP:
         return MLXDenseMLPBlock
 
 
+@dataclass
+class MLXCompressedDown:
+    """AOT compressed down-projection weights for decode-only dispatch."""
+
+    model: object
+    weights: dict[int, tuple[object, MLXCompressedDownWeight]]
+    format: str
+    repack_bytes: int
+    allow_approximate: bool = False
+    group_size: int = 64
+    group_tuning: dict | None = None
+    patched_classes: dict[int, type] = field(default_factory=dict)
+    calibrated: bool = False
+    selection: str = "all"
+    layer_indices: tuple[int, ...] = ()
+    calibration_fidelity: dict | None = None
+
+    def weight_for(self, module):
+        entry = self.weights.get(id(module))
+        return entry[1] if entry is not None and entry[0] is module else None
+
+    @property
+    def projection_count(self):
+        return len(self.weights)
+
+    def patched_class(self, module):
+        key = id(module)
+        patched = self.patched_classes.get(key)
+        if patched is not None:
+            return patched
+        original_class = type(module)
+        original_call = original_class.__call__
+        weight = self.weight_for(module)
+
+        class MLXCompressedDownLinear(original_class):
+            def __call__(self, values):
+                rows = values.size // values.shape[-1]
+                if rows != 1:
+                    return original_call(self, values)
+                return weight(values)
+
+        MLXCompressedDownLinear.__name__ = f"MeTile{original_class.__name__}"
+        MLXCompressedDownLinear.__qualname__ = f"MeTile{original_class.__qualname__}"
+        self.patched_classes[key] = MLXCompressedDownLinear
+        return MLXCompressedDownLinear
+
+    def fidelity_compatible(self, fidelity):
+        if fidelity["next_token"] != fidelity["actual_next_token"]:
+            return False
+        if self.allow_approximate:
+            return (
+                fidelity["kl_divergence"] <= _COMPRESSED_APPROXIMATE_KL_LIMIT
+                and fidelity["mean_logit_error"] <= _COMPRESSED_APPROXIMATE_MEAN_LOGIT_ERROR_LIMIT
+                and fidelity["max_logit_error"] <= _COMPRESSED_APPROXIMATE_MAX_LOGIT_ERROR_LIMIT
+            )
+        return (
+            self.format == "affine8"
+            and fidelity["kl_divergence"] <= _COMPRESSED_AFFINE8_KL_LIMIT
+            and fidelity["mean_logit_error"] <= _COMPRESSED_AFFINE8_MEAN_LOGIT_ERROR_LIMIT
+            and fidelity["max_logit_error"] <= _COMPRESSED_AFFINE8_MAX_LOGIT_ERROR_LIMIT
+        )
+
+
+@dataclass
+class MLXCompressedGateUp:
+    """Layer-grouped affine-INT8 gate/up weights for one-row decode."""
+
+    model: object
+    layers: dict[
+        int, tuple[object, object, MLXCompressedDownWeight, object, MLXCompressedDownWeight]
+    ]
+    repack_bytes: int
+    group_size: int = 64
+    group_tuning: dict | None = None
+    patched_classes: dict[int, type] = field(default_factory=dict)
+    calibrated: bool = False
+    selection: str = "all"
+    layer_indices: tuple[int, ...] = ()
+    calibration_fidelity: dict | None = None
+    executors: dict[tuple, object] = field(default_factory=dict)
+    implementation: str = "projected"
+    implementation_tuning: dict | None = None
+    source_layers: dict[int, tuple[object, object, object, object, object]] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self):
+        if self.implementation not in {"fused", "projected"}:
+            raise ValueError("compressed gate/up implementation must be fused or projected")
+
+    def weight_for(self, module):
+        for _, gate, gate_weight, up, up_weight in self.layers.values():
+            if gate is module:
+                return gate_weight
+            if up is module:
+                return up_weight
+        return None
+
+    @property
+    def layer_count(self):
+        return len(self.layers)
+
+    @property
+    def projection_count(self):
+        return 2 * self.layer_count
+
+    def patched_class(self, module):
+        key = id(module)
+        patched = self.patched_classes.get(key)
+        if patched is not None:
+            return patched
+        original_class = type(module)
+        original_call = original_class.__call__
+        weight = self.weight_for(module)
+
+        class MLXCompressedGateUpLinear(original_class):
+            def __call__(self, values):
+                rows = values.size // values.shape[-1]
+                if rows != 1:
+                    return original_call(self, values)
+                return weight(values)
+
+        MLXCompressedGateUpLinear.__name__ = f"MeTile{original_class.__name__}"
+        MLXCompressedGateUpLinear.__qualname__ = f"MeTile{original_class.__qualname__}"
+        self.patched_classes[key] = MLXCompressedGateUpLinear
+        return MLXCompressedGateUpLinear
+
+    def fused_patched_class(self, module):
+        key = id(module)
+        patched = self.patched_classes.get(key)
+        if patched is not None:
+            return patched
+        entry = self.layers.get(key)
+        if entry is None or entry[0] is not module:
+            raise ValueError("compressed gate/up layer is not active")
+        _, _, gate_weight, _, up_weight = entry
+        original_class = type(module)
+        original_call = original_class.__call__
+        group_size = self.group_size
+        prepared = self
+
+        class MLXCompressedGateUpMLP(original_class):
+            def __call__(self, values):
+                rows = values.size // values.shape[-1]
+                if rows != 1:
+                    return original_call(self, values)
+                executor_key = (
+                    key,
+                    id(gate_weight.values),
+                    id(up_weight.values),
+                    str(values.dtype),
+                )
+                executor = prepared.executors.get(executor_key)
+                if executor is None:
+                    executor = mlx_affine_swiglu_executor(
+                        values,
+                        gate_weight.values,
+                        gate_weight.scales,
+                        gate_weight.biases,
+                        up_weight.values,
+                        up_weight.scales,
+                        up_weight.biases,
+                        group_size=group_size,
+                        bits=8,
+                    )
+                    prepared.executors[executor_key] = executor
+                hidden = executor(values)
+                return self.down_proj(hidden)
+
+        MLXCompressedGateUpMLP.__name__ = f"MeTile{original_class.__name__}"
+        MLXCompressedGateUpMLP.__qualname__ = f"MeTile{original_class.__qualname__}"
+        self.patched_classes[key] = MLXCompressedGateUpMLP
+        return MLXCompressedGateUpMLP
+
+    def fidelity_compatible(self, fidelity):
+        return (
+            fidelity["next_token"] == fidelity["actual_next_token"]
+            and fidelity["kl_divergence"] <= _COMPRESSED_AFFINE8_KL_LIMIT
+            and fidelity["mean_logit_error"] <= _COMPRESSED_AFFINE8_MEAN_LOGIT_ERROR_LIMIT
+            and fidelity["max_logit_error"] <= _COMPRESSED_AFFINE8_MAX_LOGIT_ERROR_LIMIT
+        )
+
+
+@dataclass
+class MLXCompressedAttention:
+    """Layer-grouped affine-INT8 attention projections for one-row decode."""
+
+    model: object
+    layers: dict[
+        int,
+        tuple[
+            object,
+            tuple[tuple[object, MLXCompressedDownWeight], ...],
+        ],
+    ]
+    repack_bytes: int
+    group_size: int = 64
+    group_tuning: dict | None = None
+    patched_classes: dict[int, type] = field(default_factory=dict)
+    calibrated: bool = False
+    selection: str = "all"
+    layer_indices: tuple[int, ...] = ()
+    calibration_fidelity: dict | None = None
+    source_layers: dict[
+        int,
+        tuple[object, tuple[tuple[object, object], ...]],
+    ] = field(default_factory=dict)
+
+    def weight_for(self, module):
+        for _, projections in self.layers.values():
+            for projection, weight in projections:
+                if projection is module:
+                    return weight
+        return None
+
+    @property
+    def layer_count(self):
+        return len(self.layers)
+
+    @property
+    def projection_count(self):
+        return sum(len(projections) for _, projections in self.layers.values())
+
+    def patched_class(self, module):
+        key = id(module)
+        patched = self.patched_classes.get(key)
+        if patched is not None:
+            return patched
+        original_class = type(module)
+        original_call = original_class.__call__
+        weight = self.weight_for(module)
+
+        class MLXCompressedAttentionLinear(original_class):
+            def __call__(self, values):
+                rows = values.size // values.shape[-1]
+                if rows != 1:
+                    return original_call(self, values)
+                output = weight(values)
+                if "bias" in self:
+                    output = output + self["bias"]
+                return output
+
+        MLXCompressedAttentionLinear.__name__ = f"MeTile{original_class.__name__}"
+        MLXCompressedAttentionLinear.__qualname__ = f"MeTile{original_class.__qualname__}"
+        self.patched_classes[key] = MLXCompressedAttentionLinear
+        return MLXCompressedAttentionLinear
+
+    def fidelity_compatible(self, fidelity):
+        return (
+            fidelity["next_token"] == fidelity["actual_next_token"]
+            and fidelity["kl_divergence"] <= _COMPRESSED_AFFINE8_KL_LIMIT
+            and fidelity["mean_logit_error"] <= _COMPRESSED_AFFINE8_MEAN_LOGIT_ERROR_LIMIT
+            and fidelity["max_logit_error"] <= _COMPRESSED_AFFINE8_MAX_LOGIT_ERROR_LIMIT
+        )
+
+
+@dataclass
+class MLXCompressedVocab:
+    """Affine-INT8 vocabulary projection for one-row decode."""
+
+    model: object
+    module: object
+    weight: MLXCompressedDownWeight | None
+    tied: bool
+    repack_bytes: int
+    group_size: int = 64
+    group_tuning: dict | None = None
+    patched_classes: dict[int, type] = field(default_factory=dict)
+    calibrated: bool = False
+    calibration_fidelity: dict | None = None
+
+    @property
+    def projection_count(self):
+        return int(self.weight is not None)
+
+    def patched_class(self):
+        key = id(self.module)
+        patched = self.patched_classes.get(key)
+        if patched is not None:
+            return patched
+        original_class = type(self.module)
+        weight = self.weight
+        if weight is None:
+            raise ValueError("compressed vocabulary projection is disabled")
+
+        if self.tied:
+            original_as_linear = original_class.as_linear
+
+            class MLXCompressedVocabEmbedding(original_class):
+                def as_linear(self, values):
+                    rows = values.size // values.shape[-1]
+                    if rows != 1:
+                        return original_as_linear(self, values)
+                    return weight(values)
+
+            patched = MLXCompressedVocabEmbedding
+        else:
+            original_call = original_class.__call__
+
+            class MLXCompressedVocabLinear(original_class):
+                def __call__(self, values):
+                    rows = values.size // values.shape[-1]
+                    if rows != 1:
+                        return original_call(self, values)
+                    return weight(values)
+
+            patched = MLXCompressedVocabLinear
+
+        patched.__name__ = f"MeTile{original_class.__name__}"
+        patched.__qualname__ = f"MeTile{original_class.__qualname__}"
+        self.patched_classes[key] = patched
+        return patched
+
+    def fidelity_compatible(self, fidelity):
+        return (
+            fidelity["next_token"] == fidelity["actual_next_token"]
+            and fidelity["kl_divergence"] <= _COMPRESSED_AFFINE8_KL_LIMIT
+            and fidelity["mean_logit_error"] <= _COMPRESSED_AFFINE8_MEAN_LOGIT_ERROR_LIMIT
+            and fidelity["max_logit_error"] <= _COMPRESSED_AFFINE8_MAX_LOGIT_ERROR_LIMIT
+        )
+
+
 def _mlx_lm_plan_candidates(requested):
-    names = tuple(name for name, enabled in requested.as_dict().items() if enabled)
+    requested_names = tuple(name for name, enabled in requested.as_dict().items() if enabled)
+    compression_names = tuple(
+        name
+        for name in (
+            "compressed_down",
+            "compressed_gate_up",
+            "compressed_vocab",
+            "compressed_attention",
+        )
+        if name in requested_names
+    )
+    structural_names = tuple(name for name in requested_names if name not in compression_names)
+    enabled_sets = {
+        frozenset(name for index, name in enumerate(compression_names) if mask & (1 << index))
+        for mask in range(1 << len(compression_names))
+    }
+    maximum_structural_order = len(structural_names) if len(structural_names) <= 3 else 2
+    structural_sets = {
+        frozenset(names)
+        for order in range(maximum_structural_order + 1)
+        for names in combinations(structural_names, order)
+    }
+    full_compression = frozenset(compression_names)
+    for structural in structural_sets:
+        enabled_sets.add(structural)
+        enabled_sets.add(structural | full_compression)
+    enabled_sets.add(frozenset(requested_names))
+
     candidates = []
-    for mask in range(1 << len(names)):
-        enabled = {name for index, name in enumerate(names) if mask & (1 << index)}
+    for enabled in enabled_sets:
+        if "compressed_down" in enabled and "dense_residual" in enabled:
+            continue
+        if "compressed_gate_up" in enabled and "dense_mlp" in enabled:
+            continue
         candidates.append(
             MLXLMPlan(
                 attention="attention" in enabled,
@@ -229,6 +682,11 @@ def _mlx_lm_plan_candidates(requested):
                 quantized_mlp="quantized_mlp" in enabled,
                 affine_prefill="affine_prefill" in enabled,
                 dense_mlp="dense_mlp" in enabled,
+                dense_residual="dense_residual" in enabled,
+                compressed_down="compressed_down" in enabled,
+                compressed_gate_up="compressed_gate_up" in enabled,
+                compressed_vocab="compressed_vocab" in enabled,
+                compressed_attention="compressed_attention" in enabled,
             )
         )
     return tuple(
@@ -236,7 +694,42 @@ def _mlx_lm_plan_candidates(requested):
     )
 
 
-def _effective_mlx_lm_plan(plan, affine_prefill=None, dense_mlp=None):
+def _mlx_lm_warmup_plans(candidates):
+    """Select the linear-sized plans needed to populate primitive dispatch caches."""
+    compile_features = (
+        "attention",
+        "rms_norm",
+        "graph_fusion",
+        "quantized_mlp",
+        "affine_prefill",
+        "dense_mlp",
+        "dense_residual",
+    )
+    available = {name for plan in candidates for name, enabled in plan.as_dict().items() if enabled}
+    required = {frozenset()}
+    required.update(frozenset((name,)) for name in compile_features if name in available)
+    for interaction in (
+        frozenset(("graph_fusion", "quantized_mlp")),
+        frozenset(("dense_mlp", "dense_residual")),
+    ):
+        if interaction <= available:
+            required.add(interaction)
+    return tuple(
+        plan
+        for plan in candidates
+        if frozenset(name for name, enabled in plan.as_dict().items() if enabled) in required
+    )
+
+
+def _effective_mlx_lm_plan(
+    plan,
+    affine_prefill=None,
+    dense_mlp=None,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
     return MLXLMPlan(
         attention=plan.attention
         and any(dispatch["algorithm"] == "metile" for dispatch in mlx_attention_dispatches()),
@@ -270,6 +763,21 @@ def _effective_mlx_lm_plan(plan, affine_prefill=None, dense_mlp=None):
                 )
             )
         ),
+        dense_residual=plan.dense_residual
+        and dense_mlp is not None
+        and any(dispatch["algorithm"] == "metile" for dispatch in mlx_dense_residual_dispatches()),
+        compressed_down=plan.compressed_down
+        and compressed_down is not None
+        and compressed_down.projection_count > 0,
+        compressed_gate_up=plan.compressed_gate_up
+        and compressed_gate_up is not None
+        and compressed_gate_up.projection_count > 0,
+        compressed_vocab=plan.compressed_vocab
+        and compressed_vocab is not None
+        and compressed_vocab.projection_count > 0,
+        compressed_attention=plan.compressed_attention
+        and compressed_attention is not None
+        and compressed_attention.projection_count > 0,
     )
 
 
@@ -295,6 +803,45 @@ def _mlx_lm_model_signature(model):
     }
 
 
+def _compressed_down_calibration_key(
+    model,
+    sample_tokens,
+    compressed_down,
+    decode_steps,
+):
+    import mlx.core as mx
+
+    return stable_digest(
+        {
+            "allow_approximate": compressed_down.allow_approximate,
+            "architecture": mx.device_info().get("architecture"),
+            "decode_steps": decode_steps,
+            "format": compressed_down.format,
+            "group_size": compressed_down.group_size,
+            "mlx": mx.__version__,
+            "model": _mlx_lm_model_signature(model),
+            "prompt": sample_tokens.tolist(),
+            "search_decode_steps": _COMPRESSED_CALIBRATION_SEARCH_DECODE_STEPS,
+            "source": stable_digest(
+                {
+                    "backend": mlx_compressed_down_backend_signature(),
+                    "calibrate": inspect.getsource(_calibrate_compressed_down),
+                    "class": inspect.getsource(MLXCompressedDown.patched_class),
+                    "fidelity": inspect.getsource(MLXCompressedDown.fidelity_compatible),
+                    "patch": inspect.getsource(_patch_compressed_down),
+                    "region_policy": _compressed_region_policy_signature(),
+                    "restore": inspect.getsource(_restore_compressed_down_calibration),
+                    "write": inspect.getsource(_write_compressed_down_calibration),
+                }
+            ),
+            "weights": tuple(
+                (weight.shape, weight.format, weight.group_size)
+                for _, weight in compressed_down.weights.values()
+            ),
+        }
+    )
+
+
 def _mlx_lm_plan_key(
     model,
     sample_tokens,
@@ -303,6 +850,10 @@ def _mlx_lm_plan_key(
     dense_mlp,
     decode_steps,
     trials,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
 ):
     import mlx.core as mx
 
@@ -318,6 +869,54 @@ def _mlx_lm_plan_key(
                 else None
             ),
             "decode_steps": decode_steps,
+            "compressed_down": (
+                {
+                    "allow_approximate": compressed_down.allow_approximate,
+                    "format": compressed_down.format,
+                    "group_size": compressed_down.group_size,
+                    "layer_indices": compressed_down.layer_indices,
+                    "projections": compressed_down.projection_count,
+                    "repack_bytes": compressed_down.repack_bytes,
+                    "selection": compressed_down.selection,
+                }
+                if compressed_down is not None
+                else None
+            ),
+            "compressed_gate_up": (
+                {
+                    "group_size": compressed_gate_up.group_size,
+                    "implementation": compressed_gate_up.implementation,
+                    "layer_indices": compressed_gate_up.layer_indices,
+                    "layers": compressed_gate_up.layer_count,
+                    "projections": compressed_gate_up.projection_count,
+                    "repack_bytes": compressed_gate_up.repack_bytes,
+                    "selection": compressed_gate_up.selection,
+                }
+                if compressed_gate_up is not None
+                else None
+            ),
+            "compressed_vocab": (
+                {
+                    "group_size": compressed_vocab.group_size,
+                    "projections": compressed_vocab.projection_count,
+                    "repack_bytes": compressed_vocab.repack_bytes,
+                    "tied": compressed_vocab.tied,
+                }
+                if compressed_vocab is not None
+                else None
+            ),
+            "compressed_attention": (
+                {
+                    "group_size": compressed_attention.group_size,
+                    "layer_indices": compressed_attention.layer_indices,
+                    "layers": compressed_attention.layer_count,
+                    "projections": compressed_attention.projection_count,
+                    "repack_bytes": compressed_attention.repack_bytes,
+                    "selection": compressed_attention.selection,
+                }
+                if compressed_attention is not None
+                else None
+            ),
             "dense_mlp": (
                 {
                     "min_rows": dense_mlp.min_rows,
@@ -339,19 +938,76 @@ def _mlx_lm_plan_key(
                     "affine_prefill": inspect.getsource(_patch_affine_prefill),
                     "affine_swiglu_backend": mlx_affine_swiglu_backend_signature(),
                     "choose": inspect.getsource(_choose_mlx_lm_plan),
+                    "plan_candidates": inspect.getsource(_mlx_lm_plan_candidates),
+                    "compressed_down_backend": mlx_compressed_down_backend_signature(),
+                    "compressed_down_class": inspect.getsource(MLXCompressedDown.patched_class),
+                    "compressed_down_calibration": inspect.getsource(_calibrate_compressed_down),
+                    "compressed_down_candidates": inspect.getsource(
+                        _compressed_down_subset_candidates
+                    ),
+                    "compressed_down_patch": inspect.getsource(_patch_compressed_down),
+                    "compressed_gate_up_class": inspect.getsource(
+                        MLXCompressedGateUp.patched_class
+                    ),
+                    "compressed_gate_up_fused_class": inspect.getsource(
+                        MLXCompressedGateUp.fused_patched_class
+                    ),
+                    "compressed_gate_up_fusion_guard": inspect.getsource(
+                        _supports_compressed_gate_up_fusion
+                    ),
+                    "compressed_gate_up_calibration": inspect.getsource(
+                        _calibrate_compressed_gate_up
+                    ),
+                    "compressed_gate_up_group": inspect.getsource(
+                        _autotune_compressed_gate_up_group
+                    ),
+                    "compressed_gate_up_implementation": inspect.getsource(
+                        _select_compressed_gate_up_implementation
+                    ),
+                    "compressed_gate_up_patch": inspect.getsource(_patch_compressed_gate_up),
+                    "compressed_attention_class": inspect.getsource(
+                        MLXCompressedAttention.patched_class
+                    ),
+                    "compressed_attention_calibration": inspect.getsource(
+                        _calibrate_compressed_attention
+                    ),
+                    "compressed_attention_group": inspect.getsource(
+                        _autotune_compressed_attention_group
+                    ),
+                    "compressed_attention_patch": inspect.getsource(_patch_compressed_attention),
+                    "compressed_region_policy": _compressed_region_policy_signature(),
+                    "compressed_vocab_calibration": inspect.getsource(_calibrate_compressed_vocab),
+                    "compressed_vocab_class": inspect.getsource(MLXCompressedVocab.patched_class),
+                    "compressed_vocab_patch": inspect.getsource(_patch_compressed_vocab),
                     "dense_backend": mlx_dense_swiglu_backend_signature(),
                     "dense_matmul_backend": mlx_dense_backend_signature(),
+                    "dense_residual_backend": mlx_dense_residual_backend_signature(),
                     "dense_class": inspect.getsource(MLXDenseMLP.patched_class),
+                    "dense_execute": inspect.getsource(_execute_dense_mlp),
                     "dense_patch": inspect.getsource(_patch_dense_mlp),
+                    "dense_residual_support": inspect.getsource(_supports_dense_residual_mlp),
                     "dense_selection": inspect.getsource(_select_dense_mlp_implementation),
+                    "decode_only_plan": inspect.getsource(_is_decode_only_compression_plan),
                     "effective": inspect.getsource(_effective_mlx_lm_plan),
                     "fidelity": inspect.getsource(_plan_preserves_logits),
                     "finalists": inspect.getsource(_provisional_mlx_lm_finalists),
+                    "plan": inspect.getsource(MLXLMPlan),
+                    "prompt": inspect.getsource(_prepare_mlx_lm_prompt),
+                    "warmups": inspect.getsource(_mlx_lm_warmup_plans),
+                    "graph_patch": inspect.getsource(_patch_graph_fusion),
                     "quantized_mlp_patch": inspect.getsource(_patch_quantized_mlp),
+                    "rank": inspect.getsource(_rank_mlx_lm_plans),
                     "timing": inspect.getsource(_time_mlx_lm_plan),
+                    "validation": inspect.getsource(_validate_mlx_lm_plan),
+                    "validation_finalists": inspect.getsource(_mlx_lm_validation_finalists),
+                    "validation_joint": inspect.getsource(_validate_mlx_lm_finalists_repeated),
+                    "validation_retry": inspect.getsource(_validate_mlx_lm_plan_repeated),
                 }
             ),
             "regression_margin": _MODEL_REGRESSION_MARGIN,
+            "decode_switch_margin": _MODEL_DECODE_SWITCH_MARGIN,
+            "strong_decode_switch_margin": _MODEL_STRONG_DECODE_SWITCH_MARGIN,
+            "strong_decode_ttft_regression_margin": (_MODEL_STRONG_DECODE_TTFT_REGRESSION_MARGIN),
             "dense_mlp_implementation": (
                 dense_mlp.implementation if dense_mlp is not None else None
             ),
@@ -359,7 +1015,19 @@ def _mlx_lm_plan_key(
             "switch_margin": _MODEL_SWITCH_MARGIN,
             "ttft_switch_margin": _MODEL_TTFT_SWITCH_MARGIN,
             "trials": trials,
-            "tuner": 13,
+            "screen_max_finalists": _MODEL_SCREEN_MAX_FINALISTS,
+            "screen_relative_margin": _MODEL_SCREEN_RELATIVE_MARGIN,
+            "screen_rounds": _MODEL_SCREEN_ROUNDS,
+            "provisional_max_finalists": _MODEL_PROVISIONAL_MAX_FINALISTS,
+            "provisional_relative_margin": _MODEL_PROVISIONAL_RELATIVE_MARGIN,
+            "provisional_rounds": _MODEL_PROVISIONAL_ROUNDS,
+            "search_decode_steps": _MODEL_SEARCH_MIN_DECODE_STEPS,
+            "validation_decode_steps": _MODEL_VALIDATION_MIN_DECODE_STEPS,
+            "validation_attempts": _MODEL_VALIDATION_ATTEMPTS,
+            "validation_max_survivors": _MODEL_VALIDATION_MAX_SURVIVORS,
+            "validation_screen_trials": _MODEL_VALIDATION_SCREEN_TRIALS,
+            "validation_trials": _MODEL_VALIDATION_MIN_TRIALS,
+            "tuner": 47,
         }
     )
 
@@ -388,28 +1056,78 @@ def _write_mlx_lm_plan(key, plan):
     atomic_write_json(_mlx_lm_plan_cache_path, payload)
 
 
-def _time_mlx_lm_plan(model, sample_tokens, plan, affine_prefill, dense_mlp, decode_steps):
+def _prepare_mlx_lm_prompt(model, sample_tokens, decode_steps):
     import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache
 
+    if decode_steps < 1:
+        raise ValueError("prompt preparation requires positive decode steps")
     cache = make_prompt_cache(model)
+    start = time.perf_counter_ns()
+    logits = model(sample_tokens, cache=cache)
+    mx.eval(logits)
+    elapsed = (time.perf_counter_ns() - start) * 1e-9
+    trajectory_cache = copy.deepcopy(cache)
+    decode_tokens = []
+    for step in range(decode_steps):
+        token = mx.argmax(logits[:, -1], axis=-1)[:, None]
+        mx.eval(token)
+        decode_tokens.append(token)
+        if step + 1 < decode_steps:
+            logits = model(token, cache=trajectory_cache)
+            mx.eval(logits)
+    return cache, elapsed, tuple(decode_tokens)
+
+
+def _time_mlx_lm_plan(
+    model,
+    sample_tokens,
+    plan,
+    affine_prefill,
+    dense_mlp,
+    decode_steps,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+    prepared_prompt=None,
+    decode_tokens=None,
+):
+    import mlx.core as mx
+    from mlx_lm.models.cache import make_prompt_cache
+
     decode_token = sample_tokens[:, -1:]
+    if prepared_prompt is not None:
+        cache = copy.deepcopy(prepared_prompt[0])
+        ttft = prepared_prompt[1]
+    else:
+        cache = make_prompt_cache(model)
     with apply_metile_to_mlx_lm(
         model=model,
         plan=plan,
         affine_prefill=affine_prefill,
         dense_mlp=dense_mlp,
+        compressed_down=compressed_down,
+        compressed_gate_up=compressed_gate_up,
+        compressed_vocab=compressed_vocab,
+        compressed_attention=compressed_attention,
     ):
-        total_start = time.perf_counter_ns()
-        logits = model(sample_tokens, cache=cache)
-        mx.eval(logits)
-        ttft = (time.perf_counter_ns() - total_start) * 1e-9
-        decode_start = time.perf_counter_ns()
-        for _ in range(decode_steps):
-            logits = model(decode_token, cache=cache)
+        if prepared_prompt is None:
+            total_start = time.perf_counter_ns()
+            logits = model(sample_tokens, cache=cache)
             mx.eval(logits)
-        decode = (time.perf_counter_ns() - decode_start) * 1e-9 / decode_steps
-        total = (time.perf_counter_ns() - total_start) * 1e-9
+            ttft = (time.perf_counter_ns() - total_start) * 1e-9
+        if decode_tokens is None:
+            decode_tokens = (decode_token,) * decode_steps
+        elif len(decode_tokens) != decode_steps:
+            raise ValueError("decode trajectory must match decode steps")
+        decode_start = time.perf_counter_ns()
+        for token in decode_tokens:
+            logits = model(token, cache=cache)
+            mx.eval(logits)
+        decode_elapsed = (time.perf_counter_ns() - decode_start) * 1e-9
+        decode = decode_elapsed / decode_steps
+        total = ttft + decode_elapsed
     next_token = int(mx.argmax(logits[:, -1], axis=-1).item())
     return (ttft, decode, total), next_token
 
@@ -452,6 +1170,1344 @@ def _fidelity_compatible(fidelity):
         and fidelity["mean_logit_error"] <= mean_limit
         and fidelity["max_logit_error"] <= maximum_limit
     )
+
+
+def _compressed_down_subset_candidates(count):
+    if count < 1:
+        return
+    yield "all", tuple(range(count))
+    for size in range(count - 1, 0, -1):
+        yield f"suffix:{size}", tuple(range(count - size, count))
+        yield f"prefix:{size}", tuple(range(size))
+
+
+def _augment_compressed_subset(count, evaluate, selected, *, budget):
+    """Grow a compatible interval into a bounded non-contiguous layer subset."""
+    selected_name, selected_indices, selected_fidelity = selected
+    selected_indices = tuple(sorted(selected_indices))
+    attempts = 0
+    while attempts < budget and len(selected_indices) < count:
+        selected_set = set(selected_indices)
+        if selected_name.startswith("prefix"):
+            excluded = (index for index in range(count) if index not in selected_set)
+        else:
+            excluded = (index for index in range(count - 1, -1, -1) if index not in selected_set)
+        grew = False
+        for index in excluded:
+            candidate = tuple(sorted((*selected_indices, index)))
+            name = "subset:" + ",".join(map(str, candidate))
+            compatible, fidelity = evaluate(name, candidate)
+            attempts += 1
+            if compatible:
+                selected_name = name
+                selected_indices = candidate
+                selected_fidelity = fidelity
+                grew = True
+                break
+            if attempts >= budget:
+                break
+        if not grew:
+            break
+    return selected_name, selected_indices, selected_fidelity
+
+
+def _select_compressed_region(
+    count,
+    evaluate,
+    *,
+    augmentation_budget=_COMPRESSED_SUBSET_AUGMENTATION_BUDGET,
+):
+    """Find a large compatible layer mask with logarithmic intervals and bounded augmentation."""
+    if count < 1:
+        return "native", (), None
+    all_indices = tuple(range(count))
+    compatible, fidelity = evaluate("all", all_indices)
+    if compatible:
+        return "all", all_indices, fidelity
+
+    def indices_for(direction, size):
+        if direction == "suffix":
+            return tuple(range(count - size, count))
+        return tuple(range(size))
+
+    def search(direction):
+        results = {}
+
+        def check(size):
+            cached = results.get(size)
+            if cached is not None:
+                return cached
+            indices = indices_for(direction, size)
+            if len(results) >= _COMPRESSED_INTERVAL_DIRECTION_BUDGET:
+                return False, None, indices
+            result = evaluate(f"{direction}:{size}", indices)
+            results[size] = (*result, indices)
+            return results[size]
+
+        upper_failure = count
+        step = 1
+        while True:
+            size = max(1, count - step)
+            is_compatible, _, _ = check(size)
+            if is_compatible:
+                lower = size
+                break
+            upper_failure = size
+            if size == 1:
+                return None
+            step *= 2
+
+        upper = upper_failure - 1
+        while lower < upper:
+            middle = (lower + upper + 1) // 2
+            is_compatible, _, _ = check(middle)
+            if is_compatible:
+                lower = middle
+            else:
+                upper = middle - 1
+        audit_sizes = {
+            failed + offset
+            for failed, result in results.items()
+            if not result[0]
+            for offset in (-2, -1, 1, 2)
+            if lower < failed + offset < count
+        }
+        for size in sorted(audit_sizes, reverse=True):
+            audit_compatible, _, _ = check(size)
+            if audit_compatible:
+                lower = max(lower, size)
+        while lower < count - 1:
+            boundary_compatible, _, _ = check(lower + 1)
+            if not boundary_compatible:
+                break
+            lower += 1
+        is_compatible, selected_fidelity, selected_indices = check(lower)
+        if not is_compatible:
+            return None
+        return f"{direction}:{lower}", selected_indices, selected_fidelity
+
+    candidates = tuple(
+        candidate for candidate in (search("suffix"), search("prefix")) if candidate is not None
+    )
+    selected = (
+        max(
+            candidates,
+            key=lambda candidate: (
+                len(candidate[1]),
+                candidate[0].startswith("suffix"),
+            ),
+        )
+        if candidates
+        else ("native", (), None)
+    )
+    return _augment_compressed_subset(
+        count,
+        evaluate,
+        selected,
+        budget=augmentation_budget,
+    )
+
+
+def _audit_larger_compressed_regions(
+    count,
+    evaluate,
+    selected,
+    *,
+    selected_compatible=True,
+    local_window=4,
+):
+    """Refine a short-horizon frontier with bounded full-horizon evaluations."""
+    target_size = len(selected[1])
+    best = selected if selected_compatible else ("native", (), None)
+    candidates = {("all", tuple(range(count)))}
+    selected_set = set(selected[1])
+    prefix_run = next(
+        (index for index in range(count) if index not in selected_set),
+        count,
+    )
+    suffix_run = next(
+        (count - index - 1 for index in range(count - 1, -1, -1) if index not in selected_set),
+        count,
+    )
+    preferred = "suffix" if suffix_run >= prefix_run else "prefix"
+    opposite = "prefix" if preferred == "suffix" else "suffix"
+    sizes = set(range(max(1, count - 4), count))
+    sizes.update(
+        range(
+            max(1, target_size - local_window),
+            min(count - 1, target_size + 2) + 1,
+        )
+    )
+    for size in sizes:
+        indices = tuple(range(count - size, count)) if preferred == "suffix" else tuple(range(size))
+        candidates.add((f"{preferred}:{size}", indices))
+    opposite_size = count - 1
+    opposite_indices = (
+        tuple(range(opposite_size)) if opposite == "prefix" else tuple(range(1, count))
+    )
+    candidates.add((f"{opposite}:{opposite_size}", opposite_indices))
+    for name, indices in sorted(
+        candidates,
+        key=lambda candidate: (
+            -len(candidate[1]),
+            not candidate[0].startswith("suffix"),
+        ),
+    ):
+        if indices == selected[1] or len(indices) <= len(best[1]):
+            continue
+        compatible, fidelity = evaluate(name, indices)
+        if compatible:
+            return name, indices, fidelity
+    if best[1]:
+        return best
+    return _select_compressed_region(count, evaluate, augmentation_budget=0)
+
+
+@dataclass(frozen=True)
+class _CompressedCalibrationReference:
+    decode_token: object
+    prompt_cache: object | None
+    search_steps: int
+    search_reference: object
+    full_reference: object
+
+
+def _prepare_compressed_calibration_reference(model, sample_tokens, decode_steps):
+    import mlx.core as mx
+    from mlx_lm.models.cache import make_prompt_cache
+
+    if decode_steps < 1:
+        raise ValueError("compressed calibration requires positive decode steps")
+    decode_token = sample_tokens[:, -1:]
+    reference_cache = make_prompt_cache(model)
+    reference = model(sample_tokens, cache=reference_cache)
+    mx.eval(reference)
+    prompt_cache = copy.deepcopy(reference_cache) if sample_tokens.shape[1] > 1 else None
+    search_steps = min(_COMPRESSED_CALIBRATION_SEARCH_DECODE_STEPS, decode_steps)
+    search_reference = reference
+    for step in range(decode_steps):
+        reference = model(decode_token, cache=reference_cache)
+        mx.eval(reference)
+        if step + 1 == search_steps:
+            search_reference = reference
+    return _CompressedCalibrationReference(
+        decode_token,
+        prompt_cache,
+        search_steps,
+        search_reference,
+        reference,
+    )
+
+
+def _run_compressed_calibration_candidate(
+    model,
+    sample_tokens,
+    reference,
+    steps,
+    plan,
+    **patches,
+):
+    import mlx.core as mx
+    from mlx_lm.models.cache import make_prompt_cache
+
+    if steps < 1:
+        raise ValueError("compressed calibration requires positive decode steps")
+    actual_cache = (
+        copy.deepcopy(reference.prompt_cache)
+        if reference.prompt_cache is not None
+        else make_prompt_cache(model)
+    )
+    with apply_metile_to_mlx_lm(model=model, plan=plan, **patches):
+        if reference.prompt_cache is None:
+            actual = model(sample_tokens, cache=actual_cache)
+            mx.eval(actual)
+        for _ in range(steps):
+            actual = model(reference.decode_token, cache=actual_cache)
+            mx.eval(actual)
+    return actual
+
+
+def _compressed_region_policy_signature():
+    return stable_digest(
+        {
+            "candidate_trajectory": inspect.getsource(_run_compressed_calibration_candidate),
+            "full_horizon": inspect.getsource(_audit_larger_compressed_regions),
+            "interval": inspect.getsource(_select_compressed_region),
+            "interval_direction_budget": _COMPRESSED_INTERVAL_DIRECTION_BUDGET,
+            "reference_trajectory": inspect.getsource(_prepare_compressed_calibration_reference),
+            "subset": inspect.getsource(_augment_compressed_subset),
+            "subset_budget": _COMPRESSED_SUBSET_AUGMENTATION_BUDGET,
+        }
+    )
+
+
+def _restore_compressed_down_calibration(compressed_down, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return False
+    record = read_json(_compressed_down_calibration_cache_path, {}).get(key)
+    if not isinstance(record, dict):
+        return False
+    selection = record.get("selection")
+    indices = record.get("layer_indices")
+    fidelity = record.get("fidelity")
+    entries = tuple(compressed_down.weights.items())
+    if (
+        not isinstance(selection, str)
+        or not isinstance(indices, list)
+        or not all(
+            not isinstance(index, bool) and isinstance(index, int) and 0 <= index < len(entries)
+            for index in indices
+        )
+        or len(indices) != len(set(indices))
+        or (fidelity is not None and not isinstance(fidelity, dict))
+    ):
+        return False
+    compressed_down.weights = {entries[index][0]: entries[index][1] for index in indices}
+    compressed_down.repack_bytes = sum(
+        weight.nbytes for _, weight in compressed_down.weights.values()
+    )
+    compressed_down.calibrated = True
+    compressed_down.selection = selection
+    compressed_down.layer_indices = tuple(indices)
+    compressed_down.calibration_fidelity = fidelity
+    return True
+
+
+def _write_compressed_down_calibration(compressed_down, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return
+    payload = read_json(_compressed_down_calibration_cache_path, {})
+    payload[key] = {
+        "fidelity": compressed_down.calibration_fidelity,
+        "layer_indices": compressed_down.layer_indices,
+        "selection": compressed_down.selection,
+    }
+    atomic_write_json(_compressed_down_calibration_cache_path, payload)
+
+
+def _calibrate_compressed_down(model, sample_tokens, compressed_down, decode_steps):
+    if compressed_down.calibrated:
+        return
+    import mlx.core as mx
+
+    entries = tuple(compressed_down.weights.items())
+    if not entries:
+        compressed_down.calibrated = True
+        compressed_down.selection = "native"
+        return
+    key = _compressed_down_calibration_key(
+        model,
+        sample_tokens,
+        compressed_down,
+        decode_steps,
+    )
+    with _compressed_down_calibration_lock:
+        if _restore_compressed_down_calibration(compressed_down, key):
+            return
+
+    reference = _prepare_compressed_calibration_reference(
+        model,
+        sample_tokens,
+        decode_steps,
+    )
+
+    plan = MLXLMPlan(False, False, False, False, compressed_down=True)
+
+    def make_evaluator(expected, steps):
+        evaluations = {}
+
+        def evaluate(_name, indices):
+            cached = evaluations.get(indices)
+            if cached is not None:
+                return cached
+            compressed_down.patched_classes.clear()
+            compressed_down.weights = {entries[index][0]: entries[index][1] for index in indices}
+            actual = _run_compressed_calibration_candidate(
+                model,
+                sample_tokens,
+                reference,
+                steps,
+                plan,
+                compressed_down=compressed_down,
+            )
+            fidelity = _logit_fidelity(expected, actual)
+            result = compressed_down.fidelity_compatible(fidelity), fidelity
+            evaluations[indices] = result
+            return result
+
+        return evaluate
+
+    search_evaluate = make_evaluator(reference.search_reference, reference.search_steps)
+    selected_name, selected_indices, selected_fidelity = _select_compressed_region(
+        len(entries),
+        search_evaluate,
+    )
+    if decode_steps > reference.search_steps:
+        full_evaluate = make_evaluator(reference.full_reference, decode_steps)
+        compatible = False
+        if selected_indices:
+            compatible, selected_fidelity = full_evaluate(selected_name, selected_indices)
+        selected_name, selected_indices, selected_fidelity = _audit_larger_compressed_regions(
+            len(entries),
+            full_evaluate,
+            (selected_name, selected_indices, selected_fidelity),
+            selected_compatible=compatible,
+        )
+
+    compressed_down.patched_classes.clear()
+    compressed_down.weights = {entries[index][0]: entries[index][1] for index in selected_indices}
+    compressed_down.repack_bytes = sum(
+        weight.nbytes for _, weight in compressed_down.weights.values()
+    )
+    compressed_down.calibrated = True
+    compressed_down.selection = selected_name
+    compressed_down.layer_indices = selected_indices
+    compressed_down.calibration_fidelity = selected_fidelity
+    with _compressed_down_calibration_lock:
+        _write_compressed_down_calibration(compressed_down, key)
+    gc.collect()
+    mx.clear_cache()
+
+
+def _compressed_gate_up_repack_bytes(layers):
+    return sum(
+        gate_weight.nbytes + up_weight.nbytes for _, _, gate_weight, _, up_weight in layers.values()
+    )
+
+
+def _select_model_affine8_group(total_layers, layer_counts, timings, native_timing):
+    if total_layers < 1:
+        raise ValueError("model affine8 group selection requires at least one layer")
+    groups = tuple(sorted(layer_counts))
+    if not groups or set(groups) != set(timings):
+        raise ValueError("model affine8 group candidates must have matching timings")
+    if native_timing <= 0 or any(
+        count < 0 or count > total_layers for count in layer_counts.values()
+    ):
+        raise ValueError("model affine8 group measurements must be positive and bounded")
+    estimates = {
+        group: layer_counts[group] * timings[group]
+        + (total_layers - layer_counts[group]) * native_timing
+        for group in groups
+    }
+    selected = min(groups, key=lambda group: (estimates[group], -layer_counts[group], group))
+    return selected, estimates
+
+
+def _repack_compressed_gate_up_group(compressed_gate_up, group_size):
+    import mlx.core as mx
+
+    compressed_gate_up.layers = {}
+    compressed_gate_up.patched_classes.clear()
+    compressed_gate_up.executors.clear()
+    compressed_gate_up.calibrated = False
+    compressed_gate_up.implementation = "projected"
+    compressed_gate_up.implementation_tuning = None
+    compressed_gate_up.selection = "all"
+    compressed_gate_up.layer_indices = ()
+    compressed_gate_up.calibration_fidelity = None
+    gc.collect()
+    mx.clear_cache()
+    layers = {}
+    for key, (module, gate, gate_weight, up, up_weight) in compressed_gate_up.source_layers.items():
+        layers[key] = (
+            module,
+            gate,
+            MLXCompressedDownWeight.quantize(
+                gate_weight,
+                format="affine8",
+                group_size=group_size,
+            ),
+            up,
+            MLXCompressedDownWeight.quantize(
+                up_weight,
+                format="affine8",
+                group_size=group_size,
+            ),
+        )
+    compressed_gate_up.layers = layers
+    compressed_gate_up.group_size = group_size
+    compressed_gate_up.repack_bytes = _compressed_gate_up_repack_bytes(layers)
+
+
+def _compressed_gate_up_group_key(model, sample_tokens, compressed_gate_up, decode_steps):
+    import mlx.core as mx
+
+    return stable_digest(
+        {
+            "architecture": mx.device_info().get("architecture"),
+            "decode_steps": decode_steps,
+            "group_tuning": {
+                name: value
+                for name, value in compressed_gate_up.group_tuning.items()
+                if name != "cached"
+            },
+            "mlx": mx.__version__,
+            "model": _mlx_lm_model_signature(model),
+            "prompt": sample_tokens.tolist(),
+            "source": stable_digest(
+                {
+                    "calibrate": inspect.getsource(_calibrate_compressed_gate_up),
+                    "region_policy": _compressed_region_policy_signature(),
+                    "repack": inspect.getsource(_repack_compressed_gate_up_group),
+                    "select": inspect.getsource(_select_model_affine8_group),
+                    "tune": inspect.getsource(_autotune_compressed_gate_up_group),
+                }
+            ),
+            "weights": tuple(
+                (gate_weight.shape, str(gate_weight.dtype), up_weight.shape)
+                for _, _, gate_weight, _, up_weight in compressed_gate_up.source_layers.values()
+            ),
+        }
+    )
+
+
+def _autotune_compressed_gate_up_group(
+    model,
+    sample_tokens,
+    compressed_gate_up,
+    decode_steps,
+):
+    tuning = compressed_gate_up.group_tuning
+    if tuning is None or tuning.get("model_calibrated") or not compressed_gate_up.source_layers:
+        return
+    timings_payload = tuning.get("median_nanoseconds")
+    native_timing = tuning.get("native_median_nanoseconds")
+    if not isinstance(timings_payload, dict) or not isinstance(native_timing, int):
+        return
+    timings = {int(group): int(value) for group, value in timings_payload.items()}
+    key = _compressed_gate_up_group_key(
+        model,
+        sample_tokens,
+        compressed_gate_up,
+        decode_steps,
+    )
+    cached = None
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
+        with _compressed_gate_up_group_lock:
+            cached = read_json(_compressed_gate_up_group_cache_path, {}).get(key)
+    if isinstance(cached, dict) and cached.get("group_size") in timings:
+        selected = cached["group_size"]
+        _repack_compressed_gate_up_group(compressed_gate_up, selected)
+        _calibrate_compressed_gate_up(
+            model,
+            sample_tokens,
+            compressed_gate_up,
+            decode_steps,
+        )
+        compressed_gate_up.group_tuning = {
+            **tuning,
+            **cached,
+            "cached": True,
+            "group_size": selected,
+            "micro_group_size": tuning["group_size"],
+            "model_calibrated": True,
+        }
+        return
+
+    total_layers = len(compressed_gate_up.source_layers)
+    candidates = {}
+    layer_counts = {}
+    for group in sorted(timings):
+        _repack_compressed_gate_up_group(compressed_gate_up, group)
+        _calibrate_compressed_gate_up(
+            model,
+            sample_tokens,
+            compressed_gate_up,
+            decode_steps,
+        )
+        layer_counts[group] = compressed_gate_up.layer_count
+        candidates[str(group)] = {
+            "fidelity": compressed_gate_up.calibration_fidelity,
+            "layers": compressed_gate_up.layer_count,
+            "selection": compressed_gate_up.selection,
+        }
+    selected, estimates = _select_model_affine8_group(
+        total_layers,
+        layer_counts,
+        timings,
+        native_timing,
+    )
+    if compressed_gate_up.group_size != selected:
+        _repack_compressed_gate_up_group(compressed_gate_up, selected)
+        _calibrate_compressed_gate_up(
+            model,
+            sample_tokens,
+            compressed_gate_up,
+            decode_steps,
+        )
+    record = {
+        "group_size": selected,
+        "model_calibrated": True,
+        "model_candidates": candidates,
+        "predicted_nanoseconds": {str(group): round(value) for group, value in estimates.items()},
+    }
+    compressed_gate_up.group_tuning = {
+        **tuning,
+        **record,
+        "cached": False,
+        "micro_group_size": tuning["group_size"],
+    }
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
+        with _compressed_gate_up_group_lock:
+            payload = read_json(_compressed_gate_up_group_cache_path, {})
+            payload[key] = record
+            atomic_write_json(_compressed_gate_up_group_cache_path, payload)
+
+
+def _compressed_gate_up_calibration_key(
+    model,
+    sample_tokens,
+    compressed_gate_up,
+    decode_steps,
+):
+    import mlx.core as mx
+
+    return stable_digest(
+        {
+            "architecture": mx.device_info().get("architecture"),
+            "decode_steps": decode_steps,
+            "group_size": compressed_gate_up.group_size,
+            "mlx": mx.__version__,
+            "model": _mlx_lm_model_signature(model),
+            "prompt": sample_tokens.tolist(),
+            "search_decode_steps": _COMPRESSED_CALIBRATION_SEARCH_DECODE_STEPS,
+            "source": stable_digest(
+                {
+                    "backend": mlx_compressed_down_backend_signature(),
+                    "calibrate": inspect.getsource(_calibrate_compressed_gate_up),
+                    "class": inspect.getsource(MLXCompressedGateUp.patched_class),
+                    "fused_backend": mlx_affine_swiglu_backend_signature(),
+                    "fused_class": inspect.getsource(MLXCompressedGateUp.fused_patched_class),
+                    "fused_guard": inspect.getsource(_supports_compressed_gate_up_fusion),
+                    "fidelity": inspect.getsource(MLXCompressedGateUp.fidelity_compatible),
+                    "patch": inspect.getsource(_patch_compressed_gate_up),
+                    "region_policy": _compressed_region_policy_signature(),
+                    "restore": inspect.getsource(_restore_compressed_gate_up_calibration),
+                    "write": inspect.getsource(_write_compressed_gate_up_calibration),
+                }
+            ),
+            "weights": tuple(
+                (
+                    gate_weight.shape,
+                    gate_weight.group_size,
+                    up_weight.shape,
+                    up_weight.group_size,
+                )
+                for _, _, gate_weight, _, up_weight in compressed_gate_up.layers.values()
+            ),
+        }
+    )
+
+
+def _restore_compressed_gate_up_calibration(compressed_gate_up, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return False
+    record = read_json(_compressed_gate_up_calibration_cache_path, {}).get(key)
+    if not isinstance(record, dict):
+        return False
+    selection = record.get("selection")
+    indices = record.get("layer_indices")
+    fidelity = record.get("fidelity")
+    entries = tuple(compressed_gate_up.layers.items())
+    if (
+        not isinstance(selection, str)
+        or not isinstance(indices, list)
+        or not all(
+            not isinstance(index, bool) and isinstance(index, int) and 0 <= index < len(entries)
+            for index in indices
+        )
+        or len(indices) != len(set(indices))
+        or (fidelity is not None and not isinstance(fidelity, dict))
+    ):
+        return False
+    compressed_gate_up.layers = {entries[index][0]: entries[index][1] for index in indices}
+    compressed_gate_up.repack_bytes = _compressed_gate_up_repack_bytes(compressed_gate_up.layers)
+    compressed_gate_up.calibrated = True
+    compressed_gate_up.selection = selection
+    compressed_gate_up.layer_indices = tuple(indices)
+    compressed_gate_up.calibration_fidelity = fidelity
+    return True
+
+
+def _write_compressed_gate_up_calibration(compressed_gate_up, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return
+    payload = read_json(_compressed_gate_up_calibration_cache_path, {})
+    payload[key] = {
+        "fidelity": compressed_gate_up.calibration_fidelity,
+        "layer_indices": compressed_gate_up.layer_indices,
+        "selection": compressed_gate_up.selection,
+    }
+    atomic_write_json(_compressed_gate_up_calibration_cache_path, payload)
+
+
+def _calibrate_compressed_gate_up(model, sample_tokens, compressed_gate_up, decode_steps):
+    if compressed_gate_up.calibrated:
+        return
+    import mlx.core as mx
+
+    entries = tuple(compressed_gate_up.layers.items())
+    if not entries:
+        compressed_gate_up.calibrated = True
+        compressed_gate_up.selection = "native"
+        return
+    key = _compressed_gate_up_calibration_key(
+        model,
+        sample_tokens,
+        compressed_gate_up,
+        decode_steps,
+    )
+    with _compressed_gate_up_calibration_lock:
+        if _restore_compressed_gate_up_calibration(compressed_gate_up, key):
+            return
+
+    reference = _prepare_compressed_calibration_reference(
+        model,
+        sample_tokens,
+        decode_steps,
+    )
+
+    plan = MLXLMPlan(False, False, False, False, compressed_gate_up=True)
+
+    def make_evaluator(expected, steps):
+        evaluations = {}
+
+        def evaluate(_name, indices):
+            cached = evaluations.get(indices)
+            if cached is not None:
+                return cached
+            compressed_gate_up.patched_classes.clear()
+            compressed_gate_up.layers = {entries[index][0]: entries[index][1] for index in indices}
+            actual = _run_compressed_calibration_candidate(
+                model,
+                sample_tokens,
+                reference,
+                steps,
+                plan,
+                compressed_gate_up=compressed_gate_up,
+            )
+            fidelity = _logit_fidelity(expected, actual)
+            result = compressed_gate_up.fidelity_compatible(fidelity), fidelity
+            evaluations[indices] = result
+            return result
+
+        return evaluate
+
+    search_evaluate = make_evaluator(reference.search_reference, reference.search_steps)
+    selected_name, selected_indices, selected_fidelity = _select_compressed_region(
+        len(entries),
+        search_evaluate,
+    )
+    if decode_steps > reference.search_steps:
+        full_evaluate = make_evaluator(reference.full_reference, decode_steps)
+        compatible = False
+        if selected_indices:
+            compatible, selected_fidelity = full_evaluate(selected_name, selected_indices)
+        selected_name, selected_indices, selected_fidelity = _audit_larger_compressed_regions(
+            len(entries),
+            full_evaluate,
+            (selected_name, selected_indices, selected_fidelity),
+            selected_compatible=compatible,
+        )
+
+    compressed_gate_up.patched_classes.clear()
+    compressed_gate_up.layers = {entries[index][0]: entries[index][1] for index in selected_indices}
+    compressed_gate_up.repack_bytes = _compressed_gate_up_repack_bytes(compressed_gate_up.layers)
+    compressed_gate_up.calibrated = True
+    compressed_gate_up.selection = selected_name
+    compressed_gate_up.layer_indices = selected_indices
+    compressed_gate_up.calibration_fidelity = selected_fidelity
+    with _compressed_gate_up_calibration_lock:
+        _write_compressed_gate_up_calibration(compressed_gate_up, key)
+    gc.collect()
+    mx.clear_cache()
+
+
+def _compressed_gate_up_implementation_key(
+    model,
+    sample_tokens,
+    compressed_gate_up,
+    decode_steps,
+):
+    import mlx.core as mx
+
+    return stable_digest(
+        {
+            "architecture": mx.device_info().get("architecture"),
+            "decode_steps": decode_steps,
+            "group_size": compressed_gate_up.group_size,
+            "mlx": mx.__version__,
+            "model": _mlx_lm_model_signature(model),
+            "prompt": sample_tokens.tolist(),
+            "selection": compressed_gate_up.selection,
+            "source": stable_digest(
+                {
+                    "backend": mlx_affine_swiglu_backend_signature(),
+                    "class": inspect.getsource(MLXCompressedGateUp.fused_patched_class),
+                    "fidelity": inspect.getsource(MLXCompressedGateUp.fidelity_compatible),
+                    "patch": inspect.getsource(_patch_compressed_gate_up),
+                    "select": inspect.getsource(_select_compressed_gate_up_implementation),
+                    "switch_margin": _COMPRESSED_GATE_UP_FUSION_MARGIN,
+                }
+            ),
+            "weights": tuple(
+                (
+                    gate_weight.shape,
+                    gate_weight.group_size,
+                    up_weight.shape,
+                    up_weight.group_size,
+                )
+                for _, _, gate_weight, _, up_weight in compressed_gate_up.layers.values()
+            ),
+        }
+    )
+
+
+def _write_compressed_gate_up_implementation(key, record):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return
+    with _compressed_gate_up_implementation_lock:
+        payload = read_json(_compressed_gate_up_implementation_cache_path, {})
+        payload[key] = record
+        atomic_write_json(_compressed_gate_up_implementation_cache_path, payload)
+
+
+def _select_compressed_gate_up_implementation(
+    model,
+    sample_tokens,
+    compressed_gate_up,
+    decode_steps,
+    trials,
+):
+    compressed_gate_up.implementation = "projected"
+    if not compressed_gate_up.layers or not any(
+        _supports_compressed_gate_up_fusion(module)
+        for module, *_ in compressed_gate_up.layers.values()
+    ):
+        compressed_gate_up.implementation_tuning = {
+            "implementation": "projected",
+            "reason": "no_supported_fusion",
+        }
+        return
+    key = _compressed_gate_up_implementation_key(
+        model,
+        sample_tokens,
+        compressed_gate_up,
+        decode_steps,
+    )
+    cached = None
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
+        with _compressed_gate_up_implementation_lock:
+            cached = read_json(_compressed_gate_up_implementation_cache_path, {}).get(key)
+    if isinstance(cached, dict) and cached.get("implementation") in {"fused", "projected"}:
+        compressed_gate_up.implementation = cached["implementation"]
+        compressed_gate_up.implementation_tuning = {**cached, "cached": True}
+        return
+
+    reference = _prepare_compressed_calibration_reference(
+        model,
+        sample_tokens,
+        decode_steps,
+    )
+    plan = MLXLMPlan(False, False, False, False, compressed_gate_up=True)
+    compressed_gate_up.implementation = "fused"
+    actual = _run_compressed_calibration_candidate(
+        model,
+        sample_tokens,
+        reference,
+        decode_steps,
+        plan,
+        compressed_gate_up=compressed_gate_up,
+    )
+    fidelity = _logit_fidelity(reference.full_reference, actual)
+    if not compressed_gate_up.fidelity_compatible(fidelity):
+        record = {
+            "cached": False,
+            "fidelity": fidelity,
+            "implementation": "projected",
+            "reason": "fidelity",
+        }
+        compressed_gate_up.implementation = "projected"
+        compressed_gate_up.implementation_tuning = record
+        _write_compressed_gate_up_implementation(key, record)
+        return
+
+    prepared_prompt = _prepare_mlx_lm_prompt(model, sample_tokens, decode_steps)
+    decode_tokens = prepared_prompt[2]
+    implementations = ("projected", "fused")
+    samples = {implementation: [] for implementation in implementations}
+    for round_index in range(max(3, trials)):
+        order = implementations if round_index % 2 == 0 else tuple(reversed(implementations))
+        for implementation in order:
+            compressed_gate_up.implementation = implementation
+            measurement, _ = _time_mlx_lm_plan(
+                model,
+                sample_tokens,
+                plan,
+                None,
+                None,
+                decode_steps,
+                compressed_gate_up=compressed_gate_up,
+                prepared_prompt=prepared_prompt,
+                decode_tokens=decode_tokens,
+            )
+            samples[implementation].append(measurement[1])
+    medians = {
+        implementation: statistics.median(values) for implementation, values in samples.items()
+    }
+    selected = (
+        "fused"
+        if medians["fused"] < medians["projected"] * (1.0 - _COMPRESSED_GATE_UP_FUSION_MARGIN)
+        else "projected"
+    )
+    record = {
+        "cached": False,
+        "fidelity": fidelity,
+        "implementation": selected,
+        "median_nanoseconds": {
+            implementation: round(value * 1e9) for implementation, value in medians.items()
+        },
+        "reason": "timing",
+    }
+    compressed_gate_up.implementation = selected
+    compressed_gate_up.implementation_tuning = record
+    _write_compressed_gate_up_implementation(key, record)
+
+
+def _compressed_attention_repack_bytes(layers):
+    return sum(weight.nbytes for _, projections in layers.values() for _, weight in projections)
+
+
+def _repack_compressed_attention_group(compressed_attention, group_size):
+    import mlx.core as mx
+
+    compressed_attention.layers = {}
+    compressed_attention.patched_classes.clear()
+    compressed_attention.calibrated = False
+    compressed_attention.selection = "all"
+    compressed_attention.layer_indices = ()
+    compressed_attention.calibration_fidelity = None
+    gc.collect()
+    mx.clear_cache()
+    layers = {
+        key: (
+            attention,
+            tuple(
+                (
+                    module,
+                    MLXCompressedDownWeight.quantize(
+                        weight,
+                        format="affine8",
+                        group_size=group_size,
+                    ),
+                )
+                for module, weight in projections
+            ),
+        )
+        for key, (attention, projections) in compressed_attention.source_layers.items()
+    }
+    compressed_attention.layers = layers
+    compressed_attention.group_size = group_size
+    compressed_attention.repack_bytes = _compressed_attention_repack_bytes(layers)
+
+
+def _compressed_attention_group_key(model, sample_tokens, compressed_attention, decode_steps):
+    import mlx.core as mx
+
+    return stable_digest(
+        {
+            "architecture": mx.device_info().get("architecture"),
+            "decode_steps": decode_steps,
+            "group_tuning": {
+                name: value
+                for name, value in compressed_attention.group_tuning.items()
+                if name != "cached"
+            },
+            "mlx": mx.__version__,
+            "model": _mlx_lm_model_signature(model),
+            "prompt": sample_tokens.tolist(),
+            "source": stable_digest(
+                {
+                    "calibrate": inspect.getsource(_calibrate_compressed_attention),
+                    "region_policy": _compressed_region_policy_signature(),
+                    "repack": inspect.getsource(_repack_compressed_attention_group),
+                    "select": inspect.getsource(_select_model_affine8_group),
+                    "tune": inspect.getsource(_autotune_compressed_attention_group),
+                }
+            ),
+            "weights": tuple(
+                tuple((weight.shape, str(weight.dtype)) for _, weight in projections)
+                for _, projections in compressed_attention.source_layers.values()
+            ),
+        }
+    )
+
+
+def _autotune_compressed_attention_group(
+    model,
+    sample_tokens,
+    compressed_attention,
+    decode_steps,
+):
+    tuning = compressed_attention.group_tuning
+    if tuning is None or tuning.get("model_calibrated") or not compressed_attention.source_layers:
+        return
+    timings_payload = tuning.get("median_nanoseconds")
+    native_timing = tuning.get("native_median_nanoseconds")
+    if not isinstance(timings_payload, dict) or not isinstance(native_timing, int):
+        return
+    timings = {int(group): int(value) for group, value in timings_payload.items()}
+    key = _compressed_attention_group_key(
+        model,
+        sample_tokens,
+        compressed_attention,
+        decode_steps,
+    )
+    cached = None
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
+        with _compressed_attention_group_lock:
+            cached = read_json(_compressed_attention_group_cache_path, {}).get(key)
+    if isinstance(cached, dict) and cached.get("group_size") in timings:
+        selected = cached["group_size"]
+        _repack_compressed_attention_group(compressed_attention, selected)
+        _calibrate_compressed_attention(
+            model,
+            sample_tokens,
+            compressed_attention,
+            decode_steps,
+        )
+        compressed_attention.group_tuning = {
+            **tuning,
+            **cached,
+            "cached": True,
+            "group_size": selected,
+            "micro_group_size": tuning["group_size"],
+            "model_calibrated": True,
+        }
+        return
+
+    total_layers = len(compressed_attention.source_layers)
+    candidates = {}
+    layer_counts = {}
+    for group in sorted(timings):
+        _repack_compressed_attention_group(compressed_attention, group)
+        _calibrate_compressed_attention(
+            model,
+            sample_tokens,
+            compressed_attention,
+            decode_steps,
+        )
+        layer_counts[group] = compressed_attention.layer_count
+        candidates[str(group)] = {
+            "fidelity": compressed_attention.calibration_fidelity,
+            "layers": compressed_attention.layer_count,
+            "selection": compressed_attention.selection,
+        }
+    selected, estimates = _select_model_affine8_group(
+        total_layers,
+        layer_counts,
+        timings,
+        native_timing,
+    )
+    if compressed_attention.group_size != selected:
+        _repack_compressed_attention_group(compressed_attention, selected)
+        _calibrate_compressed_attention(
+            model,
+            sample_tokens,
+            compressed_attention,
+            decode_steps,
+        )
+    record = {
+        "group_size": selected,
+        "model_calibrated": True,
+        "model_candidates": candidates,
+        "predicted_nanoseconds": {str(group): round(value) for group, value in estimates.items()},
+    }
+    compressed_attention.group_tuning = {
+        **tuning,
+        **record,
+        "cached": False,
+        "micro_group_size": tuning["group_size"],
+    }
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") != "1":
+        with _compressed_attention_group_lock:
+            payload = read_json(_compressed_attention_group_cache_path, {})
+            payload[key] = record
+            atomic_write_json(_compressed_attention_group_cache_path, payload)
+
+
+def _compressed_attention_calibration_key(
+    model,
+    sample_tokens,
+    compressed_attention,
+    decode_steps,
+):
+    import mlx.core as mx
+
+    return stable_digest(
+        {
+            "architecture": mx.device_info().get("architecture"),
+            "decode_steps": decode_steps,
+            "group_size": compressed_attention.group_size,
+            "mlx": mx.__version__,
+            "model": _mlx_lm_model_signature(model),
+            "prompt": sample_tokens.tolist(),
+            "search_decode_steps": _COMPRESSED_CALIBRATION_SEARCH_DECODE_STEPS,
+            "source": stable_digest(
+                {
+                    "backend": mlx_compressed_down_backend_signature(),
+                    "calibrate": inspect.getsource(_calibrate_compressed_attention),
+                    "class": inspect.getsource(MLXCompressedAttention.patched_class),
+                    "fidelity": inspect.getsource(MLXCompressedAttention.fidelity_compatible),
+                    "patch": inspect.getsource(_patch_compressed_attention),
+                    "region_policy": _compressed_region_policy_signature(),
+                    "restore": inspect.getsource(_restore_compressed_attention_calibration),
+                    "write": inspect.getsource(_write_compressed_attention_calibration),
+                }
+            ),
+            "weights": tuple(
+                tuple((weight.shape, weight.group_size) for _, weight in projections)
+                for _, projections in compressed_attention.layers.values()
+            ),
+        }
+    )
+
+
+def _restore_compressed_attention_calibration(compressed_attention, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return False
+    record = read_json(_compressed_attention_calibration_cache_path, {}).get(key)
+    if not isinstance(record, dict):
+        return False
+    selection = record.get("selection")
+    indices = record.get("layer_indices")
+    fidelity = record.get("fidelity")
+    entries = tuple(compressed_attention.layers.items())
+    if (
+        not isinstance(selection, str)
+        or not isinstance(indices, list)
+        or not all(
+            not isinstance(index, bool) and isinstance(index, int) and 0 <= index < len(entries)
+            for index in indices
+        )
+        or len(indices) != len(set(indices))
+        or (fidelity is not None and not isinstance(fidelity, dict))
+    ):
+        return False
+    compressed_attention.layers = {entries[index][0]: entries[index][1] for index in indices}
+    compressed_attention.repack_bytes = _compressed_attention_repack_bytes(
+        compressed_attention.layers
+    )
+    compressed_attention.calibrated = True
+    compressed_attention.selection = selection
+    compressed_attention.layer_indices = tuple(indices)
+    compressed_attention.calibration_fidelity = fidelity
+    return True
+
+
+def _write_compressed_attention_calibration(compressed_attention, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return
+    payload = read_json(_compressed_attention_calibration_cache_path, {})
+    payload[key] = {
+        "fidelity": compressed_attention.calibration_fidelity,
+        "layer_indices": compressed_attention.layer_indices,
+        "selection": compressed_attention.selection,
+    }
+    atomic_write_json(_compressed_attention_calibration_cache_path, payload)
+
+
+def _calibrate_compressed_attention(model, sample_tokens, compressed_attention, decode_steps):
+    if compressed_attention.calibrated:
+        return
+    import mlx.core as mx
+
+    entries = tuple(compressed_attention.layers.items())
+    if not entries:
+        compressed_attention.calibrated = True
+        compressed_attention.selection = "native"
+        return
+    key = _compressed_attention_calibration_key(
+        model,
+        sample_tokens,
+        compressed_attention,
+        decode_steps,
+    )
+    with _compressed_attention_calibration_lock:
+        if _restore_compressed_attention_calibration(compressed_attention, key):
+            return
+
+    reference = _prepare_compressed_calibration_reference(
+        model,
+        sample_tokens,
+        decode_steps,
+    )
+
+    plan = MLXLMPlan(False, False, False, False, compressed_attention=True)
+
+    def make_evaluator(expected, steps):
+        evaluations = {}
+
+        def evaluate(_name, indices):
+            cached = evaluations.get(indices)
+            if cached is not None:
+                return cached
+            compressed_attention.patched_classes.clear()
+            compressed_attention.layers = {
+                entries[index][0]: entries[index][1] for index in indices
+            }
+            actual = _run_compressed_calibration_candidate(
+                model,
+                sample_tokens,
+                reference,
+                steps,
+                plan,
+                compressed_attention=compressed_attention,
+            )
+            fidelity = _logit_fidelity(expected, actual)
+            result = compressed_attention.fidelity_compatible(fidelity), fidelity
+            evaluations[indices] = result
+            return result
+
+        return evaluate
+
+    search_evaluate = make_evaluator(reference.search_reference, reference.search_steps)
+    selected_name, selected_indices, selected_fidelity = _select_compressed_region(
+        len(entries),
+        search_evaluate,
+        augmentation_budget=0,
+    )
+    if decode_steps > reference.search_steps:
+        full_evaluate = make_evaluator(reference.full_reference, decode_steps)
+        compatible = False
+        if selected_indices:
+            compatible, selected_fidelity = full_evaluate(selected_name, selected_indices)
+        selected_name, selected_indices, selected_fidelity = _audit_larger_compressed_regions(
+            len(entries),
+            full_evaluate,
+            (selected_name, selected_indices, selected_fidelity),
+            selected_compatible=compatible,
+        )
+
+    compressed_attention.patched_classes.clear()
+    compressed_attention.layers = {
+        entries[index][0]: entries[index][1] for index in selected_indices
+    }
+    compressed_attention.repack_bytes = _compressed_attention_repack_bytes(
+        compressed_attention.layers
+    )
+    compressed_attention.calibrated = True
+    compressed_attention.selection = selected_name
+    compressed_attention.layer_indices = selected_indices
+    compressed_attention.calibration_fidelity = selected_fidelity
+    with _compressed_attention_calibration_lock:
+        _write_compressed_attention_calibration(compressed_attention, key)
+    gc.collect()
+    mx.clear_cache()
+
+
+def _compressed_vocab_calibration_key(
+    model,
+    sample_tokens,
+    compressed_vocab,
+    decode_steps,
+):
+    import mlx.core as mx
+
+    weight = compressed_vocab.weight
+    return stable_digest(
+        {
+            "architecture": mx.device_info().get("architecture"),
+            "decode_steps": decode_steps,
+            "group_size": compressed_vocab.group_size,
+            "mlx": mx.__version__,
+            "model": _mlx_lm_model_signature(model),
+            "prompt": sample_tokens.tolist(),
+            "source": stable_digest(
+                {
+                    "backend": mlx_compressed_down_backend_signature(),
+                    "calibrate": inspect.getsource(_calibrate_compressed_vocab),
+                    "class": inspect.getsource(MLXCompressedVocab.patched_class),
+                    "fidelity": inspect.getsource(MLXCompressedVocab.fidelity_compatible),
+                    "patch": inspect.getsource(_patch_compressed_vocab),
+                }
+            ),
+            "tied": compressed_vocab.tied,
+            "weight": (weight.shape, weight.format, weight.group_size),
+        }
+    )
+
+
+def _restore_compressed_vocab_calibration(compressed_vocab, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return False
+    record = read_json(_compressed_vocab_calibration_cache_path, {}).get(key)
+    if not isinstance(record, dict):
+        return False
+    enabled = record.get("enabled")
+    fidelity = record.get("fidelity")
+    if not isinstance(enabled, bool) or (fidelity is not None and not isinstance(fidelity, dict)):
+        return False
+    if not enabled:
+        compressed_vocab.weight = None
+        compressed_vocab.repack_bytes = 0
+    compressed_vocab.calibrated = True
+    compressed_vocab.calibration_fidelity = fidelity
+    return True
+
+
+def _write_compressed_vocab_calibration(compressed_vocab, key):
+    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
+        return
+    payload = read_json(_compressed_vocab_calibration_cache_path, {})
+    payload[key] = {
+        "enabled": compressed_vocab.projection_count > 0,
+        "fidelity": compressed_vocab.calibration_fidelity,
+    }
+    atomic_write_json(_compressed_vocab_calibration_cache_path, payload)
+
+
+def _calibrate_compressed_vocab(model, sample_tokens, compressed_vocab, decode_steps):
+    if compressed_vocab.calibrated or compressed_vocab.weight is None:
+        return
+    import mlx.core as mx
+
+    key = _compressed_vocab_calibration_key(
+        model,
+        sample_tokens,
+        compressed_vocab,
+        decode_steps,
+    )
+    with _compressed_vocab_calibration_lock:
+        if _restore_compressed_vocab_calibration(compressed_vocab, key):
+            return
+
+    reference = _prepare_compressed_calibration_reference(
+        model,
+        sample_tokens,
+        decode_steps,
+    )
+    plan = MLXLMPlan(False, False, False, False, compressed_vocab=True)
+    actual = _run_compressed_calibration_candidate(
+        model,
+        sample_tokens,
+        reference,
+        decode_steps,
+        plan,
+        compressed_vocab=compressed_vocab,
+    )
+    fidelity = _logit_fidelity(reference.full_reference, actual)
+    if not compressed_vocab.fidelity_compatible(fidelity):
+        compressed_vocab.weight = None
+        compressed_vocab.repack_bytes = 0
+    compressed_vocab.patched_classes.clear()
+    compressed_vocab.calibrated = True
+    compressed_vocab.calibration_fidelity = fidelity
+    with _compressed_vocab_calibration_lock:
+        _write_compressed_vocab_calibration(compressed_vocab, key)
+    gc.collect()
+    mx.clear_cache()
 
 
 def _cache_aware_dense_fidelity(model, sample_tokens, dense_mlp, implementation):
@@ -529,19 +2585,68 @@ def _select_dense_mlp_implementation(model, sample_tokens, dense_mlp, trials):
     )
 
 
-def _plan_preserves_logits(model, sample_tokens, plan, affine_prefill, dense_mlp, reference):
+def _plan_preserves_logits(
+    model,
+    sample_tokens,
+    plan,
+    affine_prefill,
+    dense_mlp,
+    reference,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
     import mlx.core as mx
+
+    decode_compression = any(
+        (
+            plan.compressed_down,
+            plan.compressed_gate_up,
+            plan.compressed_vocab,
+            plan.compressed_attention,
+        )
+    )
+    if decode_compression and sample_tokens.shape[1] > 1:
+        from mlx_lm.models.cache import make_prompt_cache
+
+        reference_cache = make_prompt_cache(model)
+        reference_prefix = model(sample_tokens[:, :-1], cache=reference_cache)
+        mx.eval(reference_prefix)
+        reference = model(sample_tokens[:, -1:], cache=reference_cache)
+        mx.eval(reference)
 
     with apply_metile_to_mlx_lm(
         model=model,
         plan=plan,
         affine_prefill=affine_prefill,
         dense_mlp=dense_mlp,
+        compressed_down=compressed_down,
+        compressed_gate_up=compressed_gate_up,
+        compressed_vocab=compressed_vocab,
+        compressed_attention=compressed_attention,
     ):
-        actual = model(sample_tokens)
+        if decode_compression and sample_tokens.shape[1] > 1:
+            actual_cache = make_prompt_cache(model)
+            actual_prefix = model(sample_tokens[:, :-1], cache=actual_cache)
+            mx.eval(actual_prefix)
+            actual = model(sample_tokens[:, -1:], cache=actual_cache)
+        else:
+            actual = model(sample_tokens)
         mx.eval(actual)
     fidelity = _logit_fidelity(reference, actual)
-    return _fidelity_compatible(fidelity)
+    policies = []
+    if plan.compressed_down and compressed_down is not None:
+        policies.append(compressed_down.fidelity_compatible)
+    if plan.compressed_gate_up and compressed_gate_up is not None:
+        policies.append(compressed_gate_up.fidelity_compatible)
+    if plan.compressed_vocab and compressed_vocab is not None:
+        policies.append(compressed_vocab.fidelity_compatible)
+    if plan.compressed_attention and compressed_attention is not None:
+        policies.append(compressed_attention.fidelity_compatible)
+    return (
+        all(policy(fidelity) for policy in policies) if policies else _fidelity_compatible(fidelity)
+    )
 
 
 def _measure_mlx_lm_plans(
@@ -552,29 +2657,51 @@ def _measure_mlx_lm_plans(
     dense_mlp,
     decode_steps,
     rounds,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+    *,
+    prepared_prompt=None,
+    validate_fidelity=True,
 ):
     import mlx.core as mx
 
     samples = {plan: [] for plan in candidates}
     expected_token = None
     compatible = set(candidates)
-    reference = model(sample_tokens)
-    mx.eval(reference)
-    for plan in candidates:
-        if not plan.feature_count:
-            continue
-        try:
-            if not _plan_preserves_logits(
-                model,
-                sample_tokens,
-                plan,
-                affine_prefill,
-                dense_mlp,
-                reference,
-            ):
+    if validate_fidelity:
+        reference = model(sample_tokens)
+        mx.eval(reference)
+        for plan in candidates:
+            if not plan.feature_count:
+                continue
+            try:
+                if not _plan_preserves_logits(
+                    model,
+                    sample_tokens,
+                    plan,
+                    affine_prefill,
+                    dense_mlp,
+                    reference,
+                    compressed_down,
+                    compressed_gate_up,
+                    compressed_vocab,
+                    compressed_attention,
+                ):
+                    compatible.remove(plan)
+            except (RuntimeError, TypeError, ValueError):
                 compatible.remove(plan)
-        except (RuntimeError, TypeError, ValueError):
-            compatible.remove(plan)
+    if prepared_prompt is None:
+        prepared_prompt = (
+            _prepare_mlx_lm_prompt(model, sample_tokens, decode_steps)
+            if sample_tokens.shape[1] > 1
+            and any(
+                not plan.feature_count or _is_decode_only_compression_plan(plan)
+                for plan in compatible
+            )
+            else None
+        )
     for round_index in range(rounds):
         shift = round_index % len(candidates)
         ordered = candidates[shift:] + candidates[:shift]
@@ -591,6 +2718,16 @@ def _measure_mlx_lm_plans(
                     affine_prefill,
                     dense_mlp,
                     decode_steps,
+                    compressed_down,
+                    compressed_gate_up,
+                    compressed_vocab,
+                    compressed_attention,
+                    prepared_prompt=(
+                        prepared_prompt
+                        if not plan.feature_count or _is_decode_only_compression_plan(plan)
+                        else None
+                    ),
+                    decode_tokens=(prepared_prompt[2] if prepared_prompt is not None else None),
                 )
             except (RuntimeError, TypeError, ValueError):
                 if plan.feature_count == 0:
@@ -606,7 +2743,45 @@ def _measure_mlx_lm_plans(
     return {plan: values for plan, values in samples.items() if values and plan in compatible}
 
 
-def _choose_mlx_lm_plan(samples):
+def _extend_mlx_lm_measurements(
+    model,
+    sample_tokens,
+    measured,
+    candidates,
+    affine_prefill,
+    dense_mlp,
+    decode_steps,
+    trials,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+    *,
+    prepared_prompt=None,
+):
+    existing_trials = min(len(measured[plan]) for plan in candidates)
+    remaining_trials = max(0, trials - existing_trials)
+    if not remaining_trials:
+        return {plan: measured[plan] for plan in candidates}
+    additional = _measure_mlx_lm_plans(
+        model,
+        sample_tokens,
+        candidates,
+        affine_prefill,
+        dense_mlp,
+        decode_steps,
+        remaining_trials,
+        compressed_down,
+        compressed_gate_up,
+        compressed_vocab,
+        compressed_attention,
+        prepared_prompt=prepared_prompt,
+        validate_fidelity=False,
+    )
+    return {plan: measured[plan] + additional[plan] for plan in candidates if plan in additional}
+
+
+def _rank_mlx_lm_plans(samples):
     native = MLXLMPlan(False, False, False, False)
     native_measurements = samples[native]
     generated = []
@@ -621,27 +2796,70 @@ def _choose_mlx_lm_plan(samples):
         decode_median = statistics.median(decode_ratios)
         total_median = statistics.median(total_ratios)
         improves_total = total_median < 1.0 - _MODEL_SWITCH_MARGIN
+        improves_decode = decode_median < 1.0 - _MODEL_DECODE_SWITCH_MARGIN
         improves_ttft = ttft_median < 1.0 - _MODEL_TTFT_SWITCH_MARGIN
+        decode_only = _is_decode_only_compression_plan(plan)
         decode_sensitive = any(
-            (plan.attention, plan.rms_norm, plan.graph_fusion, plan.quantized_mlp)
+            (
+                plan.attention,
+                plan.rms_norm,
+                plan.graph_fusion,
+                plan.quantized_mlp,
+                plan.dense_mlp,
+                plan.dense_residual,
+                plan.compressed_down,
+                plan.compressed_gate_up,
+                plan.compressed_vocab,
+                plan.compressed_attention,
+            )
         )
         decode_limit = 1.0 + (_MODEL_REGRESSION_MARGIN if decode_sensitive else 0.05)
+        strong_decode_win = (
+            decode_sensitive
+            and decode_median <= 1.0 - _MODEL_STRONG_DECODE_SWITCH_MARGIN
+            and sum(ratio < 1.0 for ratio in total_ratios) >= required_wins
+        )
+        stable_ttft = decode_only or (
+            sum(ratio <= 1.01 for ratio in ttft_ratios) >= required_wins or strong_decode_win
+        )
+        if strong_decode_win:
+            ttft_margin = _MODEL_STRONG_DECODE_TTFT_REGRESSION_MARGIN
+        else:
+            ttft_margin = _MODEL_REGRESSION_MARGIN
+        ttft_limit = 1.0 + ttft_margin
         if (
-            ttft_median <= 1.0 + _MODEL_REGRESSION_MARGIN
+            (decode_only or ttft_median <= ttft_limit)
             and decode_median <= decode_limit
             and total_median <= 1.0 + _MODEL_REGRESSION_MARGIN
-            and (improves_total or improves_ttft)
-            and sum(ratio <= 1.01 for ratio in ttft_ratios) >= required_wins
+            and (improves_total or improves_decode or improves_ttft)
+            and stable_ttft
             and sum(ratio <= 1.05 for ratio in decode_ratios) >= required_wins
-            and (
-                sum(ratio < 1.0 for ratio in total_ratios) >= required_wins
-                if improves_total
-                else sum(ratio < 0.98 for ratio in ttft_ratios) >= required_wins
+            and any(
+                (
+                    improves_total and sum(ratio < 1.0 for ratio in total_ratios) >= required_wins,
+                    improves_decode
+                    and sum(ratio < 1.0 for ratio in decode_ratios) >= required_wins,
+                    improves_ttft and sum(ratio < 0.98 for ratio in ttft_ratios) >= required_wins,
+                )
             )
         ):
-            objective = min(total_median, ttft_median)
+            objective = (
+                min(total_median, decode_median)
+                if decode_only
+                else min(total_median, decode_median, ttft_median)
+            )
             generated.append((objective, plan.feature_count * 64, plan))
-    return choose_mdl_tie(generated) if generated else native
+    ranked = []
+    while generated:
+        selected = choose_mdl_tie(generated)
+        ranked.append(selected)
+        generated = [candidate for candidate in generated if candidate[2] != selected]
+    return tuple(ranked)
+
+
+def _choose_mlx_lm_plan(samples):
+    ranked = _rank_mlx_lm_plans(samples)
+    return ranked[0] if ranked else MLXLMPlan(False, False, False, False)
 
 
 def _median_plan_measurement(measurements):
@@ -655,7 +2873,222 @@ def _paired_plan_ratios(measurements, native_measurements, metric):
     )
 
 
-def _provisional_mlx_lm_finalists(provisional, candidates):
+def _is_decode_only_compression_plan(plan):
+    return plan.is_decode_only_compression
+
+
+def _compression_ladder(plans, decode_ratios):
+    singleton_names = []
+    for plan in sorted(
+        (
+            plan
+            for plan in plans
+            if _is_decode_only_compression_plan(plan) and plan.feature_count == 1
+        ),
+        key=decode_ratios.__getitem__,
+    ):
+        singleton_names.extend(name for name, enabled in plan.as_dict().items() if enabled)
+    selected = []
+    enabled = set()
+    available = set(plans)
+    for name in singleton_names:
+        enabled.add(name)
+        candidate = MLXLMPlan(**{feature: feature in enabled for feature in MLXLMPlan().as_dict()})
+        if candidate in available:
+            selected.append(candidate)
+    return tuple(selected)
+
+
+def _validate_mlx_lm_plan(
+    model,
+    sample_tokens,
+    selected,
+    affine_prefill,
+    dense_mlp,
+    decode_steps,
+    trials,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
+    if not selected.feature_count:
+        return selected
+    native = MLXLMPlan(False, False, False, False)
+    measured = _measure_mlx_lm_plans(
+        model,
+        sample_tokens,
+        (native, selected),
+        affine_prefill,
+        dense_mlp,
+        max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+        max(_MODEL_VALIDATION_MIN_TRIALS, trials),
+        compressed_down,
+        compressed_gate_up,
+        compressed_vocab,
+        compressed_attention,
+    )
+    return _choose_mlx_lm_plan(measured)
+
+
+def _validate_mlx_lm_plan_repeated(
+    model,
+    sample_tokens,
+    selected,
+    affine_prefill,
+    dense_mlp,
+    decode_steps,
+    trials,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
+    native = MLXLMPlan(False, False, False, False)
+    for _ in range(_MODEL_VALIDATION_ATTEMPTS):
+        validated = _validate_mlx_lm_plan(
+            model,
+            sample_tokens,
+            selected,
+            affine_prefill,
+            dense_mlp,
+            decode_steps,
+            trials,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
+        )
+        if validated.feature_count:
+            return validated
+    return native
+
+
+def _mlx_lm_validation_finalists(measured):
+    native = MLXLMPlan(False, False, False, False)
+    native_measurements = measured[native]
+    ranked = _rank_mlx_lm_plans(measured)
+    decode_order = sorted(
+        (plan for plan in measured if plan.feature_count),
+        key=lambda plan: statistics.median(
+            _paired_plan_ratios(measured[plan], native_measurements, 1)
+        ),
+    )
+    compressed_order = sorted(
+        (plan for plan in measured if _is_decode_only_compression_plan(plan)),
+        key=lambda plan: (
+            -plan.feature_count,
+            statistics.median(_paired_plan_ratios(measured[plan], native_measurements, 1)),
+        ),
+    )
+    decode_ratios = {
+        plan: statistics.median(_paired_plan_ratios(samples, native_measurements, 1))
+        for plan, samples in measured.items()
+    }
+    return tuple(
+        dict.fromkeys(
+            (
+                native,
+                *ranked[:2],
+                *decode_order[:3],
+                *compressed_order[:1],
+                *_compression_ladder(measured, decode_ratios),
+            )
+        )
+    )
+
+
+def _mlx_lm_validation_survivors(measured):
+    native = MLXLMPlan(False, False, False, False)
+    native_measurements = measured[native]
+    ranked = _rank_mlx_lm_plans(measured)
+    metric_leaders = tuple(
+        min(
+            measured,
+            key=lambda plan: statistics.median(
+                _paired_plan_ratios(measured[plan], native_measurements, metric)
+            ),
+        )
+        for metric in (1, 2, 0)
+    )
+    ordered = tuple(dict.fromkeys((native, *ranked[:2], *metric_leaders)))
+    return ordered[:_MODEL_VALIDATION_MAX_SURVIVORS]
+
+
+def _validate_mlx_lm_finalists_repeated(
+    model,
+    sample_tokens,
+    finalists,
+    affine_prefill,
+    dense_mlp,
+    decode_steps,
+    trials,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
+    native = MLXLMPlan(False, False, False, False)
+    validation_decode_steps = max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4)
+    validation_trials = max(_MODEL_VALIDATION_MIN_TRIALS, trials)
+    prepared_prompt = (
+        _prepare_mlx_lm_prompt(model, sample_tokens, validation_decode_steps)
+        if getattr(sample_tokens, "ndim", None) == 2 and sample_tokens.shape[1] > 1
+        else None
+    )
+    for _ in range(_MODEL_VALIDATION_ATTEMPTS):
+        screening_trials = (
+            min(_MODEL_VALIDATION_SCREEN_TRIALS, validation_trials)
+            if len(finalists) > _MODEL_VALIDATION_MAX_SURVIVORS
+            else validation_trials
+        )
+        screening = _measure_mlx_lm_plans(
+            model,
+            sample_tokens,
+            finalists,
+            affine_prefill,
+            dense_mlp,
+            validation_decode_steps,
+            screening_trials,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
+            prepared_prompt=prepared_prompt,
+        )
+        survivors = (
+            _mlx_lm_validation_survivors(screening)
+            if screening_trials < validation_trials
+            else tuple(screening)
+        )
+        measured = _extend_mlx_lm_measurements(
+            model,
+            sample_tokens,
+            screening,
+            survivors,
+            affine_prefill,
+            dense_mlp,
+            validation_decode_steps,
+            validation_trials,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
+            prepared_prompt=prepared_prompt,
+        )
+        selected = _choose_mlx_lm_plan(measured)
+        if selected.feature_count:
+            return selected
+    return native
+
+
+def _provisional_mlx_lm_finalists(
+    provisional,
+    candidates,
+    *,
+    max_finalists=_MODEL_PROVISIONAL_MAX_FINALISTS,
+    relative_margin=_MODEL_PROVISIONAL_RELATIVE_MARGIN,
+):
     native = MLXLMPlan(False, False, False, False)
     native_measurements = provisional[native]
     total_ratios = {
@@ -666,21 +3099,67 @@ def _provisional_mlx_lm_finalists(provisional, candidates):
         plan: statistics.median(_paired_plan_ratios(samples, native_measurements, 0))
         for plan, samples in provisional.items()
     }
+    decode_ratios = {
+        plan: statistics.median(_paired_plan_ratios(samples, native_measurements, 1))
+        for plan, samples in provisional.items()
+    }
     best_total = min(total_ratios.values())
     best_ttft = min(ttft_ratios.values())
+    best_decode = min(decode_ratios.values())
     fastest_total = min(total_ratios, key=total_ratios.__getitem__)
     fastest_ttft = min(ttft_ratios, key=ttft_ratios.__getitem__)
-    required = {native, fastest_total, fastest_ttft}
-    return tuple(
+    fastest_decode = min(decode_ratios, key=decode_ratios.__getitem__)
+    compressed = tuple(
         plan
         for plan in candidates
-        if plan in total_ratios
-        and (
-            total_ratios[plan] <= best_total * 1.03
-            or ttft_ratios[plan] <= best_ttft * 1.03
-            or plan in required
-        )
+        if plan in total_ratios and _is_decode_only_compression_plan(plan)
     )
+    maximal_compression = (
+        min(
+            compressed,
+            key=lambda plan: (-plan.feature_count, decode_ratios[plan]),
+        )
+        if compressed
+        else native
+    )
+    required = {
+        native,
+        fastest_total,
+        fastest_ttft,
+        fastest_decode,
+        maximal_compression,
+        *_compression_ladder(provisional, decode_ratios),
+        *(
+            plan
+            for plan in candidates
+            if plan in total_ratios
+            and plan.feature_count == 1
+            and min(total_ratios[plan], ttft_ratios[plan], decode_ratios[plan]) < 0.99
+        ),
+    }
+    eligible = sorted(
+        (
+            plan
+            for plan in candidates
+            if plan in total_ratios
+            and (
+                total_ratios[plan] <= best_total * (1.0 + relative_margin)
+                or ttft_ratios[plan] <= best_ttft * (1.0 + relative_margin)
+                or decode_ratios[plan] <= best_decode * (1.0 + relative_margin)
+            )
+        ),
+        key=lambda plan: min(
+            total_ratios[plan] / best_total,
+            ttft_ratios[plan] / best_ttft,
+            decode_ratios[plan] / best_decode,
+        ),
+    )
+    selected = set(required)
+    for plan in eligible:
+        if len(selected) >= max_finalists:
+            break
+        selected.add(plan)
+    return tuple(plan for plan in candidates if plan in selected and plan in total_ratios)
 
 
 def autotune_metile_for_mlx_lm(
@@ -693,6 +3172,10 @@ def autotune_metile_for_mlx_lm(
     quantized_mlp=True,
     affine_prefill=None,
     dense_mlp=None,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
     decode_steps=8,
     trials=5,
 ):
@@ -711,6 +3194,71 @@ def autotune_metile_for_mlx_lm(
         raise TypeError("dense_mlp must be an MLXDenseMLP")
     if dense_mlp is not None and dense_mlp.model is not model:
         raise ValueError("dense_mlp was prepared for a different model")
+    if compressed_down is not None and not isinstance(compressed_down, MLXCompressedDown):
+        raise TypeError("compressed_down must be an MLXCompressedDown")
+    if compressed_down is not None and compressed_down.model is not model:
+        raise ValueError("compressed_down was prepared for a different model")
+    if compressed_gate_up is not None and not isinstance(compressed_gate_up, MLXCompressedGateUp):
+        raise TypeError("compressed_gate_up must be an MLXCompressedGateUp")
+    if compressed_gate_up is not None and compressed_gate_up.model is not model:
+        raise ValueError("compressed_gate_up was prepared for a different model")
+    if compressed_vocab is not None and not isinstance(compressed_vocab, MLXCompressedVocab):
+        raise TypeError("compressed_vocab must be an MLXCompressedVocab")
+    if compressed_vocab is not None and compressed_vocab.model is not model:
+        raise ValueError("compressed_vocab was prepared for a different model")
+    if compressed_attention is not None and not isinstance(
+        compressed_attention, MLXCompressedAttention
+    ):
+        raise TypeError("compressed_attention must be an MLXCompressedAttention")
+    if compressed_attention is not None and compressed_attention.model is not model:
+        raise ValueError("compressed_attention was prepared for a different model")
+    if compressed_down is not None:
+        _calibrate_compressed_down(
+            model,
+            sample_tokens,
+            compressed_down,
+            max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+        )
+    if compressed_gate_up is not None:
+        _autotune_compressed_gate_up_group(
+            model,
+            sample_tokens,
+            compressed_gate_up,
+            max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+        )
+        _calibrate_compressed_gate_up(
+            model,
+            sample_tokens,
+            compressed_gate_up,
+            max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+        )
+        _select_compressed_gate_up_implementation(
+            model,
+            sample_tokens,
+            compressed_gate_up,
+            max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+            trials,
+        )
+    if compressed_vocab is not None:
+        _calibrate_compressed_vocab(
+            model,
+            sample_tokens,
+            compressed_vocab,
+            max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+        )
+    if compressed_attention is not None:
+        _autotune_compressed_attention_group(
+            model,
+            sample_tokens,
+            compressed_attention,
+            max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+        )
+        _calibrate_compressed_attention(
+            model,
+            sample_tokens,
+            compressed_attention,
+            max(_MODEL_VALIDATION_MIN_DECODE_STEPS, decode_steps * 4),
+        )
     if dense_mlp is not None and sample_tokens.shape[1] >= dense_mlp.min_rows:
         _select_dense_mlp_implementation(model, sample_tokens, dense_mlp, trials)
     requested = MLXLMPlan(
@@ -720,6 +3268,13 @@ def autotune_metile_for_mlx_lm(
         quantized_mlp=quantized_mlp,
         affine_prefill=affine_prefill is not None,
         dense_mlp=dense_mlp is not None,
+        dense_residual=dense_mlp is not None,
+        compressed_down=compressed_down is not None and compressed_down.projection_count > 0,
+        compressed_gate_up=compressed_gate_up is not None
+        and compressed_gate_up.projection_count > 0,
+        compressed_vocab=compressed_vocab is not None and compressed_vocab.projection_count > 0,
+        compressed_attention=compressed_attention is not None
+        and compressed_attention.projection_count > 0,
     )
     key = _mlx_lm_plan_key(
         model,
@@ -729,47 +3284,119 @@ def autotune_metile_for_mlx_lm(
         dense_mlp,
         decode_steps,
         trials,
+        compressed_down,
+        compressed_gate_up,
+        compressed_vocab,
+        compressed_attention,
     )
     with _mlx_lm_plan_lock:
         cached = _read_mlx_lm_plan(key)
         if cached is not None:
             return cached
 
+        search_decode_steps = max(_MODEL_SEARCH_MIN_DECODE_STEPS, decode_steps)
         candidates = _mlx_lm_plan_candidates(requested)
+        prepared_prompt = (
+            _prepare_mlx_lm_prompt(model, sample_tokens, search_decode_steps)
+            if sample_tokens.shape[1] > 1
+            and any(
+                not plan.feature_count or _is_decode_only_compression_plan(plan)
+                for plan in candidates
+            )
+            else None
+        )
         _measure_mlx_lm_plans(
             model,
             sample_tokens,
-            candidates,
+            _mlx_lm_warmup_plans(candidates),
             affine_prefill,
             dense_mlp,
-            decode_steps,
+            search_decode_steps,
             1,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
+            prepared_prompt=prepared_prompt,
         )
         candidates = tuple(
             dict.fromkeys(
-                _effective_mlx_lm_plan(plan, affine_prefill, dense_mlp) for plan in candidates
+                _effective_mlx_lm_plan(
+                    plan,
+                    affine_prefill,
+                    dense_mlp,
+                    compressed_down,
+                    compressed_gate_up,
+                    compressed_vocab,
+                    compressed_attention,
+                )
+                for plan in candidates
             )
         )
-        provisional = _measure_mlx_lm_plans(
+        screening = _measure_mlx_lm_plans(
             model,
             sample_tokens,
             candidates,
             affine_prefill,
             dense_mlp,
-            decode_steps,
-            3,
+            search_decode_steps,
+            _MODEL_SCREEN_ROUNDS,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
+            prepared_prompt=prepared_prompt,
         )
-        finalists = _provisional_mlx_lm_finalists(provisional, candidates)
-        measured = _measure_mlx_lm_plans(
+        screened = _provisional_mlx_lm_finalists(
+            screening,
+            candidates,
+            max_finalists=_MODEL_SCREEN_MAX_FINALISTS,
+            relative_margin=_MODEL_SCREEN_RELATIVE_MARGIN,
+        )
+        provisional = _extend_mlx_lm_measurements(
             model,
             sample_tokens,
+            screening,
+            screened,
+            affine_prefill,
+            dense_mlp,
+            search_decode_steps,
+            _MODEL_PROVISIONAL_ROUNDS,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
+            prepared_prompt=prepared_prompt,
+        )
+        finalists = _provisional_mlx_lm_finalists(provisional, screened)
+        measured = _extend_mlx_lm_measurements(
+            model,
+            sample_tokens,
+            provisional,
             finalists,
+            affine_prefill,
+            dense_mlp,
+            search_decode_steps,
+            trials,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
+            prepared_prompt=prepared_prompt,
+        )
+        selected = _validate_mlx_lm_finalists_repeated(
+            model,
+            sample_tokens,
+            _mlx_lm_validation_finalists(measured),
             affine_prefill,
             dense_mlp,
             decode_steps,
             trials,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
         )
-        selected = _choose_mlx_lm_plan(measured)
         _write_mlx_lm_plan(key, selected)
         return selected
 
@@ -840,10 +3467,50 @@ def _execute_residual_rms_graph(values, residual, norm):
     return executable(values, residual, weight)
 
 
+def _supports_dense_residual_mlp(module, values, residual, dense_mlp):
+    weights = dense_mlp.weights_for(module) if dense_mlp is not None else None
+    if weights is None:
+        return False
+    gate_weight, _, down_weight = weights
+    rows = values.size // values.shape[-1]
+    return (
+        rows == 1
+        and values.shape[-1] == gate_weight.shape[0]
+        and residual.shape == (*values.shape[:-1], down_weight.shape[0])
+        and values.dtype == down_weight.dtype
+        and residual.dtype == values.dtype
+    )
+
+
+def _execute_dense_swiglu(module, values, dense_mlp, use_generated_swiglu):
+    if not use_generated_swiglu:
+        import mlx.nn as nn
+
+        return nn.silu(module.gate_proj(values)) * module.up_proj(values)
+    gate_weight, up_weight, _ = dense_mlp.weights_for(module)
+    paired_weight = dense_mlp.paired_weight_for(module)
+    if dense_mlp.implementation == "fused":
+        return mlx_dense_swiglu(
+            values,
+            gate_weight,
+            up_weight,
+            paired_weight=paired_weight,
+        )
+    return mlx_dense_swiglu_projected(values, gate_weight, up_weight)
+
+
+def _execute_dense_mlp(module, values, residual, dense_mlp, use_generated_swiglu=True):
+    hidden = _execute_dense_swiglu(module, values, dense_mlp, use_generated_swiglu)
+    down_weight = dense_mlp.weights_for(module)[2]
+    return mlx_dense_residual_qmv(hidden, down_weight, residual)
+
+
 def _patch_graph_fusion(
     model,
     replacements,
     quantized_linear=None,
+    dense_mlp=None,
+    dense_swiglu=False,
     *,
     quantized_mlp_min_rows=1,
     quantized_mlp_max_rows=None,
@@ -871,6 +3538,7 @@ def _patch_graph_fusion(
         def make_replacement(original_call, support_cache):
             def replacement(self, values, mask=None, cache=None):
                 supports_quantized_residual = False
+                supports_dense_residual = False
                 if (
                     quantized_linear is not None
                     and hasattr(values, "size")
@@ -903,17 +3571,34 @@ def _patch_graph_fusion(
                         and (quantized_mlp_max_rows is None or rows <= quantized_mlp_max_rows)
                         and support[3]
                     )
+                if (
+                    dense_mlp is not None
+                    and hasattr(values, "size")
+                    and getattr(values, "shape", ())
+                    and hasattr(self, "mlp")
+                ):
+                    supports_dense_residual = _supports_dense_residual_mlp(
+                        self.mlp,
+                        values,
+                        values,
+                        dense_mlp,
+                    )
                 selected = (
                     mlx_add_rms_norm_selection(values, self.post_attention_layernorm.eps)
                     if fuse_residual_rms
                     else None
                 )
-                if not fuse_residual_rms and not supports_quantized_residual:
+                if (
+                    not fuse_residual_rms
+                    and not supports_quantized_residual
+                    and not supports_dense_residual
+                ):
                     return original_call(self, values, mask, cache)
                 if (
                     selected is not None
                     and selected.algorithm == "mlx"
                     and not supports_quantized_residual
+                    and not supports_dense_residual
                 ):
                     return original_call(self, values, mask, cache)
 
@@ -933,6 +3618,14 @@ def _patch_graph_fusion(
                     normalized = self.post_attention_layernorm(hidden)
                 if supports_quantized_residual:
                     return _execute_quantized_mlp(self.mlp, normalized, hidden)
+                if supports_dense_residual:
+                    return _execute_dense_mlp(
+                        self.mlp,
+                        normalized,
+                        hidden,
+                        dense_mlp,
+                        dense_swiglu,
+                    )
                 return hidden + self.mlp(normalized)
 
             return replacement
@@ -1097,13 +3790,86 @@ def _patch_affine_prefill(affine_prefill, replacements):
 def _patch_dense_mlp(dense_mlp, replacements):
     if dense_mlp is None:
         return
-    for module, _, _ in dense_mlp.weights.values():
+    for module, *_ in dense_mlp.weights.values():
         patched_class = dense_mlp.patched_classes.get(id(module))
         original_class = type(module)
         if original_class is patched_class:
             continue
         replacements.append((module, "__class__", original_class))
         object.__setattr__(module, "__class__", dense_mlp.patched_class(module))
+
+
+def _patch_compressed_down(compressed_down, replacements):
+    if compressed_down is None:
+        return
+    for module, _ in compressed_down.weights.values():
+        patched_class = compressed_down.patched_classes.get(id(module))
+        original_class = type(module)
+        if original_class is patched_class:
+            continue
+        replacements.append((module, "__class__", original_class))
+        object.__setattr__(module, "__class__", compressed_down.patched_class(module))
+
+
+def _supports_compressed_gate_up_fusion(module):
+    module_class = type(module)
+    return (
+        module_class.__module__ in _SUPPORTED_GATED_MLP_MODULES
+        and module_class.__name__ == "MLP"
+        and callable(getattr(module, "down_proj", None))
+    )
+
+
+def _patch_compressed_gate_up(compressed_gate_up, replacements):
+    if compressed_gate_up is None:
+        return
+    for module, gate, _, up, _ in compressed_gate_up.layers.values():
+        if compressed_gate_up.implementation == "fused" and _supports_compressed_gate_up_fusion(
+            module
+        ):
+            patched_class = compressed_gate_up.patched_classes.get(id(module))
+            original_class = type(module)
+            if original_class is patched_class:
+                continue
+            replacements.append((module, "__class__", original_class))
+            object.__setattr__(
+                module,
+                "__class__",
+                compressed_gate_up.fused_patched_class(module),
+            )
+            continue
+        for module in (gate, up):
+            patched_class = compressed_gate_up.patched_classes.get(id(module))
+            original_class = type(module)
+            if original_class is patched_class:
+                continue
+            replacements.append((module, "__class__", original_class))
+            object.__setattr__(module, "__class__", compressed_gate_up.patched_class(module))
+
+
+def _patch_compressed_attention(compressed_attention, replacements):
+    if compressed_attention is None:
+        return
+    for _, projections in compressed_attention.layers.values():
+        for module, _ in projections:
+            patched_class = compressed_attention.patched_classes.get(id(module))
+            original_class = type(module)
+            if original_class is patched_class:
+                continue
+            replacements.append((module, "__class__", original_class))
+            object.__setattr__(module, "__class__", compressed_attention.patched_class(module))
+
+
+def _patch_compressed_vocab(compressed_vocab, replacements):
+    if compressed_vocab is None or compressed_vocab.weight is None:
+        return
+    module = compressed_vocab.module
+    patched_class = compressed_vocab.patched_classes.get(id(module))
+    original_class = type(module)
+    if original_class is patched_class:
+        return
+    replacements.append((module, "__class__", original_class))
+    object.__setattr__(module, "__class__", compressed_vocab.patched_class())
 
 
 def prepare_mlx_lm_affine_prefill(
@@ -1156,10 +3922,10 @@ def prepare_mlx_lm_affine_prefill(
 def prepare_mlx_lm_dense_mlp(
     model,
     *,
-    min_rows=32,
+    min_rows=1,
     max_working_set_fraction=0.8,
 ):
-    """AOT-prepare K-major dense gate/up weights for generated SwiGLU prefill."""
+    """AOT-prepare dense gate/up layouts for generated prefill and decode."""
     if not callable(model):
         raise TypeError("model must be an MLX-LM callable")
     if min_rows < 1:
@@ -1177,22 +3943,27 @@ def prepare_mlx_lm_dense_mlp(
         module = getattr(layer, "mlp", None)
         gate = getattr(module, "gate_proj", None)
         up = getattr(module, "up_proj", None)
+        down = getattr(module, "down_proj", None)
         if (
             not isinstance(gate, nn.Linear)
             or not isinstance(up, nn.Linear)
+            or not isinstance(down, nn.Linear)
             or "bias" in gate
             or "bias" in up
+            or "bias" in down
             or gate.weight.shape != up.weight.shape
+            or down.weight.shape != (gate.weight.shape[1], gate.weight.shape[0])
             or gate.weight.shape[0] % 64
             or gate.weight.shape[1] % 32
             or str(gate.weight.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16")
             or gate.weight.dtype != up.weight.dtype
+            or gate.weight.dtype != down.weight.dtype
         ):
             continue
-        supported.append((module, gate.weight, up.weight))
+        supported.append((module, gate.weight, up.weight, down.weight))
     if not supported:
         raise ValueError("model contains no supported dense SwiGLU blocks")
-    repack_bytes = sum(gate.nbytes + up.nbytes for _, gate, up in supported)
+    repack_bytes = sum(gate.nbytes + up.nbytes for _, gate, up, _ in supported)
     recommended = int(mx.device_info().get("max_recommended_working_set_size", 0))
     budget = int(recommended * max_working_set_fraction)
     active = int(mx.get_active_memory())
@@ -1203,19 +3974,375 @@ def prepare_mlx_lm_dense_mlp(
             f"{budget / 2**30:.2f} GiB working-set budget"
         )
 
-    weights = {
-        id(module): (
+    paired_bytes = repack_bytes if not recommended or active + 2 * repack_bytes <= budget else 0
+    weights = {}
+    paired_weights = {}
+    for module, gate, up, down in supported:
+        weights[id(module)] = (
             module,
             MLXDenseWeight.from_mlx(gate),
             MLXDenseWeight.from_mlx(up),
+            down,
         )
-        for module, gate, up in supported
-    }
+        if paired_bytes:
+            paired = mx.stack((gate, up), axis=-1)
+            mx.eval(paired)
+            paired_weights[id(module)] = (module, paired)
     return MLXDenseMLP(
         model,
         weights,
         min_rows,
-        repack_bytes=repack_bytes,
+        repack_bytes=repack_bytes + paired_bytes,
+        paired_weights=paired_weights,
+    )
+
+
+def prepare_mlx_lm_compressed_gate_up(
+    model,
+    *,
+    group_size="auto",
+    max_working_set_fraction=_COMPRESSED_WORKING_SET_FRACTION,
+):
+    """AOT-compress dense gate/up pairs for guarded one-row decode."""
+    if not callable(model):
+        raise TypeError("model must be an MLX-LM callable")
+    if group_size not in {"auto", 32, 64, 128}:
+        raise ValueError("affine8 group size must be auto, 32, 64, or 128")
+    if not 0.0 < max_working_set_fraction <= 1.0:
+        raise ValueError("max_working_set_fraction must be in (0, 1]")
+    try:
+        import mlx.core as mx
+        import mlx.nn as nn
+    except ImportError as error:
+        raise ImportError(
+            "Compressed gate/up preparation requires the optional 'mlx' package"
+        ) from error
+
+    supported = []
+    for layer in _model_layers(model):
+        module = getattr(layer, "mlp", None)
+        gate = getattr(module, "gate_proj", None)
+        up = getattr(module, "up_proj", None)
+        if (
+            not isinstance(gate, nn.Linear)
+            or not isinstance(up, nn.Linear)
+            or "bias" in gate
+            or "bias" in up
+            or gate.weight.shape != up.weight.shape
+            or gate.weight.shape[1] % 64
+            or str(gate.weight.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16")
+            or gate.weight.dtype != up.weight.dtype
+        ):
+            continue
+        supported.append((module, gate, gate.weight, up, up.weight))
+    if not supported:
+        raise ValueError("model contains no supported dense gate/up pairs")
+
+    group_tuning = None
+    if group_size == "auto":
+        group_size, group_tuning = tune_mlx_affine8_group_size(
+            (
+                weight
+                for _, _, gate_weight, _, up_weight in supported
+                for weight in (gate_weight, up_weight)
+            ),
+            objective="throughput",
+        )
+
+    dense_bytes = sum(
+        gate_weight.nbytes + up_weight.nbytes for _, _, gate_weight, _, up_weight in supported
+    )
+    estimated_bytes = int(dense_bytes * 0.55)
+    recommended = int(mx.device_info().get("max_recommended_working_set_size", 0))
+    budget = int(recommended * max_working_set_fraction)
+    active = int(mx.get_active_memory())
+    if recommended and active + estimated_bytes > budget:
+        raise ValueError(
+            "compressed gate/up AOT repack needs approximately "
+            f"{estimated_bytes / 2**30:.2f} GiB with {active / 2**30:.2f} GiB active, "
+            f"exceeding the {budget / 2**30:.2f} GiB working-set budget"
+        )
+
+    source_layers = {
+        id(module): (module, gate, gate_weight, up, up_weight)
+        for module, gate, gate_weight, up, up_weight in supported
+    }
+    layers = {
+        key: (
+            module,
+            gate,
+            MLXCompressedDownWeight.quantize(
+                gate_weight,
+                format="affine8",
+                group_size=group_size,
+            ),
+            up,
+            MLXCompressedDownWeight.quantize(
+                up_weight,
+                format="affine8",
+                group_size=group_size,
+            ),
+        )
+        for key, (module, gate, gate_weight, up, up_weight) in source_layers.items()
+    }
+    repack_bytes = _compressed_gate_up_repack_bytes(layers)
+    return MLXCompressedGateUp(
+        model,
+        layers,
+        repack_bytes,
+        group_size,
+        group_tuning,
+        source_layers=source_layers,
+    )
+
+
+def prepare_mlx_lm_compressed_attention(
+    model,
+    *,
+    group_size="auto",
+    max_working_set_fraction=_COMPRESSED_WORKING_SET_FRACTION,
+):
+    """AOT-compress Q/K/V/output projections for guarded one-row decode."""
+    if not callable(model):
+        raise TypeError("model must be an MLX-LM callable")
+    if group_size not in {"auto", 32, 64, 128}:
+        raise ValueError("affine8 group size must be auto, 32, 64, or 128")
+    if not 0.0 < max_working_set_fraction <= 1.0:
+        raise ValueError("max_working_set_fraction must be in (0, 1]")
+    try:
+        import mlx.core as mx
+        import mlx.nn as nn
+    except ImportError as error:
+        raise ImportError(
+            "Compressed attention preparation requires the optional 'mlx' package"
+        ) from error
+
+    projection_names = ("q_proj", "k_proj", "v_proj", "o_proj")
+    supported = []
+    for layer in _model_layers(model):
+        attention = getattr(layer, "self_attn", None)
+        modules = tuple(getattr(attention, name, None) for name in projection_names)
+        if (
+            not all(isinstance(module, nn.Linear) for module in modules)
+            or any(module.weight.shape[1] % 64 for module in modules)
+            or any(
+                str(module.weight.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16")
+                for module in modules
+            )
+            or len({module.weight.dtype for module in modules}) != 1
+        ):
+            continue
+        supported.append(
+            (
+                attention,
+                tuple((module, module.weight) for module in modules),
+            )
+        )
+    if not supported:
+        raise ValueError("model contains no supported dense attention projections")
+
+    dense_weights = tuple(weight for _, projections in supported for _, weight in projections)
+    group_tuning = None
+    if group_size == "auto":
+        group_size, group_tuning = tune_mlx_affine8_group_size(
+            dense_weights,
+            objective="balanced",
+        )
+
+    dense_bytes = sum(weight.nbytes for weight in dense_weights)
+    estimated_bytes = int(dense_bytes * 0.55)
+    recommended = int(mx.device_info().get("max_recommended_working_set_size", 0))
+    budget = int(recommended * max_working_set_fraction)
+    active = int(mx.get_active_memory())
+    if recommended and active + estimated_bytes > budget:
+        raise ValueError(
+            "compressed attention AOT repack needs approximately "
+            f"{estimated_bytes / 2**30:.2f} GiB with {active / 2**30:.2f} GiB active, "
+            f"exceeding the {budget / 2**30:.2f} GiB working-set budget"
+        )
+
+    source_layers = {
+        id(attention): (attention, projections) for attention, projections in supported
+    }
+    layers = {
+        key: (
+            attention,
+            tuple(
+                (
+                    module,
+                    MLXCompressedDownWeight.quantize(
+                        weight,
+                        format="affine8",
+                        group_size=group_size,
+                    ),
+                )
+                for module, weight in projections
+            ),
+        )
+        for key, (attention, projections) in source_layers.items()
+    }
+    repack_bytes = _compressed_attention_repack_bytes(layers)
+    return MLXCompressedAttention(
+        model,
+        layers,
+        repack_bytes,
+        group_size,
+        group_tuning,
+        source_layers=source_layers,
+    )
+
+
+def prepare_mlx_lm_compressed_vocab(
+    model,
+    *,
+    group_size="auto",
+    max_working_set_fraction=_COMPRESSED_WORKING_SET_FRACTION,
+):
+    """AOT-compress a tied embedding or LM head for guarded one-row decode."""
+    if not callable(model):
+        raise TypeError("model must be an MLX-LM callable")
+    if group_size not in {"auto", 32, 64, 128}:
+        raise ValueError("affine8 group size must be auto, 32, 64, or 128")
+    if not 0.0 < max_working_set_fraction <= 1.0:
+        raise ValueError("max_working_set_fraction must be in (0, 1]")
+    try:
+        import mlx.core as mx
+        import mlx.nn as nn
+    except ImportError as error:
+        raise ImportError(
+            "Compressed vocabulary preparation requires the optional 'mlx' package"
+        ) from error
+
+    tied = bool(getattr(getattr(model, "args", None), "tie_word_embeddings", False))
+    if tied:
+        module = getattr(getattr(model, "model", None), "embed_tokens", None)
+        supported = isinstance(module, nn.Embedding)
+    else:
+        module = getattr(model, "lm_head", None)
+        supported = isinstance(module, nn.Linear) and "bias" not in module
+    weight = getattr(module, "weight", None)
+    if (
+        not supported
+        or weight is None
+        or weight.ndim != 2
+        or weight.shape[-1] % 64
+        or str(weight.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16")
+    ):
+        raise ValueError("model contains no supported dense vocabulary projection")
+
+    group_tuning = None
+    if group_size == "auto":
+        group_size, group_tuning = tune_mlx_affine8_group_size(
+            (weight,),
+            objective="throughput",
+        )
+    estimated_bytes = int(weight.nbytes * 0.55)
+    recommended = int(mx.device_info().get("max_recommended_working_set_size", 0))
+    budget = int(recommended * max_working_set_fraction)
+    active = int(mx.get_active_memory())
+    if recommended and active + estimated_bytes > budget:
+        raise ValueError(
+            "compressed vocabulary AOT repack needs approximately "
+            f"{estimated_bytes / 2**30:.2f} GiB with {active / 2**30:.2f} GiB active, "
+            f"exceeding the {budget / 2**30:.2f} GiB working-set budget"
+        )
+
+    compressed = MLXCompressedDownWeight.quantize(
+        weight,
+        format="affine8",
+        group_size=group_size,
+    )
+    return MLXCompressedVocab(
+        model,
+        module,
+        compressed,
+        tied,
+        compressed.nbytes,
+        group_size,
+        group_tuning,
+    )
+
+
+def prepare_mlx_lm_compressed_down(
+    model,
+    *,
+    format="affine8",
+    group_size="auto",
+    allow_approximate=False,
+    max_working_set_fraction=_COMPRESSED_WORKING_SET_FRACTION,
+):
+    """AOT-compress dense down projections for guarded decode-only dispatch."""
+    if not callable(model):
+        raise TypeError("model must be an MLX-LM callable")
+    if format not in {"affine8", "mxfp8"}:
+        raise ValueError("compressed down format must be affine8 or mxfp8")
+    if format == "affine8" and group_size not in {"auto", 32, 64, 128}:
+        raise ValueError("affine8 group size must be auto, 32, 64, or 128")
+    if format == "mxfp8" and not allow_approximate:
+        raise ValueError("mxfp8 down projection requires allow_approximate=True")
+    if not 0.0 < max_working_set_fraction <= 1.0:
+        raise ValueError("max_working_set_fraction must be in (0, 1]")
+    try:
+        import mlx.core as mx
+        import mlx.nn as nn
+    except ImportError as error:
+        raise ImportError(
+            "Compressed down preparation requires the optional 'mlx' package"
+        ) from error
+
+    supported = []
+    for layer in _model_layers(model):
+        module = getattr(layer, "mlp", None)
+        down = getattr(module, "down_proj", None)
+        if (
+            not isinstance(down, nn.Linear)
+            or "bias" in down
+            or down.weight.shape[1] % 64
+            or str(down.weight.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16")
+        ):
+            continue
+        supported.append((down, down.weight))
+    if not supported:
+        raise ValueError("model contains no supported dense down projections")
+
+    group_tuning = None
+    if format == "affine8" and group_size == "auto":
+        group_size, group_tuning = tune_mlx_affine8_group_size(
+            (weight for _, weight in supported),
+            objective="throughput",
+        )
+    elif format == "mxfp8":
+        group_size = 32
+
+    dense_bytes = sum(weight.nbytes for _, weight in supported)
+    estimated_bytes = int(dense_bytes * (0.55 if format == "affine8" else 0.52))
+    recommended = int(mx.device_info().get("max_recommended_working_set_size", 0))
+    budget = int(recommended * max_working_set_fraction)
+    active = int(mx.get_active_memory())
+    if recommended and active + estimated_bytes > budget:
+        raise ValueError(
+            f"compressed down AOT repack needs approximately {estimated_bytes / 2**30:.2f} GiB "
+            f"with {active / 2**30:.2f} GiB active, exceeding the "
+            f"{budget / 2**30:.2f} GiB working-set budget"
+        )
+
+    weights = {}
+    for module, weight in supported:
+        compressed = MLXCompressedDownWeight.quantize(
+            weight,
+            format=format,
+            group_size=group_size,
+        )
+        weights[id(module)] = (module, compressed)
+    repack_bytes = sum(weight.nbytes for _, weight in weights.values())
+    return MLXCompressedDown(
+        model,
+        weights,
+        format,
+        repack_bytes,
+        allow_approximate,
+        32 if format == "mxfp8" else group_size,
+        group_tuning,
     )
 
 
@@ -1228,6 +4355,10 @@ def apply_metile_to_mlx_lm(
     quantized_mlp=True,
     affine_prefill=None,
     dense_mlp=None,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
     plan=None,
 ):
     """Patch MLX-LM with zero-copy, autotuned meTile primitives.
@@ -1239,6 +4370,12 @@ def apply_metile_to_mlx_lm(
     """
     if model is not None and not callable(model):
         raise TypeError("model must be an MLX-LM callable")
+    dense_swiglu = dense_mlp
+    dense_residual = dense_mlp
+    active_compressed_down = compressed_down
+    active_compressed_gate_up = compressed_gate_up
+    active_compressed_vocab = compressed_vocab
+    active_compressed_attention = compressed_attention
     if plan is not None:
         if not isinstance(plan, MLXLMPlan):
             raise TypeError("plan must be an MLXLMPlan")
@@ -1249,7 +4386,17 @@ def apply_metile_to_mlx_lm(
         if not plan.affine_prefill:
             affine_prefill = None
         if not plan.dense_mlp:
-            dense_mlp = None
+            dense_swiglu = None
+        if not plan.dense_residual:
+            dense_residual = None
+        if not plan.compressed_down:
+            active_compressed_down = None
+        if not plan.compressed_gate_up:
+            active_compressed_gate_up = None
+        if not plan.compressed_vocab:
+            active_compressed_vocab = None
+        if not plan.compressed_attention:
+            active_compressed_attention = None
     if affine_prefill is not None:
         if not isinstance(affine_prefill, MLXAffinePrefill):
             raise TypeError("affine_prefill must be an MLXAffinePrefill")
@@ -1260,13 +4407,38 @@ def apply_metile_to_mlx_lm(
             raise TypeError("dense_mlp must be an MLXDenseMLP")
         if model is not dense_mlp.model:
             raise ValueError("dense_mlp was prepared for a different model")
+    if compressed_down is not None:
+        if not isinstance(compressed_down, MLXCompressedDown):
+            raise TypeError("compressed_down must be an MLXCompressedDown")
+        if model is not compressed_down.model:
+            raise ValueError("compressed_down was prepared for a different model")
+    if compressed_gate_up is not None:
+        if not isinstance(compressed_gate_up, MLXCompressedGateUp):
+            raise TypeError("compressed_gate_up must be an MLXCompressedGateUp")
+        if model is not compressed_gate_up.model:
+            raise ValueError("compressed_gate_up was prepared for a different model")
+    if compressed_vocab is not None:
+        if not isinstance(compressed_vocab, MLXCompressedVocab):
+            raise TypeError("compressed_vocab must be an MLXCompressedVocab")
+        if model is not compressed_vocab.model:
+            raise ValueError("compressed_vocab was prepared for a different model")
+    if compressed_attention is not None:
+        if not isinstance(compressed_attention, MLXCompressedAttention):
+            raise TypeError("compressed_attention must be an MLXCompressedAttention")
+        if model is not compressed_attention.model:
+            raise ValueError("compressed_attention was prepared for a different model")
     if (
         not attention
         and not rms_norm
         and not graph_fusion
         and not quantized_mlp
         and affine_prefill is None
-        and dense_mlp is None
+        and dense_swiglu is None
+        and dense_residual is None
+        and active_compressed_down is None
+        and active_compressed_gate_up is None
+        and active_compressed_vocab is None
+        and active_compressed_attention is None
     ):
         return MLXPatch([])
     try:
@@ -1339,11 +4511,13 @@ def apply_metile_to_mlx_lm(
 
     quantized_mlp_prefill_min_rows = _QUANTIZED_MLP_MIN_ROWS if affine_prefill is not None else 1
     quantized_mlp_prefill_max_rows = None if affine_prefill is not None else 1
-    if graph_fusion or quantized_mlp:
+    if graph_fusion or quantized_mlp or dense_residual is not None:
         _patch_graph_fusion(
             model,
             replacements,
             nn.QuantizedLinear if quantized_mlp else None,
+            dense_mlp=dense_residual,
+            dense_swiglu=dense_swiglu is not None,
             quantized_mlp_min_rows=1,
             quantized_mlp_max_rows=1,
             fuse_residual_rms=graph_fusion,
@@ -1357,18 +4531,30 @@ def apply_metile_to_mlx_lm(
             max_rows=quantized_mlp_prefill_max_rows,
         )
     _patch_affine_prefill(affine_prefill, replacements)
-    _patch_dense_mlp(dense_mlp, replacements)
+    _patch_dense_mlp(dense_swiglu, replacements)
+    _patch_compressed_down(active_compressed_down, replacements)
+    _patch_compressed_gate_up(active_compressed_gate_up, replacements)
+    _patch_compressed_vocab(active_compressed_vocab, replacements)
+    _patch_compressed_attention(active_compressed_attention, replacements)
 
     return MLXPatch(replacements, attention_replacement, attention_original)
 
 
 __all__ = [
     "MLXAffinePrefill",
+    "MLXCompressedAttention",
+    "MLXCompressedDown",
+    "MLXCompressedGateUp",
+    "MLXCompressedVocab",
     "MLXDenseMLP",
     "MLXLMPlan",
     "MLXPatch",
     "apply_metile_to_mlx_lm",
     "autotune_metile_for_mlx_lm",
     "prepare_mlx_lm_affine_prefill",
+    "prepare_mlx_lm_compressed_attention",
+    "prepare_mlx_lm_compressed_down",
+    "prepare_mlx_lm_compressed_gate_up",
+    "prepare_mlx_lm_compressed_vocab",
     "prepare_mlx_lm_dense_mlp",
 ]

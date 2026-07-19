@@ -675,6 +675,94 @@ class MNaxGemmSetup(MOp):
 
 
 @dataclass
+class MSimdgroupQMVLayout(MOp):
+    """Map each SIMDgroup to consecutive output-major matrix rows."""
+
+    outputs_per_simdgroup: int = 4
+    simdgroups_per_threadgroup: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MDotAccumulatorInit(MOp):
+    """Initialize one output-major projection accumulator per result row."""
+
+    outputs_per_simdgroup: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MDotAccumulate(MOp):
+    """Accumulate one output-major matrix-vector product over one K step."""
+
+    ptr_input: MValue = None
+    ptr_weight: MValue = None
+    input_features: int = 0
+    outputs_per_simdgroup: int = 4
+    elements_per_lane: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MDotResidualStore(MOp):
+    """Reduce dot products, add a low-precision residual, and store result rows."""
+
+    ptr_residual: MValue = None
+    ptr_output: MValue = None
+    outputs_per_simdgroup: int = 4
+    round_intermediates: str = "half"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MPairedDotAccumulatorInit(MOp):
+    """Initialize paired projection accumulators for one SIMDgroup."""
+
+    outputs_per_simdgroup: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MPairedDotAccumulate(MOp):
+    """Accumulate two output-major matrix-vector products over one K step."""
+
+    ptr_input: MValue = None
+    ptr_left: MValue = None
+    ptr_right: MValue = None
+    ptr_interleaved: MValue = None
+    input_features: int = 0
+    outputs_per_simdgroup: int = 4
+    elements_per_lane: int = 4
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MPairedDotSwiGLUStore(MOp):
+    """Reduce paired dot products, apply SwiGLU, and store output rows."""
+
+    ptr_output: MValue = None
+    outputs_per_simdgroup: int = 4
+    fast_math: bool = False
+    round_intermediates: str = "half"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
 class MNaxGemmRun(MOp):
     """Load aligned 16x16 fragments and execute two 16x32x16 MPP MMAs."""
 

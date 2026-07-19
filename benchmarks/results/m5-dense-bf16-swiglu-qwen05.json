@@ -1,0 +1,57 @@
+{
+  "dispatch": {
+    "algorithm": "metile",
+    "block_m": 0,
+    "block_n": 0,
+    "dtype": "mlx.core.bfloat16",
+    "implementation": "simdgroup_paired",
+    "input_features": 896,
+    "k_unroll": 2,
+    "output_features": 4864,
+    "outputs_per_simdgroup": 1,
+    "paired_available": true,
+    "rows": 1,
+    "schedule": "",
+    "simdgroups_per_threadgroup": 8
+  },
+  "fidelity": {
+    "bitwise_exact": true
+  },
+  "hardware": {
+    "chip": "Apple M5",
+    "machine": "arm64",
+    "memory": "32 GB",
+    "model_name": "Mac17,2",
+    "processor": "arm",
+    "release": "25.2.0",
+    "system": "Darwin"
+  },
+  "layer_index": 0,
+  "model": "mlx-community/Qwen2.5-0.5B-Instruct-bf16",
+  "precision_comparison": {
+    "baseline_weights": "bfloat16",
+    "class": "same_precision",
+    "optimized_weights": "bfloat16",
+    "same_weight_representation": true
+  },
+  "recorded_at": "2026-07-19T12:01:05.742390+00:00",
+  "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",
+  "schema_version": 1,
+  "scope": "isolated_primitive",
+  "seed": 17,
+  "shape": {
+    "input_features": 896,
+    "output_features": 4864,
+    "rows": 1
+  },
+  "software": {
+    "mlx": "0.32.0",
+    "mlx_lm": "0.31.3",
+    "python": "3.12.12"
+  },
+  "timings": {
+    "metile_seconds": 0.00035079100000000004,
+    "mlx_seconds": 0.00035775000000000005,
+    "speedup": 1.0198380232104016
+  }
+}

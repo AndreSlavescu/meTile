@@ -12,8 +12,23 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 _DECODE_CONFIRMATION_FLOOR = 0.995
+_DECODE_CONFIRMATION_WIN = 1.01
+_STRONG_DECODE_CONFIRMATION_WIN = 1.05
 _PREFILL_ONLY_DECODE_CONFIRMATION_FLOOR = 0.99
+_TTFT_CONFIRMATION_FLOOR = 0.995
 _TTFT_CONFIRMATION_WIN = 1.02
+
+
+def _compressed_down_group_size(value):
+    if value == "auto":
+        return value
+    try:
+        group_size = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("group size must be auto, 32, 64, or 128") from error
+    if group_size not in {32, 64, 128}:
+        raise argparse.ArgumentTypeError("group size must be auto, 32, 64, or 128")
+    return group_size
 
 
 def _arguments():
@@ -34,6 +49,35 @@ def _arguments():
     parser.add_argument("--disable-quantized-mlp", action="store_true")
     parser.add_argument("--disable-affine-prefill", action="store_true")
     parser.add_argument("--disable-dense-mlp", action="store_true")
+    parser.add_argument(
+        "--compressed-down-format",
+        choices=("none", "affine8", "mxfp8"),
+        default="none",
+    )
+    parser.add_argument(
+        "--compressed-down-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
+    parser.add_argument("--allow-approximate-compressed-down", action="store_true")
+    parser.add_argument("--compressed-gate-up", action="store_true")
+    parser.add_argument(
+        "--compressed-gate-up-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
+    parser.add_argument("--compressed-vocab", action="store_true")
+    parser.add_argument(
+        "--compressed-vocab-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
+    parser.add_argument("--compressed-attention", action="store_true")
+    parser.add_argument(
+        "--compressed-attention-group-size",
+        type=_compressed_down_group_size,
+        default="auto",
+    )
     parser.add_argument("--disable-model-autotune", action="store_true")
     parser.add_argument("--plan-decode-steps", type=int, default=8)
     parser.add_argument("--plan-trials", type=int, default=7)
@@ -44,7 +88,20 @@ def _arguments():
     return parser.parse_args()
 
 
-def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill, dense_mlp):
+def _generate(
+    model,
+    tokenizer,
+    prompt,
+    arguments,
+    patched,
+    plan,
+    affine_prefill,
+    dense_mlp,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
     from mlx_lm import stream_generate
 
     from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
@@ -58,6 +115,10 @@ def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill
             quantized_mlp=not arguments.disable_quantized_mlp,
             affine_prefill=affine_prefill,
             dense_mlp=dense_mlp,
+            compressed_down=compressed_down,
+            compressed_gate_up=compressed_gate_up,
+            compressed_vocab=compressed_vocab,
+            compressed_attention=compressed_attention,
             plan=plan,
         )
         if patched
@@ -85,7 +146,18 @@ def _generate(model, tokenizer, prompt, arguments, patched, plan, affine_prefill
     return response, time.perf_counter() - start, first_token_elapsed
 
 
-def _verify_model(model, prompt, arguments, plan, affine_prefill, dense_mlp):
+def _verify_model(
+    model,
+    prompt,
+    arguments,
+    plan,
+    affine_prefill,
+    dense_mlp,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
     import mlx.core as mx
     from mlx_lm.models.cache import make_prompt_cache
 
@@ -111,6 +183,10 @@ def _verify_model(model, prompt, arguments, plan, affine_prefill, dense_mlp):
         quantized_mlp=not arguments.disable_quantized_mlp,
         affine_prefill=affine_prefill,
         dense_mlp=dense_mlp,
+        compressed_down=compressed_down,
+        compressed_gate_up=compressed_gate_up,
+        compressed_vocab=compressed_vocab,
+        compressed_attention=compressed_attention,
         plan=plan,
     ):
         patched_prefix = model(tokens[:, :-1], cache=patched_cache)
@@ -119,7 +195,19 @@ def _verify_model(model, prompt, arguments, plan, affine_prefill, dense_mlp):
         mx.eval(patched)
 
     fidelity = _logit_fidelity(baseline, patched)
-    if not _fidelity_compatible(fidelity):
+    policies = []
+    if plan.compressed_down and compressed_down is not None:
+        policies.append(compressed_down.fidelity_compatible)
+    if plan.compressed_gate_up and compressed_gate_up is not None:
+        policies.append(compressed_gate_up.fidelity_compatible)
+    if plan.compressed_vocab and compressed_vocab is not None:
+        policies.append(compressed_vocab.fidelity_compatible)
+    if plan.compressed_attention and compressed_attention is not None:
+        policies.append(compressed_attention.fidelity_compatible)
+    compatible = (
+        all(policy(fidelity) for policy in policies) if policies else _fidelity_compatible(fidelity)
+    )
+    if not compatible:
         raise RuntimeError(
             "patched logits failed fidelity limits: "
             f"token {fidelity['actual_next_token']} vs {fidelity['next_token']}, "
@@ -135,7 +223,19 @@ def _verify_model(model, prompt, arguments, plan, affine_prefill, dense_mlp):
     return fidelity
 
 
-def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill, dense_mlp):
+def _confirm_plan(
+    model,
+    tokenizer,
+    prompt,
+    arguments,
+    plan,
+    affine_prefill,
+    dense_mlp,
+    compressed_down=None,
+    compressed_gate_up=None,
+    compressed_vocab=None,
+    compressed_attention=None,
+):
     if not plan.feature_count:
         return plan, None
     if arguments.confirmation_trials < 1:
@@ -158,6 +258,10 @@ def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill, den
                 plan,
                 affine_prefill,
                 dense_mlp,
+                compressed_down,
+                compressed_gate_up,
+                compressed_vocab,
+                compressed_attention,
             )
             samples[patched] = (
                 float(response.generation_tps),
@@ -186,25 +290,58 @@ def _confirm_plan(model, tokenizer, prompt, arguments, plan, affine_prefill, den
         )
     }
     required_wins = max(1, (len(pairs) * 2 + 2) // 3)
-    decode_sensitive = plan.attention or plan.rms_norm or plan.graph_fusion
+    decode_only_compression = plan.is_decode_only_compression
+    decode_sensitive = (
+        plan.attention
+        or plan.rms_norm
+        or plan.graph_fusion
+        or plan.quantized_mlp
+        or plan.dense_mlp
+        or plan.dense_residual
+        or plan.compressed_down
+        or plan.compressed_gate_up
+        or plan.compressed_vocab
+        or plan.compressed_attention
+    )
     decode_floor = (
         _DECODE_CONFIRMATION_FLOOR if decode_sensitive else _PREFILL_ONLY_DECODE_CONFIRMATION_FLOOR
     )
+    stable_ttft = decode_only_compression or (
+        sum(pair["ttft_speedup"] >= 0.98 for pair in pairs) >= required_wins
+        or (
+            medians["decode_speedup"] >= _STRONG_DECODE_CONFIRMATION_WIN
+            and sum(pair["end_to_end_speedup"] >= 1.0 for pair in pairs) >= required_wins
+        )
+    )
     no_regression = (
         medians["decode_speedup"] >= decode_floor
+        and (decode_only_compression or medians["ttft_speedup"] >= _TTFT_CONFIRMATION_FLOOR)
         and medians["end_to_end_speedup"] >= 0.995
         and sum(pair["decode_speedup"] >= 0.98 for pair in pairs) >= required_wins
+        and stable_ttft
         and sum(pair["end_to_end_speedup"] >= 0.98 for pair in pairs) >= required_wins
     )
+    meaningful_decode_win = (
+        decode_sensitive
+        and medians["decode_speedup"] >= _DECODE_CONFIRMATION_WIN
+        and sum(pair["decode_speedup"] >= 1.0 for pair in pairs) >= required_wins
+    )
     meaningful_win = (
-        medians["ttft_speedup"] >= _TTFT_CONFIRMATION_WIN or medians["end_to_end_speedup"] >= 1.01
+        medians["ttft_speedup"] >= _TTFT_CONFIRMATION_WIN
+        or medians["end_to_end_speedup"] >= 1.01
+        or meaningful_decode_win
     )
     accepted = no_regression and meaningful_win
     confirmation = {
         "accepted": accepted,
+        "decode_only_compression": decode_only_compression,
+        "decode_speedup_win": _DECODE_CONFIRMATION_WIN,
         "decode_speedup_floor": decode_floor,
         "medians": medians,
         "pairs": pairs,
+        "required_wins": required_wins,
+        "strong_decode_speedup_win": _STRONG_DECODE_CONFIRMATION_WIN,
+        "ttft_speedup_floor": _TTFT_CONFIRMATION_FLOOR,
     }
     print(
         "Confirmation: "
@@ -276,6 +413,7 @@ def _selected_dispatches():
     from metile.backends.mlx_affine import mlx_affine_matmul_dispatches
     from metile.backends.mlx_block_scaled import mlx_block_scaled_dispatches
     from metile.backends.mlx_dense import mlx_dense_matmul_dispatches
+    from metile.backends.mlx_dense_residual import mlx_dense_residual_dispatches
     from metile.backends.mlx_dense_swiglu import mlx_dense_swiglu_dispatches
     from metile.backends.mlx_quantized import (
         mlx_affine_residual_qmv_dispatches,
@@ -293,6 +431,7 @@ def _selected_dispatches():
         "affine_matmul": [dict(dispatch) for dispatch in mlx_affine_matmul_dispatches()],
         "block_scaled": [dict(dispatch) for dispatch in mlx_block_scaled_dispatches()],
         "dense_matmul": [dict(dispatch) for dispatch in mlx_dense_matmul_dispatches()],
+        "dense_residual": [dict(dispatch) for dispatch in mlx_dense_residual_dispatches()],
         "dense_swiglu": [dict(dispatch) for dispatch in mlx_dense_swiglu_dispatches()],
     }
 
@@ -300,11 +439,13 @@ def _selected_dispatches():
 def _model_metadata(config):
     text_config = config.get("text_config", config)
     keys = (
+        "dtype",
         "model_type",
         "hidden_size",
         "num_hidden_layers",
         "num_attention_heads",
         "num_key_value_heads",
+        "torch_dtype",
         "vocab_size",
     )
     return {key: text_config[key] for key in keys if key in text_config}
@@ -320,6 +461,54 @@ def _mlx_memory_metadata():
     }
 
 
+def _source_weight_representation(config):
+    if not isinstance(config, dict):
+        return "model_native"
+    text_config = config.get("text_config", config)
+    for key in ("dtype", "torch_dtype"):
+        value = text_config.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return "model_native"
+
+
+def _precision_comparison(plan, compressed_down, config=None):
+    selected = plan.as_dict()
+    source_weights = _source_weight_representation(config)
+    formats = []
+    if selected["compressed_down"]:
+        if compressed_down is None:
+            raise ValueError("selected compressed down plan has no prepared weight format")
+        formats.append(compressed_down.format)
+    for feature in ("compressed_gate_up", "compressed_vocab", "compressed_attention"):
+        if selected[feature]:
+            formats.append("affine8")
+    if not formats:
+        return {
+            "class": "same_precision",
+            "same_weight_representation": True,
+            "baseline_weights": source_weights,
+            "optimized_decode_weights": [source_weights],
+            "prefill_weights": source_weights,
+            "native_weights_preserved": True,
+        }
+    unique_formats = sorted(set(formats))
+    if unique_formats == ["affine8"]:
+        comparison_class = "mixed_precision_affine_int8_decode"
+    elif unique_formats == ["mxfp8"]:
+        comparison_class = "mixed_precision_mxfp8_decode"
+    else:
+        comparison_class = "mixed_precision_hybrid_decode"
+    return {
+        "class": comparison_class,
+        "same_weight_representation": False,
+        "baseline_weights": source_weights,
+        "optimized_decode_weights": unique_formats,
+        "prefill_weights": source_weights,
+        "native_weights_preserved": True,
+    }
+
+
 def _write_json_result(
     path,
     arguments,
@@ -331,10 +520,16 @@ def _write_json_result(
     plan,
     candidate_plan,
     confirmation,
+    plan_autotune_seconds,
     dense_mlp,
+    compressed_down,
+    compressed_gate_up,
+    compressed_vocab,
+    compressed_attention,
 ):
+    precision_comparison = _precision_comparison(plan, compressed_down, config)
     payload = {
-        "schema_version": 8,
+        "schema_version": 19,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "revision": _git_revision(),
         "model": arguments.model,
@@ -353,6 +548,7 @@ def _write_json_result(
             "prefill_step_size": arguments.prefill_step_size,
             "delay_seconds": arguments.delay,
             "plan_decode_steps": arguments.plan_decode_steps,
+            "plan_decode_trajectory": "native_autoregressive",
             "plan_trials": arguments.plan_trials,
             "confirmation_trials": arguments.confirmation_trials,
             "seed": arguments.seed,
@@ -364,11 +560,75 @@ def _write_json_result(
             "quantized_mlp": not arguments.disable_quantized_mlp,
             "affine_prefill": not arguments.disable_affine_prefill,
             "dense_mlp": not arguments.disable_dense_mlp,
+            "dense_residual": not arguments.disable_dense_mlp,
+            "compressed_down": arguments.compressed_down_format != "none",
+            "compressed_gate_up": arguments.compressed_gate_up,
+            "compressed_vocab": arguments.compressed_vocab,
+            "compressed_attention": arguments.compressed_attention,
             "model_autotune": not arguments.disable_model_autotune,
         },
         "selected_plan": plan.as_dict(),
         "candidate_plan": candidate_plan.as_dict(),
+        "precision_comparison": precision_comparison,
+        "plan_autotune_seconds": plan_autotune_seconds,
         "dense_mlp_implementation": (dense_mlp.implementation if dense_mlp is not None else None),
+        "compressed_down": (
+            {
+                "allow_approximate": compressed_down.allow_approximate,
+                "calibration_fidelity": compressed_down.calibration_fidelity,
+                "format": compressed_down.format,
+                "group_size": compressed_down.group_size,
+                "group_tuning": compressed_down.group_tuning,
+                "layer_indices": compressed_down.layer_indices,
+                "projections": compressed_down.projection_count,
+                "repack_bytes": compressed_down.repack_bytes,
+                "selection": compressed_down.selection,
+            }
+            if compressed_down is not None
+            else None
+        ),
+        "compressed_gate_up": (
+            {
+                "calibration_fidelity": compressed_gate_up.calibration_fidelity,
+                "group_size": compressed_gate_up.group_size,
+                "group_tuning": compressed_gate_up.group_tuning,
+                "implementation": compressed_gate_up.implementation,
+                "implementation_tuning": compressed_gate_up.implementation_tuning,
+                "layer_indices": compressed_gate_up.layer_indices,
+                "layers": compressed_gate_up.layer_count,
+                "projections": compressed_gate_up.projection_count,
+                "repack_bytes": compressed_gate_up.repack_bytes,
+                "selection": compressed_gate_up.selection,
+            }
+            if compressed_gate_up is not None
+            else None
+        ),
+        "compressed_vocab": (
+            {
+                "calibration_fidelity": compressed_vocab.calibration_fidelity,
+                "group_size": compressed_vocab.group_size,
+                "group_tuning": compressed_vocab.group_tuning,
+                "projections": compressed_vocab.projection_count,
+                "repack_bytes": compressed_vocab.repack_bytes,
+                "tied": compressed_vocab.tied,
+            }
+            if compressed_vocab is not None
+            else None
+        ),
+        "compressed_attention": (
+            {
+                "calibration_fidelity": compressed_attention.calibration_fidelity,
+                "group_size": compressed_attention.group_size,
+                "group_tuning": compressed_attention.group_tuning,
+                "layer_indices": compressed_attention.layer_indices,
+                "layers": compressed_attention.layer_count,
+                "projections": compressed_attention.projection_count,
+                "repack_bytes": compressed_attention.repack_bytes,
+                "selection": compressed_attention.selection,
+            }
+            if compressed_attention is not None
+            else None
+        ),
         "plan_confirmation": confirmation,
         "comparison_mode": "alternating" if plan.feature_count else "shared_native_fallback",
         "verification": verification,
@@ -400,6 +660,10 @@ def main():
         MLXLMPlan,
         autotune_metile_for_mlx_lm,
         prepare_mlx_lm_affine_prefill,
+        prepare_mlx_lm_compressed_attention,
+        prepare_mlx_lm_compressed_down,
+        prepare_mlx_lm_compressed_gate_up,
+        prepare_mlx_lm_compressed_vocab,
         prepare_mlx_lm_dense_mlp,
     )
 
@@ -432,6 +696,110 @@ def main():
         except ValueError as error:
             print(f"Dense MLP unavailable: {error}")
 
+    compressed_gate_up = None
+    if arguments.compressed_gate_up:
+        try:
+            print("AOT-compressing dense gate/up projection pairs as affine8...")
+            compressed_gate_up = prepare_mlx_lm_compressed_gate_up(
+                model,
+                group_size=arguments.compressed_gate_up_group_size,
+            )
+            print(
+                f"Prepared {compressed_gate_up.layer_count} compressed gate/up layers "
+                f"at group {compressed_gate_up.group_size} "
+                f"({compressed_gate_up.repack_bytes / 2**30:.2f} GiB repacked)"
+            )
+            if compressed_gate_up.group_tuning is not None:
+                timings = compressed_gate_up.group_tuning["median_nanoseconds"]
+                print(
+                    "Gate/up affine8 group autotune: "
+                    + ", ".join(
+                        f"g{group}={timings[str(group)] / 1e6:.3f}ms"
+                        for group in sorted(map(int, timings))
+                    )
+                )
+        except ValueError as error:
+            print(f"Compressed gate/up unavailable: {error}")
+
+    compressed_vocab = None
+    if arguments.compressed_vocab:
+        try:
+            print("AOT-compressing the vocabulary projection as affine8...")
+            compressed_vocab = prepare_mlx_lm_compressed_vocab(
+                model,
+                group_size=arguments.compressed_vocab_group_size,
+            )
+            print(
+                "Prepared one compressed vocabulary projection "
+                f"at group {compressed_vocab.group_size} "
+                f"({compressed_vocab.repack_bytes / 2**30:.2f} GiB repacked)"
+            )
+            if compressed_vocab.group_tuning is not None:
+                timings = compressed_vocab.group_tuning["median_nanoseconds"]
+                print(
+                    "Vocabulary affine8 group autotune: "
+                    + ", ".join(
+                        f"g{group}={timings[str(group)] / 1e6:.3f}ms"
+                        for group in sorted(map(int, timings))
+                    )
+                )
+        except ValueError as error:
+            print(f"Compressed vocabulary unavailable: {error}")
+
+    compressed_attention = None
+    if arguments.compressed_attention:
+        try:
+            print("AOT-compressing dense attention projections as affine8...")
+            compressed_attention = prepare_mlx_lm_compressed_attention(
+                model,
+                group_size=arguments.compressed_attention_group_size,
+            )
+            print(
+                f"Prepared {compressed_attention.layer_count} compressed attention layers "
+                f"at group {compressed_attention.group_size} "
+                f"({compressed_attention.repack_bytes / 2**30:.2f} GiB repacked)"
+            )
+            if compressed_attention.group_tuning is not None:
+                timings = compressed_attention.group_tuning["median_nanoseconds"]
+                print(
+                    "Attention affine8 group autotune: "
+                    + ", ".join(
+                        f"g{group}={timings[str(group)] / 1e6:.3f}ms"
+                        for group in sorted(map(int, timings))
+                    )
+                )
+        except ValueError as error:
+            print(f"Compressed attention unavailable: {error}")
+
+    compressed_down = None
+    if arguments.compressed_down_format != "none":
+        try:
+            print(
+                f"AOT-compressing dense down projections as {arguments.compressed_down_format}..."
+            )
+            compressed_down = prepare_mlx_lm_compressed_down(
+                model,
+                format=arguments.compressed_down_format,
+                group_size=arguments.compressed_down_group_size,
+                allow_approximate=arguments.allow_approximate_compressed_down,
+            )
+            print(
+                f"Prepared {compressed_down.projection_count} compressed down projections "
+                f"at group {compressed_down.group_size} "
+                f"({compressed_down.repack_bytes / 2**30:.2f} GiB repacked)"
+            )
+            if compressed_down.group_tuning is not None:
+                timings = compressed_down.group_tuning["median_nanoseconds"]
+                print(
+                    "Affine8 group autotune: "
+                    + ", ".join(
+                        f"g{group}={timings[str(group)] / 1e6:.3f}ms"
+                        for group in sorted(map(int, timings))
+                    )
+                )
+        except ValueError as error:
+            print(f"Compressed down unavailable: {error}")
+
     requested_plan = MLXLMPlan(
         attention=not arguments.disable_attention,
         rms_norm=not arguments.disable_rmsnorm,
@@ -439,11 +807,18 @@ def main():
         quantized_mlp=not arguments.disable_quantized_mlp,
         affine_prefill=affine_prefill is not None,
         dense_mlp=dense_mlp is not None,
+        dense_residual=dense_mlp is not None,
+        compressed_down=compressed_down is not None,
+        compressed_gate_up=compressed_gate_up is not None,
+        compressed_vocab=compressed_vocab is not None,
+        compressed_attention=compressed_attention is not None,
     )
     if arguments.disable_model_autotune:
         candidate_plan = requested_plan
+        plan_autotune_seconds = None
     else:
         print("Autotuning the MLX-LM feature plan...")
+        plan_autotune_started = time.perf_counter()
         candidate_plan = autotune_metile_for_mlx_lm(
             model,
             mx.array(prompt)[None],
@@ -453,13 +828,50 @@ def main():
             quantized_mlp=requested_plan.quantized_mlp,
             affine_prefill=affine_prefill,
             dense_mlp=dense_mlp,
+            compressed_down=compressed_down,
+            compressed_gate_up=compressed_gate_up,
+            compressed_vocab=compressed_vocab,
+            compressed_attention=compressed_attention,
             decode_steps=arguments.plan_decode_steps,
             trials=arguments.plan_trials,
         )
+        plan_autotune_seconds = time.perf_counter() - plan_autotune_started
+        print(f"Model-plan autotune completed in {plan_autotune_seconds:.2f}s")
     candidate = (
         ", ".join(name for name, active in candidate_plan.as_dict().items() if active)
         or "native MLX"
     )
+    if compressed_down is not None and compressed_down.calibrated:
+        print(
+            "Compressed down calibration: "
+            f"{compressed_down.selection} "
+            f"({compressed_down.projection_count} projections, "
+            f"{compressed_down.repack_bytes / 2**30:.2f} GiB active)"
+        )
+    if compressed_gate_up is not None and compressed_gate_up.calibrated:
+        print(
+            "Compressed gate/up calibration: "
+            f"{compressed_gate_up.selection} at group {compressed_gate_up.group_size} "
+            f"using {compressed_gate_up.implementation} execution "
+            f"({compressed_gate_up.layer_count} layers, "
+            f"{compressed_gate_up.repack_bytes / 2**30:.2f} GiB active)"
+        )
+    if compressed_vocab is not None and compressed_vocab.calibrated:
+        fidelity = compressed_vocab.calibration_fidelity
+        print(
+            "Compressed vocabulary calibration: "
+            f"{'accepted' if compressed_vocab.projection_count else 'rejected'} "
+            f"(KL={fidelity['kl_divergence']:.6g}, "
+            f"mean={fidelity['mean_logit_error']:.6f}, "
+            f"max={fidelity['max_logit_error']:.6f})"
+        )
+    if compressed_attention is not None and compressed_attention.calibrated:
+        print(
+            "Compressed attention calibration: "
+            f"{compressed_attention.selection} at group {compressed_attention.group_size} "
+            f"({compressed_attention.layer_count} layers, "
+            f"{compressed_attention.repack_bytes / 2**30:.2f} GiB active)"
+        )
     print(f"Candidate model plan: {candidate}")
     if dense_mlp is not None:
         print(f"Dense MLP implementation: {dense_mlp.implementation}")
@@ -473,6 +885,10 @@ def main():
             candidate_plan,
             affine_prefill,
             dense_mlp,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
         )
 
     print("Warming MLX baseline...")
@@ -485,6 +901,10 @@ def main():
         plan=candidate_plan,
         affine_prefill=affine_prefill,
         dense_mlp=dense_mlp,
+        compressed_down=compressed_down,
+        compressed_gate_up=compressed_gate_up,
+        compressed_vocab=compressed_vocab,
+        compressed_attention=compressed_attention,
     )
     if candidate_plan.feature_count:
         print("Compiling and autotuning meTile MLX kernels...")
@@ -497,6 +917,10 @@ def main():
             plan=candidate_plan,
             affine_prefill=affine_prefill,
             dense_mlp=dense_mlp,
+            compressed_down=compressed_down,
+            compressed_gate_up=compressed_gate_up,
+            compressed_vocab=compressed_vocab,
+            compressed_attention=compressed_attention,
         )
     else:
         print("Native fallback selected; sharing each measurement across both labels.")
@@ -509,9 +933,20 @@ def main():
         candidate_plan,
         affine_prefill,
         dense_mlp,
+        compressed_down,
+        compressed_gate_up,
+        compressed_vocab,
+        compressed_attention,
     )
     enabled = ", ".join(name for name, active in plan.as_dict().items() if active) or "native MLX"
     print(f"Selected model plan: {enabled}")
+    precision_comparison = _precision_comparison(plan, compressed_down, config)
+    if not precision_comparison["same_weight_representation"]:
+        formats = ", ".join(precision_comparison["optimized_decode_weights"])
+        print(
+            "Precision comparison: mixed precision "
+            f"({precision_comparison['baseline_weights']} vs {formats} decode); not same-format"
+        )
 
     results = {"MLX": [], "MLX + meTile": []}
     for trial in range(arguments.trials):
@@ -527,6 +962,10 @@ def main():
                 plan=plan,
                 affine_prefill=affine_prefill,
                 dense_mlp=dense_mlp,
+                compressed_down=compressed_down,
+                compressed_gate_up=compressed_gate_up,
+                compressed_vocab=compressed_vocab,
+                compressed_attention=compressed_attention,
             )
             sample = (
                 float(response.generation_tps),
@@ -556,6 +995,10 @@ def main():
                 plan,
                 affine_prefill,
                 dense_mlp,
+                compressed_down,
+                compressed_gate_up,
+                compressed_vocab,
+                compressed_attention,
             )
             name = "MLX + meTile" if patched else "MLX"
             results[name].append(
@@ -655,11 +1098,22 @@ def main():
         )
     print("Selected dense SwiGLU schedules")
     for dispatch in dispatches["dense_swiglu"]:
+        if dispatch["implementation"].startswith("simdgroup"):
+            schedule = (
+                f"{dispatch['implementation']} "
+                f"outputs/simdgroup={dispatch['outputs_per_simdgroup']} "
+                f"simdgroups/threadgroup={dispatch['simdgroups_per_threadgroup']} "
+                f"k-unroll={dispatch['k_unroll']}"
+            )
+        else:
+            schedule = (
+                f"block={dispatch['block_m']}x{dispatch['block_n']} "
+                f"schedule={dispatch['schedule']} k-unroll={dispatch['k_unroll']}"
+            )
         print(
             f"rows={dispatch['rows']} "
             f"{dispatch['input_features']}->{dispatch['output_features']}: "
-            f"{dispatch['algorithm']} block={dispatch['block_m']}x{dispatch['block_n']} "
-            f"schedule={dispatch['schedule']} k-unroll={dispatch['k_unroll']}"
+            f"{dispatch['algorithm']} {schedule}"
         )
     print("Selected dense projection schedules")
     for dispatch in dispatches["dense_matmul"]:
@@ -668,6 +1122,14 @@ def main():
             f"{dispatch['input_features']}->{dispatch['output_features']}: "
             f"{dispatch['algorithm']} block={dispatch['block_m']}x{dispatch['block_n']} "
             f"schedule={dispatch['schedule']} k-unroll={dispatch['k_unroll']}"
+        )
+    print("Selected dense down/residual schedules")
+    for dispatch in dispatches["dense_residual"]:
+        print(
+            f"rows={dispatch['rows']} "
+            f"{dispatch['input_features']}->{dispatch['output_features']}: "
+            f"{dispatch['algorithm']} outputs/simdgroup={dispatch['outputs_per_simdgroup']} "
+            f"simdgroups/threadgroup={dispatch['simdgroups_per_threadgroup']}"
         )
     if arguments.output_json is not None:
         _write_json_result(
@@ -681,7 +1143,12 @@ def main():
             plan,
             candidate_plan,
             confirmation,
+            plan_autotune_seconds,
             dense_mlp,
+            compressed_down,
+            compressed_gate_up,
+            compressed_vocab,
+            compressed_attention,
         )
 
 

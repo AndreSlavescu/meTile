@@ -1,4 +1,8 @@
-from metile.compiler.dense import lower_dense_swiglu
+from metile.compiler.dense import (
+    lower_dense_residual_qmv,
+    lower_dense_swiglu,
+    lower_dense_swiglu_qmv,
+)
 from metile.ir import metal_ir as mir
 
 
@@ -44,3 +48,77 @@ def test_dense_swiglu_reuses_activation_fragments_and_masks_ragged_rows():
     assert all(combine.round_intermediates == "half" for combine in combines)
     assert all(not combine.fast_math for combine in combines)
     assert all(store.row_bound == 33 for store in stores)
+
+
+def test_dense_swiglu_qmv_composes_exact_output_major_dot_pairs():
+    function = lower_dense_swiglu_qmv(
+        "dense_swiglu_qmv_ir",
+        256,
+        128,
+        outputs_per_simdgroup=4,
+        simdgroups_per_threadgroup=2,
+    )
+    operations = tuple(_walk(function.ops))
+
+    layout = next(
+        operation for operation in operations if isinstance(operation, mir.MSimdgroupQMVLayout)
+    )
+    accumulate = next(
+        operation for operation in operations if isinstance(operation, mir.MPairedDotAccumulate)
+    )
+    store = next(
+        operation for operation in operations if isinstance(operation, mir.MPairedDotSwiGLUStore)
+    )
+
+    assert function.threadgroup_size == (64, 1, 1)
+    assert layout.outputs_per_simdgroup == 4
+    assert layout.simdgroups_per_threadgroup == 2
+    assert accumulate.input_features == 128
+    assert accumulate.elements_per_lane == 4
+    assert not store.fast_math
+    assert store.round_intermediates == "half"
+
+
+def test_dense_swiglu_qmv_unrolls_k_without_changing_lane_partition():
+    function = lower_dense_swiglu_qmv(
+        "dense_swiglu_qmv_unrolled_ir",
+        256,
+        384,
+        outputs_per_simdgroup=4,
+        simdgroups_per_threadgroup=2,
+        k_unroll=2,
+    )
+    loops = [operation for operation in function.ops if isinstance(operation, mir.MForLoop)]
+    unrolled = loops[0]
+    tail = loops[1]
+
+    assert (unrolled.start, unrolled.end, unrolled.step) == (0, 256, 256)
+    assert [operation.k_offset for operation in unrolled.body] == [0, 128]
+    assert all(operation.elements_per_lane == 4 for operation in unrolled.body)
+    assert (tail.start, tail.end, tail.step) == (256, 384, 128)
+    assert [operation.k_offset for operation in tail.body] == [0]
+
+
+def test_dense_residual_qmv_composes_dot_and_residual_epilogue():
+    function = lower_dense_residual_qmv(
+        "dense_residual_qmv_ir",
+        256,
+        128,
+        outputs_per_simdgroup=1,
+        simdgroups_per_threadgroup=2,
+    )
+    operations = tuple(_walk(function.ops))
+
+    accumulate = next(
+        operation for operation in operations if isinstance(operation, mir.MDotAccumulate)
+    )
+    store = next(
+        operation for operation in operations if isinstance(operation, mir.MDotResidualStore)
+    )
+
+    assert function.threadgroup_size == (64, 1, 1)
+    assert accumulate.input_features == 128
+    assert accumulate.outputs_per_simdgroup == 1
+    assert accumulate.elements_per_lane == 4
+    assert store.ptr_residual.name == "residual"
+    assert store.round_intermediates == "half"

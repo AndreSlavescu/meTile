@@ -190,4 +190,176 @@ def lower_dense_swiglu(
     return function
 
 
-__all__ = ["lower_dense_swiglu"]
+def lower_dense_swiglu_qmv(
+    function_name: str,
+    output_features: int,
+    input_features: int,
+    *,
+    outputs_per_simdgroup: int = 4,
+    simdgroups_per_threadgroup: int = 4,
+    interleaved: bool = False,
+    k_unroll: int = 1,
+) -> mir.MFunction:
+    """Build an exact one-row SwiGLU from output-major SIMDgroup dot pairs."""
+    if outputs_per_simdgroup not in {1, 2, 4}:
+        raise ValueError("dense SwiGLU QMV supports 1, 2, or 4 outputs per SIMDgroup")
+    if simdgroups_per_threadgroup not in {1, 2, 4, 8}:
+        raise ValueError("dense SwiGLU QMV supports 1, 2, 4, or 8 SIMDgroups")
+    if output_features % (outputs_per_simdgroup * simdgroups_per_threadgroup):
+        raise ValueError("dense SwiGLU QMV outputs must align to the threadgroup tile")
+    if input_features % 128:
+        raise ValueError("dense SwiGLU QMV input features must align to 128")
+    if k_unroll not in {1, 2}:
+        raise ValueError("dense SwiGLU QMV K unroll must be 1 or 2")
+
+    function = mir.MFunction(
+        name=function_name,
+        kernel_type="tensor_ops_gemm",
+        threadgroup_size=(simdgroups_per_threadgroup * 32, 1, 1),
+    )
+    parameter_specs = (
+        (("activations", False), ("paired_weight", False), ("output", True))
+        if interleaved
+        else (
+            ("activations", False),
+            ("gate_weight", False),
+            ("up_weight", False),
+            ("output", True),
+        )
+    )
+    function.params = [
+        mir.MParam(name, PtrType("f16"), is_output=is_output) for name, is_output in parameter_specs
+    ]
+    values = {name: mir.MValue(name, PtrType("f16")) for name, _ in parameter_specs}
+
+    function.add_op(mir.ThreadgroupPositionInGrid())
+    function.add_op(mir.MSimdgroupId())
+    function.add_op(mir.MThreadInSimdgroup())
+    function.add_op(
+        mir.MSimdgroupQMVLayout(
+            outputs_per_simdgroup=outputs_per_simdgroup,
+            simdgroups_per_threadgroup=simdgroups_per_threadgroup,
+        )
+    )
+    function.add_op(mir.MPairedDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup))
+    blocks = input_features // 128
+    unrolled_blocks = blocks - blocks % k_unroll
+
+    def accumulate(k_offset=0):
+        return mir.MPairedDotAccumulate(
+            ptr_input=values["activations"],
+            ptr_left=None if interleaved else values["gate_weight"],
+            ptr_right=None if interleaved else values["up_weight"],
+            ptr_interleaved=values["paired_weight"] if interleaved else None,
+            input_features=input_features,
+            outputs_per_simdgroup=outputs_per_simdgroup,
+            k_offset=k_offset,
+        )
+
+    if unrolled_blocks:
+        function.add_op(
+            mir.MForLoop(
+                iv_name="k",
+                start=0,
+                end=unrolled_blocks * 128,
+                step=128 * k_unroll,
+                body=[accumulate(offset * 128) for offset in range(k_unroll)],
+            )
+        )
+    if unrolled_blocks < blocks:
+        function.add_op(
+            mir.MForLoop(
+                iv_name="k",
+                start=unrolled_blocks * 128,
+                end=input_features,
+                step=128,
+                body=[accumulate()],
+            )
+        )
+    function.add_op(
+        mir.MPairedDotSwiGLUStore(
+            ptr_output=values["output"],
+            outputs_per_simdgroup=outputs_per_simdgroup,
+            fast_math=False,
+            round_intermediates="half",
+        )
+    )
+    return function
+
+
+def lower_dense_residual_qmv(
+    function_name: str,
+    output_features: int,
+    input_features: int,
+    *,
+    outputs_per_simdgroup: int = 1,
+    simdgroups_per_threadgroup: int = 1,
+) -> mir.MFunction:
+    """Build an exact output-major QMV with a fused residual epilogue."""
+    if outputs_per_simdgroup not in {1, 2, 4}:
+        raise ValueError("dense residual QMV supports 1, 2, or 4 outputs per SIMDgroup")
+    if simdgroups_per_threadgroup not in {1, 2, 4, 8}:
+        raise ValueError("dense residual QMV supports 1, 2, 4, or 8 SIMDgroups")
+    if output_features % (outputs_per_simdgroup * simdgroups_per_threadgroup):
+        raise ValueError("dense residual QMV outputs must align to the threadgroup tile")
+    if input_features % 128:
+        raise ValueError("dense residual QMV input features must align to 128")
+
+    function = mir.MFunction(
+        name=function_name,
+        kernel_type="tensor_ops_gemm",
+        threadgroup_size=(simdgroups_per_threadgroup * 32, 1, 1),
+    )
+    parameter_specs = (
+        ("activations", False),
+        ("weight", False),
+        ("residual", False),
+        ("output", True),
+    )
+    function.params = [
+        mir.MParam(name, PtrType("f16"), is_output=is_output) for name, is_output in parameter_specs
+    ]
+    values = {name: mir.MValue(name, PtrType("f16")) for name, _ in parameter_specs}
+
+    function.add_op(mir.ThreadgroupPositionInGrid())
+    function.add_op(mir.MSimdgroupId())
+    function.add_op(mir.MThreadInSimdgroup())
+    function.add_op(
+        mir.MSimdgroupQMVLayout(
+            outputs_per_simdgroup=outputs_per_simdgroup,
+            simdgroups_per_threadgroup=simdgroups_per_threadgroup,
+        )
+    )
+    function.add_op(mir.MDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup))
+    function.add_op(
+        mir.MForLoop(
+            iv_name="k",
+            start=0,
+            end=input_features,
+            step=128,
+            body=[
+                mir.MDotAccumulate(
+                    ptr_input=values["activations"],
+                    ptr_weight=values["weight"],
+                    input_features=input_features,
+                    outputs_per_simdgroup=outputs_per_simdgroup,
+                )
+            ],
+        )
+    )
+    function.add_op(
+        mir.MDotResidualStore(
+            ptr_residual=values["residual"],
+            ptr_output=values["output"],
+            outputs_per_simdgroup=outputs_per_simdgroup,
+            round_intermediates="half",
+        )
+    )
+    return function
+
+
+__all__ = [
+    "lower_dense_residual_qmv",
+    "lower_dense_swiglu",
+    "lower_dense_swiglu_qmv",
+]

@@ -24,10 +24,12 @@ There are two compiler entry paths:
 The graph path first runs semantic discovery. It recognizes exact private
 subgraphs such as query/key matmul, scale or causal mask, softmax, and value
 matmul. A rewrite must carry a verified reduction certificate. Legal fusion
-regions are then selected with an exact max-flow/min-cut model that accounts for
-launches, materialized intermediates, and target resources. Each selected region
-eventually lowers through the same composable kernel machinery as a directly
-written eDSL kernel.
+neighborhoods use exact max-flow/min-cut models that account for launches,
+materialized intermediates, and target resources. The compiler also solves every
+bipartite region-conflict component globally through a weighted min-cut; arbitrary
+non-bipartite set-packing components retain a deterministic legal fallback. Each
+selected region eventually lowers through the same composable kernel machinery as
+a directly written eDSL kernel.
 
 Proof-Carrying Discovery
 ------------------------

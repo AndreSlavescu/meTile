@@ -1,7 +1,16 @@
+from itertools import combinations
+from random import Random
+
 import pytest
 
-from metile.compiler.graph_fusion import FusionTarget, plan_graph_fusion
-from metile.ir.graph_ir import GraphBuilder, TensorSpec
+from metile.compiler import graph_fusion
+from metile.compiler.graph_fusion import (
+    FusionRegion,
+    FusionTarget,
+    ProducerConsumerRule,
+    plan_graph_fusion,
+)
+from metile.ir.graph_ir import GraphBuilder, GraphNode, TensorSpec
 
 
 def _residual_rms_graph(*, return_residual=True):
@@ -28,6 +37,16 @@ def _swiglu_mlp_graph(*, return_gate=False):
     hidden = builder.multiply(activated, up, name="gated")
     output = builder.matmul(hidden, down_weight, name="down")
     return builder.build((gate, output) if return_gate else output)
+
+
+def _overlapping_scale_graph():
+    builder = GraphBuilder()
+    values = builder.input("values", TensorSpec((64,), "f16"))
+    first = builder.scale(values, 2, name="z0")
+    second = builder.scale(first, 3, name="a1")
+    third = builder.scale(second, 4, name="z2")
+    output = builder.scale(third, 5, name="z3")
+    return builder.build(output)
 
 
 def test_graph_fusion_discovers_multi_output_residual_rms_norm():
@@ -94,6 +113,78 @@ def test_graph_cut_keeps_materialized_producer_separate_without_launch_savings()
     plan = plan_graph_fusion(graph, target=FusionTarget(launch_overhead_ns=0))
 
     assert plan.regions == ()
+
+
+def test_global_graph_cut_beats_greedy_region_selection():
+    graph = _overlapping_scale_graph()
+    rule = ProducerConsumerRule(
+        name="scale_chain",
+        producer_op="scale",
+        consumer_op="scale",
+        consumer_input=0,
+        register_values=1,
+    )
+
+    plan = plan_graph_fusion(graph, rules=(rule,))
+
+    assert [tuple(node.name for node in region.nodes) for region in plan.regions] == [
+        ("z0", "a1"),
+        ("z2", "z3"),
+    ]
+
+
+def test_bipartite_graph_cut_matches_exhaustive_weighted_selection():
+    random = Random(11)
+    rule = ProducerConsumerRule("test", "add", "add", 0, 1)
+    for _ in range(100):
+        left_count = random.randint(1, 4)
+        right_count = random.randint(1, 4)
+        edge_nodes = {}
+        for left in range(left_count):
+            for right in range(right_count):
+                if random.random() < 0.45:
+                    edge_nodes[left, right] = GraphNode(f"edge_{left}_{right}", "add", (), {}, ())
+        candidates = []
+        for side, count in ((0, left_count), (1, right_count)):
+            for vertex in range(count):
+                nodes = tuple(
+                    node
+                    for (left, right), node in edge_nodes.items()
+                    if (left if side == 0 else right) == vertex
+                )
+                if not nodes:
+                    nodes = (GraphNode(f"private_{side}_{vertex}", "add", (), {}, ()),)
+                candidates.append(
+                    FusionRegion(
+                        rule,
+                        nodes,
+                        (),
+                        (),
+                        float(random.randint(1, 20)),
+                    )
+                )
+        candidates.sort(key=lambda region: -region.benefit_ns)
+
+        selected = graph_fusion._select_non_overlapping_regions(candidates)
+        selected_nodes = [set(region.nodes) for region in selected]
+        actual = sum(region.benefit_ns for region in selected)
+        expected = 0.0
+        for size in range(len(candidates) + 1):
+            for subset in combinations(candidates, size):
+                node_sets = [set(region.nodes) for region in subset]
+                if all(
+                    node_sets[left].isdisjoint(node_sets[right])
+                    for left in range(len(node_sets))
+                    for right in range(left + 1, len(node_sets))
+                ):
+                    expected = max(expected, sum(region.benefit_ns for region in subset))
+
+        assert all(
+            selected_nodes[left].isdisjoint(selected_nodes[right])
+            for left in range(len(selected_nodes))
+            for right in range(left + 1, len(selected_nodes))
+        )
+        assert actual == expected
 
 
 def test_graph_builder_rejects_incompatible_iteration_domains():

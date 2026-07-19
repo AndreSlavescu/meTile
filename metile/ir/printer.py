@@ -209,6 +209,40 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}simd_shuffle_xor({_val(op.value)}, {_val(op.mask)})")
     elif isinstance(op, mir.MSimdBroadcast):
         lines.append(f"{pad}{prefix}simd_broadcast({_val(op.value)}, {_val(op.lane)})")
+    elif isinstance(op, mir.MSimdgroupQMVLayout):
+        lines.append(
+            f"{pad}simdgroup_qmv_layout(outputs={op.outputs_per_simdgroup}, "
+            f"simdgroups={op.simdgroups_per_threadgroup})"
+        )
+    elif isinstance(op, mir.MDotAccumulatorInit):
+        lines.append(f"{pad}dot_accumulator_init(outputs={op.outputs_per_simdgroup})")
+    elif isinstance(op, mir.MDotAccumulate):
+        lines.append(
+            f"{pad}dot_accumulate(input={_val(op.ptr_input)}, weight={_val(op.ptr_weight)}, "
+            f"outputs={op.outputs_per_simdgroup}, vec={op.elements_per_lane})"
+        )
+    elif isinstance(op, mir.MDotResidualStore):
+        lines.append(
+            f"{pad}dot_residual_store(residual={_val(op.ptr_residual)}, "
+            f"output={_val(op.ptr_output)}, outputs={op.outputs_per_simdgroup})"
+        )
+    elif isinstance(op, mir.MPairedDotAccumulatorInit):
+        lines.append(f"{pad}paired_dot_accumulator_init(outputs={op.outputs_per_simdgroup})")
+    elif isinstance(op, mir.MPairedDotAccumulate):
+        weights = (
+            f"interleaved={_val(op.ptr_interleaved)}"
+            if op.ptr_interleaved is not None
+            else f"left={_val(op.ptr_left)}, right={_val(op.ptr_right)}"
+        )
+        lines.append(
+            f"{pad}paired_dot_accumulate(input={_val(op.ptr_input)}, {weights}, "
+            f"outputs={op.outputs_per_simdgroup}, vec={op.elements_per_lane})"
+        )
+    elif isinstance(op, mir.MPairedDotSwiGLUStore):
+        lines.append(
+            f"{pad}paired_dot_swiglu_store(output={_val(op.ptr_output)}, "
+            f"outputs={op.outputs_per_simdgroup})"
+        )
 
     # Tensor ops
     elif isinstance(op, mir.MTensorViewDecl):

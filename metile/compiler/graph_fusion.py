@@ -108,17 +108,112 @@ def plan_graph_fusion(
                 candidates.append(region)
 
     candidates.sort(key=lambda region: (-region.benefit_ns, region.nodes[0].name))
-    selected = []
-    occupied = set()
-    for region in candidates:
-        if any(node in occupied for node in region.nodes):
-            continue
-        selected.append(region)
-        occupied.update(region.nodes)
+    selected = _select_non_overlapping_regions(candidates)
 
     order = {node: index for index, node in enumerate(graph.nodes)}
     selected.sort(key=lambda region: order[region.nodes[0]])
     return FusionPlan(graph, tuple(selected))
+
+
+def _select_non_overlapping_regions(candidates):
+    """Select globally optimal regions for cut-representable conflict components."""
+    if not candidates:
+        return []
+    conflicts = _region_conflicts(candidates)
+    selected = []
+    for component in _conflict_components(conflicts):
+        colors = _bipartite_colors(component, conflicts)
+        if colors is None:
+            selected.extend(_select_greedy_component(candidates, component, conflicts))
+        else:
+            selected.extend(_select_bipartite_component(candidates, component, conflicts, colors))
+    return selected
+
+
+def _region_conflicts(candidates):
+    conflicts = [set() for _ in candidates]
+    owners = {}
+    for candidate_index, region in enumerate(candidates):
+        for node in set(region.nodes):
+            for owner in owners.setdefault(node, []):
+                conflicts[candidate_index].add(owner)
+                conflicts[owner].add(candidate_index)
+            owners[node].append(candidate_index)
+    return tuple(frozenset(neighbors) for neighbors in conflicts)
+
+
+def _conflict_components(conflicts):
+    remaining = set(range(len(conflicts)))
+    components = []
+    while remaining:
+        root = min(remaining)
+        remaining.remove(root)
+        component = []
+        stack = [root]
+        while stack:
+            candidate = stack.pop()
+            component.append(candidate)
+            neighbors = conflicts[candidate] & remaining
+            remaining.difference_update(neighbors)
+            stack.extend(sorted(neighbors, reverse=True))
+        components.append(tuple(sorted(component)))
+    return tuple(components)
+
+
+def _bipartite_colors(component, conflicts):
+    colors = {}
+    for root in component:
+        if root in colors:
+            continue
+        colors[root] = 0
+        stack = [root]
+        while stack:
+            candidate = stack.pop()
+            color = colors[candidate]
+            for neighbor in conflicts[candidate]:
+                expected = 1 - color
+                known = colors.get(neighbor)
+                if known is not None and known != expected:
+                    return None
+                if known is None:
+                    colors[neighbor] = expected
+                    stack.append(neighbor)
+    return colors
+
+
+def _select_bipartite_component(candidates, component, conflicts, colors):
+    source = ("terminal", "select")
+    sink = ("terminal", "reject")
+    vertices = {candidate: ("candidate", candidate) for candidate in component}
+    total_benefit = sum(candidates[candidate].benefit_ns for candidate in component)
+    infinity = total_benefit + 1.0
+    network = FlowNetwork()
+    for candidate in component:
+        vertex = vertices[candidate]
+        benefit = candidates[candidate].benefit_ns
+        if colors[candidate] == 0:
+            network.add_edge(source, vertex, benefit)
+            for neighbor in conflicts[candidate]:
+                network.add_edge(vertex, vertices[neighbor], infinity)
+        else:
+            network.add_edge(vertex, sink, benefit)
+    _, source_side = network.minimum_cut(source, sink)
+    return [
+        candidates[candidate]
+        for candidate in component
+        if (colors[candidate] == 0) == (vertices[candidate] in source_side)
+    ]
+
+
+def _select_greedy_component(candidates, component, conflicts):
+    selected = []
+    occupied = set()
+    for candidate in component:
+        if conflicts[candidate] & occupied:
+            continue
+        selected.append(candidates[candidate])
+        occupied.add(candidate)
+    return selected
 
 
 def _match_rule(graph, consumer, rule, consumers, graph_outputs, target):

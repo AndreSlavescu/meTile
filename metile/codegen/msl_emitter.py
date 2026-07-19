@@ -131,7 +131,7 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
     # Find setup op to determine if we need sgid
     need_sgid = False
     for op in func.ops:
-        if isinstance(op, mir.MNaxTileLayout) or (
+        if isinstance(op, (mir.MNaxTileLayout, mir.MSimdgroupQMVLayout)) or (
             isinstance(op, mir.MMatmul2dSetup) and not op.cooperative
         ):
             need_sgid = True
@@ -455,6 +455,27 @@ def _emit_gemm_op(
 
     elif isinstance(op, mir.MNaxTileLayout):
         _emit_nax_tile_layout(op, lines, indent)
+
+    elif isinstance(op, mir.MSimdgroupQMVLayout):
+        _emit_simdgroup_qmv_layout(op, lines, indent)
+
+    elif isinstance(op, mir.MDotAccumulatorInit):
+        _emit_dot_accumulator_init(op, lines, indent)
+
+    elif isinstance(op, mir.MDotAccumulate):
+        _emit_dot_accumulate(op, lines, indent, func)
+
+    elif isinstance(op, mir.MDotResidualStore):
+        _emit_dot_residual_store(op, lines, indent, func)
+
+    elif isinstance(op, mir.MPairedDotAccumulatorInit):
+        _emit_paired_dot_accumulator_init(op, lines, indent)
+
+    elif isinstance(op, mir.MPairedDotAccumulate):
+        _emit_paired_dot_accumulate(op, lines, indent, func)
+
+    elif isinstance(op, mir.MPairedDotSwiGLUStore):
+        _emit_paired_dot_swiglu_store(op, lines, indent, func)
 
     elif isinstance(op, mir.MNaxAccumulatorInit):
         _emit_nax_accumulator_init(op, lines, indent)
@@ -1025,6 +1046,189 @@ def _emit_nax_tile_layout(op, lines, indent):
     lines.append(f"{pad}const uint qid = slid >> 2u;")
     lines.append(f"{pad}const uint frag_m = ((qid & 4u) | ((slid >> 1u) & 3u));")
     lines.append(f"{pad}const uint frag_n = ((qid & 2u) | (slid & 1u)) * 4u;")
+
+
+def _emit_simdgroup_qmv_layout(op, lines, indent):
+    pad = "    " * indent
+    stride = op.outputs_per_simdgroup * op.simdgroups_per_threadgroup
+    lines.append(
+        f"{pad}const uint qmv_output_base = tgp_id.x * {stride}u "
+        f"+ sgid * {op.outputs_per_simdgroup}u;"
+    )
+
+
+def _emit_dot_accumulator_init(op, lines, indent):
+    pad = "    " * indent
+    for output in range(op.outputs_per_simdgroup):
+        lines.append(f"{pad}float qmv_dot_{output} = 0.0f;")
+
+
+def _emit_dot_accumulate(op, lines, indent, func):
+    if op.elements_per_lane != 4:
+        raise ValueError("SIMDgroup dot accumulation requires four elements per lane")
+    pad = "    " * indent
+    input_ptr = _val_name_gemm(op.ptr_input, func)
+    weight_ptr = _val_name_gemm(op.ptr_weight, func)
+    dtype = op.ptr_input.type.dtype if isinstance(op.ptr_input.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    lines.append(f"{pad}const uint qmv_k = uint(k) + slid * 4u;")
+    lines.append(
+        f"{pad}const {element_type}4 qmv_input = "
+        f"*((device const {element_type}4*)(&{input_ptr}[qmv_k]));"
+    )
+    for output in range(op.outputs_per_simdgroup):
+        values = f"qmv_weight_values_{output}"
+        row = f"qmv_output_base + {output}u"
+        lines.append(
+            f"{pad}const {element_type}4 {values} = *((device const {element_type}4*)"
+            f"(&{weight_ptr}[({row}) * {op.input_features}u + qmv_k]));"
+        )
+        for component in "xyzw":
+            lines.append(
+                f"{pad}qmv_dot_{output} += "
+                f"float({values}.{component}) * float(qmv_input.{component});"
+            )
+
+
+def _emit_dot_residual_store(op, lines, indent, func):
+    pad = "    " * indent
+    residual_ptr = _val_name_gemm(op.ptr_residual, func)
+    output_ptr = _val_name_gemm(op.ptr_output, func)
+    dtype = op.ptr_output.type.dtype if isinstance(op.ptr_output.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    low_type = op.round_intermediates or element_type
+    for output in range(op.outputs_per_simdgroup):
+        index = f"qmv_output_base + {output}u"
+        lines.append(f"{pad}#pragma clang loop unroll(full)")
+        lines.append(f"{pad}for (ushort offset = 16; offset >= 1; offset >>= 1) {{")
+        lines.append(f"{pad}    qmv_dot_{output} += simd_shuffle_down(qmv_dot_{output}, offset);")
+        lines.append(f"{pad}}}")
+        lines.append(f"{pad}if (slid == 0u) {{")
+        lines.append(f"{pad}    const {low_type} qmv_projected = {low_type}(qmv_dot_{output});")
+        lines.append(
+            f"{pad}    {output_ptr}[{index}] = "
+            f"{element_type}(qmv_projected + {residual_ptr}[{index}]);"
+        )
+        lines.append(f"{pad}}}")
+
+
+def _emit_paired_dot_accumulator_init(op, lines, indent):
+    pad = "    " * indent
+    for output in range(op.outputs_per_simdgroup):
+        lines.append(f"{pad}float qmv_left_{output} = 0.0f;")
+        lines.append(f"{pad}float qmv_right_{output} = 0.0f;")
+
+
+def _emit_paired_dot_accumulate(op, lines, indent, func):
+    if op.elements_per_lane != 4:
+        raise ValueError("paired SIMDgroup dot accumulation requires four elements per lane")
+    pad = "    " * indent
+    input_ptr = _val_name_gemm(op.ptr_input, func)
+    left_ptr = _val_name_gemm(op.ptr_left, func) if op.ptr_left is not None else None
+    right_ptr = _val_name_gemm(op.ptr_right, func) if op.ptr_right is not None else None
+    interleaved_ptr = (
+        _val_name_gemm(op.ptr_interleaved, func) if op.ptr_interleaved is not None else None
+    )
+    dtype = op.ptr_input.type.dtype if isinstance(op.ptr_input.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    suffix = f"_{op.k_offset}" if op.k_offset else ""
+    qmv_k = f"qmv_k{suffix}"
+    qmv_input = f"qmv_input{suffix}"
+    offset = f" + {op.k_offset}u" if op.k_offset else ""
+    lines.append(f"{pad}const uint {qmv_k} = uint(k){offset} + slid * 4u;")
+    lines.append(
+        f"{pad}const {element_type}4 {qmv_input} = "
+        f"*((device const {element_type}4*)(&{input_ptr}[{qmv_k}]));"
+    )
+    for output in range(op.outputs_per_simdgroup):
+        row = f"qmv_output_base + {output}u"
+        if interleaved_ptr is not None:
+            base = f"qmv_weight_base_{output}{suffix}"
+            low = f"qmv_paired_low_{output}{suffix}"
+            high = f"qmv_paired_high_{output}{suffix}"
+            lines.append(
+                f"{pad}const uint {base} = (({row}) * {op.input_features}u + {qmv_k}) * 2u;"
+            )
+            lines.append(
+                f"{pad}const {element_type}4 {low} = *((device const {element_type}4*)"
+                f"(&{interleaved_ptr}[{base}]));"
+            )
+            lines.append(
+                f"{pad}const {element_type}4 {high} = *((device const {element_type}4*)"
+                f"(&{interleaved_ptr}[{base} + 4u]));"
+            )
+            for input_component, source, component in zip(
+                "xyzw",
+                (low, low, high, high),
+                "xzxz",
+                strict=True,
+            ):
+                lines.append(
+                    f"{pad}qmv_left_{output} += float({source}.{component}) "
+                    f"* float({qmv_input}.{input_component});"
+                )
+            for input_component, source, component in zip(
+                "xyzw",
+                (low, low, high, high),
+                "ywyw",
+                strict=True,
+            ):
+                lines.append(
+                    f"{pad}qmv_right_{output} += float({source}.{component}) "
+                    f"* float({qmv_input}.{input_component});"
+                )
+        else:
+            left = f"qmv_left_values_{output}{suffix}"
+            right = f"qmv_right_values_{output}{suffix}"
+            lines.append(
+                f"{pad}const {element_type}4 {left} = *((device const {element_type}4*)"
+                f"(&{left_ptr}[({row}) * {op.input_features}u + {qmv_k}]));"
+            )
+            lines.append(
+                f"{pad}const {element_type}4 {right} = *((device const {element_type}4*)"
+                f"(&{right_ptr}[({row}) * {op.input_features}u + {qmv_k}]));"
+            )
+            for component in "xyzw":
+                lines.append(
+                    f"{pad}qmv_left_{output} += "
+                    f"float({left}.{component}) * float({qmv_input}.{component});"
+                )
+            for component in "xyzw":
+                lines.append(
+                    f"{pad}qmv_right_{output} += "
+                    f"float({right}.{component}) * float({qmv_input}.{component});"
+                )
+
+
+def _emit_paired_dot_swiglu_store(op, lines, indent, func):
+    pad = "    " * indent
+    output_ptr = _val_name_gemm(op.ptr_output, func)
+    dtype = op.ptr_output.type.dtype if isinstance(op.ptr_output.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    exponential = "fast::exp" if op.fast_math else "exp"
+    low_type = op.round_intermediates or element_type
+    for output in range(op.outputs_per_simdgroup):
+        lines.append(f"{pad}#pragma clang loop unroll(full)")
+        lines.append(f"{pad}for (ushort offset = 16; offset >= 1; offset >>= 1) {{")
+        lines.append(f"{pad}    qmv_left_{output} += simd_shuffle_down(qmv_left_{output}, offset);")
+        lines.append(
+            f"{pad}    qmv_right_{output} += simd_shuffle_down(qmv_right_{output}, offset);"
+        )
+        lines.append(f"{pad}}}")
+        lines.append(f"{pad}if (slid == 0u) {{")
+        lines.append(f"{pad}    const {low_type} swiglu_left = {low_type}(qmv_left_{output});")
+        lines.append(f"{pad}    const {low_type} swiglu_right = {low_type}(qmv_right_{output});")
+        lines.append(f"{pad}    const auto swiglu_y = 1 / (1 + {exponential}(abs(swiglu_left)));")
+        lines.append(
+            f"{pad}    const {low_type} swiglu_sigmoid = "
+            f"(swiglu_left < {low_type}(0)) ? swiglu_y : 1 - swiglu_y;"
+        )
+        lines.append(f"{pad}    const {low_type} swiglu_activation = swiglu_left * swiglu_sigmoid;")
+        lines.append(
+            f"{pad}    {output_ptr}[qmv_output_base + {output}u] = "
+            f"{element_type}(swiglu_activation * swiglu_right);"
+        )
+        lines.append(f"{pad}}}")
 
 
 def _emit_nax_accumulator_init(op, lines, indent):

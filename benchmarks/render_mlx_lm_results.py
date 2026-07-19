@@ -29,6 +29,18 @@ _WORKLOAD_KEYS = (
     "confirmation_trials",
     "seed",
 )
+_COMPRESSION_FEATURES = (
+    "compressed_down",
+    "compressed_gate_up",
+    "compressed_vocab",
+    "compressed_attention",
+)
+_PRECISION_CLASSES = {
+    "same_precision",
+    "mixed_precision_affine_int8_decode",
+    "mixed_precision_mxfp8_decode",
+    "mixed_precision_hybrid_decode",
+}
 
 
 def _arguments():
@@ -61,8 +73,65 @@ def _model_label(model):
             precision = label
             break
     family, size = name.rsplit("-", 1)
-    family = family.replace("Llama-", "Llama ").replace("Qwen2.5", "Qwen 2.5")
+    family = (
+        family.replace("Llama-", "Llama ").replace("Qwen2.5", "Qwen 2.5").replace("Qwen3", "Qwen 3")
+    )
     return f"{family}\n{size} {precision}"
+
+
+def _selected_feature(result, feature):
+    selected_plan = result.get("selected_plan")
+    if isinstance(selected_plan, dict):
+        return bool(selected_plan.get(feature, False))
+    return result.get(feature) is not None
+
+
+def _inferred_precision_class(result):
+    selected = {feature for feature in _COMPRESSION_FEATURES if _selected_feature(result, feature)}
+    if not selected:
+        return "same_precision"
+    formats = {"affine8" for feature in selected if feature != "compressed_down"}
+    if "compressed_down" in selected:
+        compressed_down = result.get("compressed_down")
+        if isinstance(compressed_down, dict):
+            formats.add(compressed_down.get("format", "unknown"))
+        else:
+            formats.add("unknown")
+    if formats == {"affine8"}:
+        return "mixed_precision_affine_int8_decode"
+    if formats == {"mxfp8"}:
+        return "mixed_precision_mxfp8_decode"
+    return "mixed_precision_hybrid_decode"
+
+
+def _precision_class(result):
+    comparison = result.get("precision_comparison")
+    if isinstance(comparison, dict) and comparison.get("class") in _PRECISION_CLASSES:
+        return comparison["class"]
+    return _inferred_precision_class(result)
+
+
+def _precision_labels(suite):
+    classes = {_precision_class(result) for result in suite["models"]}
+    if classes == {"same_precision"}:
+        return "Native MLX", "MLX + meTile (same precision)", "same weight representation"
+    if classes == {"mixed_precision_affine_int8_decode"}:
+        return (
+            "Native MLX (source precision)",
+            "meTile plan (affine INT8 decode)",
+            "mixed precision; not BF16-vs-BF16",
+        )
+    if classes == {"mixed_precision_mxfp8_decode"}:
+        return (
+            "Native MLX (source precision)",
+            "meTile plan (MXFP8 decode)",
+            "mixed precision; not same-format",
+        )
+    return (
+        "Native MLX (source precision)",
+        "meTile plan (mixed decode precision)",
+        "mixed precision classes; not same-format",
+    )
 
 
 def _suite_context(suite):
@@ -78,10 +147,45 @@ def _suite_context(suite):
         trial_kind = "alternating trials"
     else:
         trial_kind = "guarded paired/fallback trials"
+    compressed_formats = {
+        result["compressed_down"]["format"]
+        for result in suite["models"]
+        if _selected_feature(result, "compressed_down")
+        and result.get("compressed_down") is not None
+    }
+    has_compressed_gate_up = any(
+        _selected_feature(result, "compressed_gate_up") for result in suite["models"]
+    )
+    has_compressed_vocab = any(
+        _selected_feature(result, "compressed_vocab") for result in suite["models"]
+    )
+    has_compressed_attention = any(
+        _selected_feature(result, "compressed_attention") for result in suite["models"]
+    )
+    strategy = ""
+    if compressed_formats == {"affine8"} and has_compressed_gate_up:
+        families = ["MLP"]
+        if has_compressed_attention:
+            families.append("attention")
+        if has_compressed_vocab:
+            families.append("vocab")
+        strategy = " · composable affine INT8 " + " + ".join(families)
+    elif compressed_formats == {"affine8"}:
+        strategy = " · guarded affine INT8 down"
+    elif has_compressed_gate_up:
+        strategy = " · guarded affine INT8 gate/up"
+    elif has_compressed_attention:
+        strategy = " · guarded affine INT8 attention"
+    elif compressed_formats:
+        strategy = " · guarded " + "/".join(sorted(compressed_formats)) + " down"
+    model_delay = suite.get("model_delay_seconds", 0)
+    if isinstance(model_delay, (int, float)) and model_delay > 0:
+        strategy += f" · {model_delay:g}s model cooldown"
+    _, _, precision_note = _precision_labels(suite)
     subtitle = (
         f"{chip} · {workload['prompt_tokens']} prompt tokens · "
         f"{workload['generation_tokens']} generated · "
-        f"median of {workload['trials']} {trial_kind}"
+        f"median of {workload['trials']} {trial_kind}{strategy} · {precision_note}"
     )
     footer = (
         f"MLX {software.get('mlx', 'unknown')} · MLX-LM {software.get('mlx_lm', 'unknown')} · "
@@ -103,6 +207,7 @@ def _validate_suite(suite):
         "workload": {key: reference_workload.get(key) for key in _WORKLOAD_KEYS},
     }
     comparison_modes = set()
+    precision_classes = set()
     model_names = set()
     for result in models:
         model = result.get("model")
@@ -121,6 +226,41 @@ def _validate_suite(suite):
         if result_context != context:
             raise ValueError("all charted models must share hardware, software, and workload")
         comparison_modes.add(result.get("comparison_mode", "alternating"))
+        precision_class = _precision_class(result)
+        precision_classes.add(precision_class)
+        if result.get("schema_version", 0) >= 19:
+            comparison = result.get("precision_comparison")
+            if (
+                not isinstance(comparison, dict)
+                or comparison.get("class") not in _PRECISION_CLASSES
+            ):
+                raise ValueError("schema 19 benchmark requires a recognized precision comparison")
+            if precision_class != _inferred_precision_class(result):
+                raise ValueError("benchmark precision comparison disagrees with selected plan")
+            same_weight_representation = comparison.get("same_weight_representation")
+            if not isinstance(same_weight_representation, bool) or (
+                same_weight_representation != (precision_class == "same_precision")
+            ):
+                raise ValueError("benchmark precision comparison has inconsistent weight metadata")
+            optimized_weights = comparison.get("optimized_decode_weights")
+            if (
+                not isinstance(optimized_weights, list)
+                or not optimized_weights
+                or any(not isinstance(value, str) or not value for value in optimized_weights)
+            ):
+                raise ValueError("benchmark precision comparison requires decode weight formats")
+            for key in ("baseline_weights", "prefill_weights"):
+                value = comparison.get(key)
+                if not isinstance(value, str) or not value:
+                    raise ValueError(f"benchmark precision comparison requires {key}")
+            if comparison["prefill_weights"] != comparison["baseline_weights"]:
+                raise ValueError("benchmark prefill and baseline weight formats must match")
+            if precision_class == "same_precision" and optimized_weights != [
+                comparison["baseline_weights"]
+            ]:
+                raise ValueError("same-precision benchmark must preserve native decode weights")
+            if comparison.get("native_weights_preserved") is not True:
+                raise ValueError("benchmark must record whether native weights are preserved")
 
         medians = result.get("medians", {})
         for metric in _CHART_METRICS:
@@ -132,6 +272,8 @@ def _validate_suite(suite):
 
     if not comparison_modes <= {"alternating", "shared_native_fallback"}:
         raise ValueError("benchmark comparison mode is not recognized")
+    if not precision_classes <= _PRECISION_CLASSES:
+        raise ValueError("benchmark precision class is not recognized")
 
 
 def _chart_data(suite):
@@ -223,6 +365,7 @@ def _render_throughput(suite, output):
     pyplot = _matplotlib()
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
+    native_label, optimized_label, _ = _precision_labels(suite)
     positions = list(range(len(data["labels"])))
     width = 0.34
 
@@ -237,14 +380,14 @@ def _render_throughput(suite, output):
             [position - width / 2 for position in positions],
             mlx_values,
             width,
-            label="Native MLX",
+            label=native_label,
             color=MLX_COLOR,
         )
         metile_bars = axis.bar(
             [position + width / 2 for position in positions],
             metile_values,
             width,
-            label="MLX + meTile",
+            label=optimized_label,
             color=METILE_COLOR,
         )
         _label_paired_bars(axis, mlx_bars, metile_bars, label_format)
@@ -265,7 +408,7 @@ def _render_throughput(suite, output):
     figure.legend(
         handles, labels, frameon=False, loc="upper right", bbox_to_anchor=(0.98, 0.965), ncol=2
     )
-    figure.subplots_adjust(left=0.07, right=0.98, top=0.80, bottom=0.20, wspace=0.24)
+    figure.subplots_adjust(left=0.07, right=0.98, top=0.76, bottom=0.20, wspace=0.24)
     _validate_text_layout(figure)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})
@@ -277,6 +420,7 @@ def _render_latency(suite, output):
     pyplot = _matplotlib()
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
+    native_label, optimized_label, _ = _precision_labels(suite)
     positions = list(range(len(data["labels"])))
     width = 0.34
     panels = (
@@ -304,14 +448,14 @@ def _render_latency(suite, output):
             [position - width / 2 for position in positions],
             mlx_values,
             width,
-            label="Native MLX",
+            label=native_label,
             color=MLX_COLOR,
         )
         metile_bars = axis.bar(
             [position + width / 2 for position in positions],
             metile_values,
             width,
-            label="MLX + meTile",
+            label=optimized_label,
             color=METILE_COLOR,
         )
         _label_paired_bars(axis, mlx_bars, metile_bars, label_format)
@@ -330,7 +474,7 @@ def _render_latency(suite, output):
     figure.legend(
         handles, labels, frameon=False, loc="upper right", bbox_to_anchor=(0.98, 0.965), ncol=2
     )
-    figure.subplots_adjust(left=0.07, right=0.98, top=0.80, bottom=0.20, wspace=0.24)
+    figure.subplots_adjust(left=0.07, right=0.98, top=0.76, bottom=0.20, wspace=0.24)
     _validate_text_layout(figure)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})
