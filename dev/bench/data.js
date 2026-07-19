@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774033635919,
+  "lastUpdate": 1784501733629,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -739,6 +739,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 429.82,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "002a78f5e31d4be715ab1e000fa8a529505a1bcb",
+          "message": "Add composable Metal compiler and guarded MLX runtime (#8)\n\nAdd composable compiler IR, measured schedule selection, proof-carrying graph rewrites, guarded MLX-LM integration, honest matched-precision benchmarks, and updated architecture documentation.",
+          "timestamp": "2026-07-19T15:52:37-07:00",
+          "tree_id": "0fe730186ff820ef294133d158d3e58650012496",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/002a78f5e31d4be715ab1e000fa8a529505a1bcb"
+        },
+        "date": 1784501731534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 516.81,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3860.28,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 378.29,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1118.33,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 334.36,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1171.44,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 348.81,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 355.38,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 420.07,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 422.8,
             "unit": "us"
           }
         ]
