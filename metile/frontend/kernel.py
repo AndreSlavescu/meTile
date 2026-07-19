@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import inspect
 import os
 import struct
@@ -11,6 +12,7 @@ from metile.codegen.msl_emitter import emit
 from metile.compiler.lowering import lower
 from metile.compiler.passes import (
     block_swizzle,
+    decompose_nax_fragments,
     double_buffer_k_loop,
     fold_constants,
     pad_shared_memory,
@@ -22,19 +24,20 @@ from metile.compiler.passes import (
     vectorize_elementwise,
     vectorize_loads,
 )
+from metile.compiler.schedule_search import compressed_description_bits, optimize_tile_schedules
 from metile.frontend.tracing import TracingContext, TracingProxy, constexpr
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
 from metile.ir.types import I32, PtrType, ScalarType
 from metile.runtime.buffer import MtileBuffer
-from metile.runtime.metal_device import MetalDevice, MTLSize
+from metile.runtime.metal_device import MetalDevice, MTLSize, NSRange
 
 # Global kernel cache: (func_name, constexprs_tuple, dtypes_tuple) -> CompiledKernel
 _kernel_cache: dict = {}
 # Scalar buffer cache: (value, format_char) -> metal_buffer
 _scalar_buffer_cache: dict = {}
 
-_ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4}
+_ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4, "uchar": 1}
 
 
 def _validate_threadgroup_memory(metal_ir: mir.MFunction):
@@ -68,12 +71,19 @@ class CompiledKernel:
         func_name: str,
         threadgroup_size: tuple[int, int, int],
         is_gemm: bool = False,
+        prefer_ordered: bool = False,
+        output_indices: tuple[int, ...] = (),
+        argument_indices: tuple[int, ...] | None = None,
     ):
         self.pipeline = pipeline
         self.msl_source = msl_source
         self.func_name = func_name
         self.threadgroup_size = threadgroup_size
         self.is_gemm = is_gemm
+        self.prefer_ordered = prefer_ordered
+        self.output_indices = output_indices
+        self.argument_indices = argument_indices
+        self.description_bits = compressed_description_bits(msl_source)
 
 
 def kernel(fn):
@@ -132,54 +142,86 @@ class KernelFunction:
 
 
 class FastDispatcher:
-    """Zero-overhead repeated dispatch. Created by KernelLauncher.prepare().
+    """Low-overhead prepared dispatch. Created by KernelLauncher.prepare().
 
     Pre-resolves all Metal buffers, MTLSize structs, and ctypes function
-    pointers as instance attributes so __call__ goes straight to cached
-    ctypes Metal API calls with no Python arg processing, cache lookup,
-    isinstance checks, or class attribute lookups.
+    pointers. Consecutive prepared calls automatically share a command buffer
+    and compute encoder until sync(), reducing composed-kernel launch overhead.
     """
 
     __slots__ = (
+        "_binding_key",
+        "_buffer_array",
+        "_buffer_offsets",
+        "_buffer_range",
         "_buffers",
-        "_cq",
+        "_completion_spin_ns",
+        "_concurrent",
+        "_description_bits",
         "_dev",
         "_dispatch_fn",
         "_dispatch_sel",
         "_grid",
+        "_input_resources",
+        "_output_resources",
         "_pipeline",
-        "_sel_cb",
-        "_sel_commit",
-        "_sel_enc",
-        "_sel_end",
-        "_send_id",
-        "_send_void",
+        "_resources",
         "_set_buf_fn",
         "_set_buf_sel",
+        "_set_bufs_fn",
+        "_set_bufs_sel",
         "_set_pipe_fn",
         "_set_pipe_sel",
         "_tg",
     )
 
-    def __init__(self, compiled, metal_buffers, grid, dev):
+    def __init__(
+        self,
+        compiled,
+        metal_buffers,
+        grid,
+        dev,
+        resources=(),
+        completion_spin_ns=0,
+    ):
         dev._ensure_cached_selectors()
         self._pipeline = compiled.pipeline
         self._buffers = tuple(metal_buffers)
+        self._resources = tuple(resources)
+        self._concurrent = not compiled.is_gemm and not compiled.prefer_ordered
         self._dev = dev
-        self._cq = dev.command_queue
+        self._description_bits = compiled.description_bits
+        self._completion_spin_ns = max(0, int(completion_spin_ns))
+        buffer_values = tuple(
+            buffer.value if isinstance(buffer, ctypes.c_void_p) else int(buffer)
+            for buffer in self._buffers
+        )
+        self._input_resources = frozenset(buffer_values)
+        self._output_resources = frozenset(
+            buffer_values[index] for index in compiled.output_indices
+        )
+        pipeline_value = (
+            self._pipeline.value
+            if isinstance(self._pipeline, ctypes.c_void_p)
+            else int(self._pipeline)
+        )
+        self._binding_key = (pipeline_value, buffer_values)
 
         # Pre-cache all ctypes functions as instance attrs
-        self._send_id = MetalDevice._msg_send_id
-        self._send_void = MetalDevice._msg_send_void
-        self._sel_cb = MetalDevice._sel_commandBufferUnretained
-        self._sel_enc = MetalDevice._sel_computeCommandEncoder
         self._set_pipe_fn = MetalDevice._set_pipeline_fn
         self._set_pipe_sel = MetalDevice._set_pipeline_sel
         self._set_buf_fn = MetalDevice._set_buffer_fn
         self._set_buf_sel = MetalDevice._set_buffer_sel
-        self._sel_end = MetalDevice._sel_endEncoding
-        self._sel_commit = MetalDevice._sel_commit
-
+        self._set_bufs_fn = MetalDevice._set_buffers_fn
+        self._set_bufs_sel = MetalDevice._set_buffers_sel
+        if len(buffer_values) > 1:
+            self._buffer_array = (ctypes.c_void_p * len(buffer_values))(*buffer_values)
+            self._buffer_offsets = (ctypes.c_uint64 * len(buffer_values))()
+            self._buffer_range = NSRange(0, len(buffer_values))
+        else:
+            self._buffer_array = None
+            self._buffer_offsets = None
+            self._buffer_range = None
         tg = compiled.threadgroup_size
         self._tg = MTLSize(tg[0], tg[1], tg[2])
         if compiled.is_gemm:
@@ -196,25 +238,64 @@ class FastDispatcher:
             self._dispatch_sel = MetalDevice._dispatch_threads_sel
 
     def __call__(self):
-        send_id = self._send_id
-        send_void = self._send_void
+        dev = self._dev
+        with dev._dispatch_lock:
+            self._encode_unlocked(dev)
 
-        cmd_buffer = send_id(self._cq, self._sel_cb)
-        encoder = send_id(cmd_buffer, self._sel_enc)
+    def repeat(self, count: int):
+        """Encode the same prepared dispatch repeatedly under one runtime lock."""
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError("count must be a non-negative integer")
+        dev = self._dev
+        with dev._dispatch_lock:
+            for _ in range(count):
+                self._encode_unlocked(dev)
 
-        self._set_pipe_fn(encoder, self._set_pipe_sel, self._pipeline)
+    def _encode_unlocked(self, dev):
+        encoder = dev._pending_encoder_unlocked(self._concurrent)
+        concurrent = bool(dev._pending_concurrent)
+        if concurrent and (
+            (dev._pending_outputs & self._input_resources)
+            or (dev._pending_inputs & self._output_resources)
+        ):
+            dev._memory_barrier_fn(encoder, dev._memory_barrier_sel, 1)
+            dev._pending_inputs.clear()
+            dev._pending_outputs.clear()
+        if dev._pending_pipeline != self._binding_key[0]:
+            self._set_pipe_fn(encoder, self._set_pipe_sel, self._pipeline)
+            dev._pending_pipeline = self._binding_key[0]
 
-        fn = self._set_buf_fn
-        sel = self._set_buf_sel
-        bufs = self._buffers
-        for idx in range(len(bufs)):
-            fn(encoder, sel, bufs[idx], 0, idx)
+        if dev._pending_binding_key != self._binding_key:
+            if self._buffer_array is not None:
+                self._set_bufs_fn(
+                    encoder,
+                    self._set_bufs_sel,
+                    self._buffer_array,
+                    self._buffer_offsets,
+                    self._buffer_range,
+                )
+            elif self._buffers:
+                self._set_buf_fn(encoder, self._set_buf_sel, self._buffers[0], 0, 0)
+            dev._pending_binding_key = self._binding_key
 
         self._dispatch_fn(encoder, self._dispatch_sel, self._grid, self._tg)
+        if self._concurrent:
+            dev._pending_inputs.update(self._input_resources)
+            dev._pending_outputs.update(self._output_resources)
+        dev._pending_lifetimes[id(self)] = self
+        if dev._pending_dispatches == 0:
+            dev._pending_completion_spin_ns = self._completion_spin_ns
+        elif dev._pending_completion_spin_ns and self._completion_spin_ns:
+            dev._pending_completion_spin_ns += self._completion_spin_ns
+        else:
+            dev._pending_completion_spin_ns = 0
+        dev._pending_dispatches += 1
+        if dev._pending_dispatches >= 64:
+            dev._commit_pending_unlocked()
 
-        send_void(encoder, self._sel_end)
-        send_void(cmd_buffer, self._sel_commit)
-        self._dev._last_cmd_buffer = cmd_buffer
+    @property
+    def description_bits(self) -> int:
+        return self._description_bits
 
 
 class KernelLauncher:
@@ -247,6 +328,27 @@ class KernelLauncher:
         for name, val in kwargs.items():
             if name not in sig_names and name not in constexprs:
                 constexprs[name] = val._value if isinstance(val, constexpr) else val
+
+        bound_kwargs = {name: value for name, value in kwargs.items() if name in sig_names}
+        bound = sig.bind_partial(*args, **bound_kwargs)
+        for axis in ("M", "N", "K"):
+            block = constexprs.get(f"BLOCK_{axis}")
+            value = bound.arguments.get(axis)
+            if block is not None and isinstance(value, (int, np.integer)):
+                constexprs[f"_ALIGNED_{axis}"] = int(value) % int(block) == 0
+        nax_outer_k = constexprs.get("NAX_OUTER_K")
+        k_value = bound.arguments.get("K")
+        if nax_outer_k is not None and isinstance(k_value, (int, np.integer)):
+            constexprs["_ALIGNED_NAX_OUTER_K"] = int(k_value) % int(nax_outer_k) == 0
+        if constexprs.get("NAX_FRAGMENTS", False):
+            for axis in ("M", "N", "K"):
+                value = bound.arguments.get(axis)
+                if isinstance(value, (int, np.integer)):
+                    constexprs[f"_STATIC_{axis}"] = int(value)
+
+        if isinstance(self.grid, tuple) and len(self.grid) >= 2:
+            constexprs["_GRID_M"] = int(self.grid[0])
+            constexprs["_GRID_N"] = int(self.grid[1])
 
         # Auto-convert numpy arrays to MtileBuffer (implicit composition)
         converted_args = []
@@ -283,6 +385,7 @@ class KernelLauncher:
         # Stash for prepare()
         self._last_compiled = compiled
         self._last_metal_buffers = metal_buffers
+        self._last_resources = tuple(converted_args)
 
         # Sync results back to source numpy arrays (requires GPU completion)
         needs_sync = any(
@@ -301,8 +404,24 @@ class KernelLauncher:
         FastDispatcher that skips all Python arg processing.
         """
         self(*args, **kwargs)
+        MetalDevice.get().sync()
+        parameter_names = tuple(self.kernel_fn._sig.parameters)
+        arguments = dict(zip(parameter_names, args))
+        arguments.update((name, value) for name, value in kwargs.items() if name in parameter_names)
+        dimensions = tuple(arguments.get(axis) for axis in ("M", "N", "K"))
+        prefer_low_latency = self._last_compiled.is_gemm and all(
+            isinstance(dimension, (int, np.integer)) for dimension in dimensions
+        )
+        if prefer_low_latency:
+            prefer_low_latency = np.prod(dimensions, dtype=np.int64) <= 512**3
+        completion_spin_ns = 900_000 if prefer_low_latency else 0
         return FastDispatcher(
-            self._last_compiled, self._last_metal_buffers, self.grid, MetalDevice.get()
+            self._last_compiled,
+            self._last_metal_buffers,
+            self.grid,
+            MetalDevice.get(),
+            self._last_resources,
+            completion_spin_ns=completion_spin_ns,
         )
 
     def _compile(self, args, constexprs: dict, param_names: list[str]) -> CompiledKernel:
@@ -399,7 +518,8 @@ class KernelLauncher:
             # Tensor_ops kernels use register-resident cooperative_tensors —
             # no threadgroup memory passes needed. K-loop unrolling and
             # barrier removal are handled at lowering time.
-            pass
+            metal_ir = optimize_tile_schedules(metal_ir)
+            metal_ir = decompose_nax_fragments(metal_ir)
         elif is_specialized:
             # Specialized GEMM: double-buffered + padded in lowering
             # Only apply vectorize and serpentine
@@ -459,12 +579,25 @@ class KernelLauncher:
         else:
             pipeline = dev.compile_msl(msl_source, metal_ir.name)
 
+        source_param_names = [
+            name
+            for name, parameter in sig.parameters.items()
+            if parameter.annotation is not constexpr
+        ]
+        argument_indices = tuple(source_param_names.index(param.name) for param in metal_ir.params)
         return CompiledKernel(
             pipeline=pipeline,
             msl_source=msl_source,
             func_name=metal_ir.name,
             threadgroup_size=metal_ir.threadgroup_size,
             is_gemm=is_gemm or is_tensor_ops or is_specialized,
+            prefer_ordered=any(
+                isinstance(op, (mir.MBarrier, mir.MThreadgroupAlloc)) for op in metal_ir.ops
+            ),
+            output_indices=tuple(
+                index for index, param in enumerate(metal_ir.params) if param.is_output
+            ),
+            argument_indices=argument_indices,
         )
 
     def _dispatch(self, compiled: CompiledKernel, args):
@@ -472,7 +605,11 @@ class KernelLauncher:
         dev = MetalDevice.get()
 
         buffers = []
-        for arg in args:
+        argument_indices = compiled.argument_indices
+        selected_args = (
+            args if argument_indices is None else (args[index] for index in argument_indices)
+        )
+        for arg in selected_args:
             if isinstance(arg, MtileBuffer):
                 buffers.append(arg.metal_buffer)
             elif isinstance(arg, int):
@@ -543,5 +680,6 @@ def _numpy_to_dtype(np_dtype) -> str:
         np.float16: "f16",
         np.int32: "i32",
         np.uint32: "u32",
+        np.uint8: "u8",
     }
     return mapping.get(np_dtype.type, "f32")

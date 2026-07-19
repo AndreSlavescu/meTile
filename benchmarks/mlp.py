@@ -15,24 +15,9 @@ from kernels.gemm import matmul
 from kernels.mlp import matmul_gelu, matmul_silu
 from metile.runtime.metal_device import MetalDevice
 
-# --- Autotune configs ---
-
-GEMM_CONFIGS = [
-    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=64, WM=2, WN=2, K_UNROLL=1),
-    metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=128, WM=2, WN=2, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=64, BLOCK_K=64, WM=2, WN=4, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=64, BLOCK_K=128, WM=2, WN=4, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=64, WM=4, WN=4, K_UNROLL=1),
-    metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=128, WM=4, WN=4, K_UNROLL=1),
-]
-
-autotuned_gelu = metile.autotune(configs=GEMM_CONFIGS, key=["M", "N", "K"], verbose=True)(
-    matmul_gelu
-)
-autotuned_silu = metile.autotune(configs=GEMM_CONFIGS, key=["M", "N", "K"], verbose=True)(
-    matmul_silu
-)
-autotuned_matmul = metile.autotune(configs=GEMM_CONFIGS, key=["M", "N", "K"], verbose=True)(matmul)
+autotuned_gelu = matmul_gelu
+autotuned_silu = matmul_silu
+autotuned_matmul = matmul
 
 COOLDOWN = 3.0
 
@@ -142,7 +127,7 @@ def main():
         X_buf = metile.Buffer(data=X_np.ravel())
         W1_buf = metile.Buffer(data=W1_np.ravel())
         W2_buf = metile.Buffer(data=W2_np.ravel())
-        H_buf = metile.Buffer.zeros((M * H,))
+        H_buf = metile.Buffer.empty((M * H,))
         Y_buf = metile.Buffer.zeros((M * D,))
 
         def grid_up(cfg, M=M, H=H):

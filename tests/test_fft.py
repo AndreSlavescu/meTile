@@ -1,6 +1,18 @@
 import numpy as np
 
-from kernels.fft import fft
+from kernels.fft import _fft_configs, fft
+
+
+def test_2048_search_space_includes_register_local_gather():
+    configs = [config.kwargs for config in _fft_configs(2048)]
+
+    assert any(
+        config["ELEMS_PER_THREAD"] == 16
+        and config["BIT_REVERSE_GATHER"]
+        and not config["TWIDDLE_SHARED"]
+        for config in configs
+    )
+    assert not any(config["TWIDDLE_SHARED"] for config in configs)
 
 
 class TestFFT:

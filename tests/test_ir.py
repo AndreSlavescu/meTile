@@ -1,8 +1,18 @@
 from metile.codegen.msl_emitter import emit
 from metile.compiler.lowering import lower
+from metile.frontend.tracing import (
+    TracingContext,
+    TracingProxy,
+    fast_exp,
+    load,
+    maximum,
+    scalar,
+    store,
+    tile_range,
+)
 from metile.ir import tile_ir as tir
 from metile.ir.printer import print_metal_ir, print_tile_ir
-from metile.ir.types import I32, PtrType
+from metile.ir.types import I32, U32, PtrType, ScalarType
 
 
 def _build_vector_add_ir() -> tir.Function:
@@ -101,6 +111,109 @@ def test_msl_compiles():
     assert pipeline is not None
 
 
+def test_reverse_bits_lowers_to_native_unsigned_msl():
+    from metile.ir import metal_ir as mir
+
+    func = tir.Function(name="reverse_bits", params=[tir.Param("value", I32)])
+    value = tir.Value("value", I32)
+    reversed_value = func.add_op(tir.Unary(op="reverse_bits", operand=value))
+
+    assert reversed_value.type == U32
+    metal_func = lower(func)
+    reverse_op = next(op for op in metal_func.ops if isinstance(op, mir.MUnary))
+    assert reverse_op.result_type() == U32
+    assert "reverse_bits" in emit(metal_func)
+
+
+def test_explicit_scalar_is_carried_across_runtime_loop():
+    ctx = TracingContext("scalar_recurrence")
+    input_value = tir.Value("input", PtrType("f32"))
+    output_value = tir.Value("output", PtrType("f32"))
+    length_value = tir.Value("length", I32)
+    ctx.func.params = [
+        tir.Param("input", PtrType("f32")),
+        tir.Param("output", PtrType("f32"), is_output=True),
+        tir.Param("length", I32),
+    ]
+
+    with ctx:
+        input_proxy = TracingProxy(input_value)
+        output_proxy = TracingProxy(output_value)
+        length_proxy = TracingProxy(length_value)
+        local_max = scalar(-1e30)
+        for index in tile_range(0, length_proxy):
+            value = load(input_proxy + index)
+            new_max = maximum(local_max, value)
+            fast_exp(local_max - new_max)
+            local_max = new_max
+        store(output_proxy + 0, local_max)
+
+    msl = emit(lower(ctx.func))
+    assert "float _acc_0 = -1e+30f;" in msl
+    assert "= _acc_0 -" in msl
+    assert "fast::exp(" in msl
+    assert "simd_sum" not in msl
+
+
+def test_nested_runtime_loop_promotes_inner_and_outer_accumulators():
+    ctx = TracingContext("nested_scalar_recurrence")
+    input_value = tir.Value("input", PtrType("f32"))
+    output_value = tir.Value("output", PtrType("f32"))
+    length_value = tir.Value("length", I32)
+    ctx.func.params = [
+        tir.Param("input", PtrType("f32")),
+        tir.Param("output", PtrType("f32"), is_output=True),
+        tir.Param("length", I32),
+    ]
+
+    with ctx:
+        input_proxy = TracingProxy(input_value)
+        output_proxy = TracingProxy(output_value)
+        length_proxy = TracingProxy(length_value)
+        total = scalar(0.0)
+        for outer in tile_range(0, length_proxy, 4):
+            partial = scalar(0.0)
+            for inner in tile_range(outer, length_proxy):
+                partial = partial + load(input_proxy + inner)
+            total = total + partial
+        store(output_proxy + 0, total)
+
+    msl = emit(lower(ctx.func))
+    assert msl.count("float _acc_") == 2
+    assert "_acc_0 =" in msl
+    assert "_acc_1 =" in msl
+
+
+def test_native_simd_math_primitives_emit_metal_intrinsics():
+    func = tir.Function(name="simd_math", params=[tir.Param("value", ScalarType("f32"))])
+    value = tir.Value("value", ScalarType("f32"))
+    summed = func.add_op(tir.Unary(op="simd_sum", operand=value))
+    maximum_value = func.add_op(tir.Unary(op="simd_max", operand=summed))
+    func.add_op(tir.Unary(op="fast_exp", operand=maximum_value))
+
+    msl = emit(lower(func))
+    assert "simd_sum(" in msl
+    assert "simd_max(" in msl
+    assert "fast::exp(" in msl
+
+
+def test_elementwise_vectorization_rejects_subgroup_collectives():
+    from metile.compiler.passes import vectorize_elementwise
+    from metile.ir import metal_ir as mir
+
+    value = mir.MValue("value", ScalarType("f32"))
+    lane = mir.MValue("lane", U32)
+    broadcast = mir.MSimdBroadcast(value=value, lane=lane)
+    broadcast.result = mir.MValue("broadcast", ScalarType("f32"), broadcast)
+    loop = mir.MForLoop(iv_name="index", start=0, end=256, step=32, body=[broadcast])
+    loop._ew_aligned = True
+    function = mir.MFunction("collective_loop", kernel_type="elementwise", ops=[loop])
+
+    vectorize_elementwise(function)
+
+    assert not hasattr(loop, "_vec_size")
+
+
 def _build_simdgroup_role_ir() -> tir.Function:
     """Build Tile IR with simdgroup_role blocks."""
     func = tir.Function(
@@ -188,3 +301,51 @@ def test_simdgroup_role_compiles():
     dev = MetalDevice.get()
     pipeline = dev.compile_msl(msl, metal_func.name)
     assert pipeline is not None
+
+
+def test_nax_preload_pass_decomposes_two_k_steps_before_mma():
+    from metile.compiler.passes import decompose_nax_fragments
+    from metile.ir import metal_ir as mir
+
+    ptr_a = mir.MValue("A", PtrType("f32"))
+    ptr_b = mir.MValue("B", PtrType("f32"))
+    function = mir.MFunction("nax_preload", kernel_type="tensor_ops_gemm")
+    function.ops = [
+        mir.MNaxGemmSetup(),
+        mir.MForLoop(
+            iv_name="k",
+            end=64,
+            step=32,
+            body=[
+                mir.MNaxGemmRun(ptr_a=ptr_a, ptr_b=ptr_b),
+                mir.MNaxGemmRun(ptr_a=ptr_a, ptr_b=ptr_b, k_offset=16),
+            ],
+        ),
+    ]
+
+    decompose_nax_fragments(function)
+    loop = next(op for op in function.ops if isinstance(op, mir.MForLoop))
+    first_mma = next(
+        index for index, op in enumerate(loop.body) if isinstance(op, mir.MNaxFmaFragment)
+    )
+    assert sum(isinstance(op, mir.MNaxLoadFragment) for op in loop.body[:first_mma]) == 8
+    assert sum(isinstance(op, mir.MNaxFmaFragment) for op in loop.body) == 4
+    assert not any(isinstance(op, mir.MNaxGemmRun) for op in loop.body)
+
+
+def test_nax_epilogue_decomposes_over_each_accumulator_fragment():
+    from metile.compiler.passes import decompose_nax_fragments
+    from metile.ir import metal_ir as mir
+
+    function = mir.MFunction("nax_epilogue", kernel_type="tensor_ops_gemm")
+    function.ops = [
+        mir.MNaxAccumulatorInit(),
+        mir.MNaxGemmEpilogue(operations=[("relu",)]),
+    ]
+
+    decompose_nax_fragments(function)
+    applications = [op for op in function.ops if isinstance(op, mir.MNaxApplyFragment)]
+    assert [op.source for op in applications] == ["d00", "d01", "d10", "d11"]
+    assert all(op.operations == [("relu",)] for op in applications)
+    assert len({id(op.operations) for op in applications}) == 4
+    assert not any(isinstance(op, mir.MNaxGemmEpilogue) for op in function.ops)

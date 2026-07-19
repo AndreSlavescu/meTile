@@ -1,6 +1,8 @@
 import metile
+from kernels.gemm import MATMUL_CONFIGS
 
 
+@metile.autotune(configs=MATMUL_CONFIGS, key=["M", "N", "K"], verbose=False)
 @metile.kernel
 def matmul_gelu(
     A,
@@ -27,6 +29,7 @@ def matmul_gelu(
     metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
 
 
+@metile.autotune(configs=MATMUL_CONFIGS, key=["M", "N", "K"], verbose=False)
 @metile.kernel
 def matmul_silu(
     A,

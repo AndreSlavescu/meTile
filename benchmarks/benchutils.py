@@ -138,28 +138,39 @@ def bench_interleaved(fn_a, fn_b, sync=None, warmup_ms=50, rep_ms=200):
     n_warmup = max(5, int(warmup_ms * 1_000_000 / pair_ns))
     n_rep = max(10, int(rep_ms * 1_000_000 / pair_ns))
 
-    # Warmup
-    for _ in range(n_warmup):
-        fn_a()
-        sync()
-        fn_b()
-        sync()
+    # Warmup both orderings so neither candidate always inherits the second dispatch.
+    for iteration in range(n_warmup):
+        ordered = (fn_a, fn_b) if iteration % 2 == 0 else (fn_b, fn_a)
+        for function in ordered:
+            function()
+            sync()
 
     gc_was = gc.isenabled()
     gc.disable()
 
     try:
         times_a, times_b = [], []
-        for _ in range(n_rep):
-            t0 = _clock()
-            fn_a()
-            sync()
-            ta = (_clock() - t0) * 1e-9
+        for iteration in range(n_rep):
+            if iteration % 2 == 0:
+                t0 = _clock()
+                fn_a()
+                sync()
+                ta = (_clock() - t0) * 1e-9
 
-            t0 = _clock()
-            fn_b()
-            sync()
-            tb = (_clock() - t0) * 1e-9
+                t0 = _clock()
+                fn_b()
+                sync()
+                tb = (_clock() - t0) * 1e-9
+            else:
+                t0 = _clock()
+                fn_b()
+                sync()
+                tb = (_clock() - t0) * 1e-9
+
+                t0 = _clock()
+                fn_a()
+                sync()
+                ta = (_clock() - t0) * 1e-9
 
             times_a.append(ta)
             times_b.append(tb)

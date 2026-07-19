@@ -155,12 +155,14 @@ class MCast(MOp):
 
 @dataclass
 class MUnary(MOp):
-    """Unary math operation (exp, log, sqrt, abs, neg)."""
+    """Unary scalar operation, including native simdgroup reductions."""
 
     op: str = ""
     operand: MValue = None
 
     def result_type(self) -> ScalarType:
+        if self.op == "reverse_bits":
+            return U32
         return self.operand.type
 
 
@@ -210,6 +212,17 @@ class DeviceStore(MOp):
 
     def result_type(self):
         return None
+
+
+@dataclass
+class MPointerOffset(MOp):
+    """Declare a typed device pointer at a symbolic element offset."""
+
+    ptr: MValue = None
+    offset: str = "0"
+
+    def result_type(self) -> PtrType:
+        return self.ptr.type
 
 
 @dataclass
@@ -316,6 +329,7 @@ class MBarrier(MOp):
 
     kind: str = "threadgroup"
     flags: str = "mem_threadgroup"
+    condition: str | None = None
 
     def result_type(self):
         return None
@@ -406,6 +420,8 @@ class MForLoop(MOp):
     end: MValue | int = 0
     step: int = 1
     body: list[MOp] = field(default_factory=list)
+    index_alias: str | None = None
+    index_expression: str | None = None
 
     def result_type(self):
         return None
@@ -587,12 +603,444 @@ class MTensorViewDecl(MOp):
 class MTileSchedule(MOp):
     """Compute tile coordinates with optional cache-friendly scheduling.
 
-    Patterns: "morton" (2x2 Z-curve), "diagonal", "" (linear).
+    Patterns include grouped M-tile families, Hilbert, Morton, diagonal, and linear.
     """
 
-    pattern: str = "morton"
+    pattern: str = "auto"
     block_m: int = 128
     block_n: int = 64
+    block_size: int = 4
+    grid_m: int | None = None
+    grid_n: int | None = None
+    is_static: bool = False
+    encoding: str = "auto"
+    description_bits: int | None = None
+    symmetry_group: str | None = None
+    axis_interchangeable: bool = False
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MBlockScaledTensorViewDecl(MOp):
+    """Declare dense A/C views and the reusable dequantized B tile view."""
+
+    ptr_a: MValue = None
+    ptr_c: MValue = None
+    m: int = 0
+    n: int = 0
+    k: int = 0
+    block_k: int = 32
+    block_n: int = 64
+    stage_type: str = "float"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MBlockScaledTileLoad(MOp):
+    """Decode one block-scaled KxN tile into threadgroup memory."""
+
+    ptr_values: MValue = None
+    ptr_scales: MValue = None
+    bits: int = 4
+    matrix_n: int = 0
+    block_k: int = 32
+    block_n: int = 64
+    num_threads: int = 128
+    stage_type: str = "float"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxGemmSetup(MOp):
+    """Set up one 32x32 register-fragment GEMM tile per simdgroup."""
+
+    block_m: int = 64
+    block_n: int = 64
+    wm: int = 2
+    wn: int = 2
+    m: int = 0
+    n: int = 0
+    k: int = 0
+    left_type: str = "float"
+    right_type: str = "float"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MSimdgroupQMVLayout(MOp):
+    """Map each SIMDgroup to consecutive output-major matrix rows."""
+
+    outputs_per_simdgroup: int = 4
+    simdgroups_per_threadgroup: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MDotAccumulatorInit(MOp):
+    """Initialize one output-major projection accumulator per result row."""
+
+    outputs_per_simdgroup: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MDotAccumulate(MOp):
+    """Accumulate one output-major matrix-vector product over one K step."""
+
+    ptr_input: MValue = None
+    ptr_weight: MValue = None
+    input_features: int = 0
+    outputs_per_simdgroup: int = 4
+    elements_per_lane: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MDotResidualStore(MOp):
+    """Reduce dot products, add a low-precision residual, and store result rows."""
+
+    ptr_residual: MValue = None
+    ptr_output: MValue = None
+    outputs_per_simdgroup: int = 4
+    round_intermediates: str = "half"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MPairedDotAccumulatorInit(MOp):
+    """Initialize paired projection accumulators for one SIMDgroup."""
+
+    outputs_per_simdgroup: int = 4
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MPairedDotAccumulate(MOp):
+    """Accumulate two output-major matrix-vector products over one K step."""
+
+    ptr_input: MValue = None
+    ptr_left: MValue = None
+    ptr_right: MValue = None
+    ptr_interleaved: MValue = None
+    input_features: int = 0
+    outputs_per_simdgroup: int = 4
+    elements_per_lane: int = 4
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MPairedDotSwiGLUStore(MOp):
+    """Reduce paired dot products, apply SwiGLU, and store output rows."""
+
+    ptr_output: MValue = None
+    outputs_per_simdgroup: int = 4
+    fast_math: bool = False
+    round_intermediates: str = "half"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxGemmRun(MOp):
+    """Load aligned 16x16 fragments and execute two 16x32x16 MPP MMAs."""
+
+    ptr_a: MValue = None
+    ptr_b: MValue = None
+    k_offset: int = 0
+    row_bound: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxBlockScaledRun(MOp):
+    """Decode one aligned MXFP fragment and execute NAX register MMAs."""
+
+    ptr_a: MValue = None
+    ptr_values: MValue = None
+    ptr_scales: MValue = None
+    bits: int = 4
+    fragment_type: str = "float"
+    row_bound: int = 0
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxAffineRun(MOp):
+    """Decode one aligned affine-quantized fragment and execute NAX MMAs."""
+
+    ptr_a: MValue = None
+    ptr_values: MValue = None
+    ptr_scales: MValue = None
+    ptr_biases: MValue = None
+    group_size: int = 64
+    fragment_type: str = "half"
+    row_bound: int = 1
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxGemmStore(MOp):
+    """Store the four 16x16 accumulator fragments for one simdgroup."""
+
+    ptr_c: MValue = None
+    row_bound: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxGemmEpilogue(MOp):
+    """Apply a fused element-wise chain to all NAX accumulator fragments."""
+
+    operations: list[tuple] = field(default_factory=list)
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxTileLayout(MOp):
+    """Map a simdgroup and its lanes onto one register-resident output tile."""
+
+    block_m: int = 64
+    block_n: int = 64
+    wn: int = 2
+    m: int = 0
+    n: int = 0
+    k: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxAccumulatorInit(MOp):
+    """Declare register fragments that persist across the reduction loop."""
+
+    names: tuple[str, ...] = ("d00", "d01", "d10", "d11")
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxAccumulatorReset(MOp):
+    """Reset existing register fragments for a new reduction lifetime."""
+
+    names: tuple[str, ...] = ("d00", "d01", "d10", "d11")
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxMatmul2dDecl(MOp):
+    """Declare the native MPP matmul2d operator and cooperative tensors."""
+
+    m: int = 16
+    n: int = 32
+    k: int = 16
+    left_type: str = "float"
+    right_type: str = "float"
+    accumulator_type: str = "float"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadFragment(MOp):
+    """Load one eight-element left or right register fragment."""
+
+    ptr: MValue = None
+    name: str = ""
+    operand: str = "left"
+    row_offset: int = 0
+    col_offset: int = 0
+    k_offset: int = 0
+    row_bound: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadBlockScaledFragment(MOp):
+    """Decode one eight-element block-scaled right register fragment."""
+
+    ptr_values: MValue = None
+    name: str = ""
+    scale: str = ""
+    bits: int = 4
+    col_offset: int = 0
+    k_offset: int = 0
+    fragment_type: str = "float"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadBlockScale(MOp):
+    """Load and decode one four-column E8M0 scale fragment."""
+
+    ptr_scales: MValue = None
+    name: str = ""
+    col_offset: int = 0
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadAffineFragment(MOp):
+    """Decode one eight-element affine uint4 right register fragment."""
+
+    ptr_values: MValue = None
+    name: str = ""
+    scale: str = ""
+    bias: str = ""
+    col_offset: int = 0
+    k_offset: int = 0
+    fragment_type: str = "half"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxLoadAffineParameters(MOp):
+    """Load four FP16 affine scales and biases for one K group."""
+
+    ptr_scales: MValue = None
+    ptr_biases: MValue = None
+    scale_name: str = ""
+    bias_name: str = ""
+    group_size: int = 64
+    col_offset: int = 0
+    k_offset: int = 0
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxPackRight(MOp):
+    """Pack two vector fragments into the native right cooperative tensor."""
+
+    low: str = "b0"
+    high: str = "b1"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxFmaFragment(MOp):
+    """Execute one native 16x32x16 MMA and unpack its destination."""
+
+    left: str = "a0"
+    destination_low: str = "d00"
+    destination_high: str = "d01"
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxApplyFragment(MOp):
+    """Apply a fused element-wise chain to one register fragment."""
+
+    source: str = "d00"
+    operations: list[tuple] = field(default_factory=list)
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxBinaryFragment(MOp):
+    """Combine two register fragments with an element-wise operation."""
+
+    left: str = "d00"
+    right: str = "d01"
+    destination: str = ""
+    operation: str = "multiply"
+    fast_math: bool = True
+    round_inputs: str = ""
+    round_intermediates: str = ""
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxSpillFragment(MOp):
+    """Spill one per-lane NAX fragment to threadgroup scratch."""
+
+    source: str = "d00"
+    scratch_name: str = "nax_scratch"
+    slot: int = 0
+    slots_per_simdgroup: int = 1
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxReloadFragment(MOp):
+    """Reload one per-lane NAX fragment from threadgroup scratch."""
+
+    destination: str = "d00"
+    scratch_name: str = "nax_scratch"
+    slot: int = 0
+    slots_per_simdgroup: int = 1
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MNaxStoreFragment(MOp):
+    """Store one 16x16 accumulator fragment to the output matrix."""
+
+    ptr_c: MValue = None
+    source: str = "d00"
+    row_offset: int = 0
+    col_offset: int = 0
+    row_bound: int = 0
 
     def result_type(self):
         return None
@@ -632,7 +1080,11 @@ class MCoopTensorInit(MOp):
     ct_name: str = "cT"
     acc_type: str = "float"
     in_type: str = "float"
+    left_type: str | None = None
+    right_type: str | None = None
     use_separated: bool = False
+    left_address_space: str = "device"
+    right_address_space: str = "device"
 
     def result_type(self):
         return None

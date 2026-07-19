@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from metile.ir.types import BOOL, I32, PtrType, ScalarType, TileType
+from metile.ir.types import BOOL, I32, U32, PtrType, ScalarType, TileType
 
 
 @dataclass
@@ -62,8 +62,22 @@ class Constant(Op):
 
     value: int | float = 0
     dtype: str = "i32"
+    explicit_scalar: bool = False
 
     def result_type(self) -> ScalarType:
+        return ScalarType(self.dtype)
+
+
+@dataclass
+class Cast(Op):
+    """Explicitly convert a scalar or tile to another element type."""
+
+    value: Value = None
+    dtype: str = "f32"
+
+    def result_type(self):
+        if isinstance(self.value.type, TileType):
+            return TileType(self.value.type.shape, self.dtype)
         return ScalarType(self.dtype)
 
 
@@ -99,10 +113,12 @@ class BinOp(Op):
 class Unary(Op):
     """Unary operation on scalars or tiles."""
 
-    op: str = ""  # "exp", "log", "sqrt", "abs", "neg"
+    op: str = ""  # "exp", "fast_exp", "simd_sum", "simd_max", ...
     operand: Value = None
 
     def result_type(self):
+        if self.op == "reverse_bits":
+            return U32
         return self.operand.type
 
 

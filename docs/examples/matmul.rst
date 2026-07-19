@@ -48,6 +48,10 @@ The grid is 2D, one program instance per output tile:
 How It Works
 ------------
 
+.. image:: /_static/gemm-tiling.svg
+   :alt: GEMM matrices partitioned into program-owned output tiles with a register-resident K reduction loop
+   :width: 100%
+
 1. Each program instance owns a ``BLOCK_M x BLOCK_N`` tile of the output matrix C.
 2. It initializes a register-resident accumulator with ``metile.zeros``.
 3. The K-loop iterates in steps of ``BLOCK_K``, loading a tile of A and B each step.
@@ -58,7 +62,8 @@ The compiler maps ``dot`` to the appropriate hardware:
 
 - **M1/M2/M3**: ``simdgroup_matrix<float, 8, 8>`` with cooperative loads through
   threadgroup memory
-- **M4+**: ``matmul2d`` tensor_ops with register-resident ``cooperative_tensor``
+- **Metal 4-capable GPU/toolchain**: ``matmul2d`` tensor_ops with register-resident
+  ``cooperative_tensor``
 
 
 Fused GEMM + ReLU
@@ -87,8 +92,9 @@ They run on register-resident data with zero extra memory traffic:
 Tile Swizzle for Cache Locality
 --------------------------------
 
-For large matrices, the order in which tiles are processed affects L2 cache hit rates.
-Use ``tile_swizzle`` to apply Morton (Z-order) scheduling:
+For large matrices, the order in which tiles are processed affects cache hit rates.
+The compiler can specialize linear, grouped-2/4/8, diagonal, Morton (Z-order), and
+4x4 Hilbert traversals. Use ``tile_swizzle`` to force a schedule:
 
 .. code-block:: python
 
@@ -106,6 +112,10 @@ Use ``tile_swizzle`` to apply Morton (Z-order) scheduling:
            b = metile.tile_load(B, k, pid_n * BLOCK_N, N, (BLOCK_K, BLOCK_N))
            acc = metile.dot(a, b, acc)
        metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
+
+``pattern="auto"`` runs the schedule-algebra pass. For a statically known launch
+grid it emits only the selected branch-free coordinate decoder. Explicit Hilbert
+and Morton schedules safely fall back on grids that cannot be tiled bijectively.
 
 
 Autotuning

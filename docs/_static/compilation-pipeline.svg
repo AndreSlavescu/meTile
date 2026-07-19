@@ -1,90 +1,241 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 920" font-family="'Comfortaa', 'Nunito', 'Varela Round', system-ui, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 900" role="img" aria-labelledby="title description">
+  <title id="title">meTile compiler and guarded runtime architecture</title>
+  <desc id="description">A left-to-right compiler diagram. High-level compute graphs pass through proof-carrying FlashAttention discovery and cut-exact fusion selection, while Python kernel programs trace into Tile IR. Both paths enter composable optimization and linear, Morton, or Hilbert schedule search, lower through M5-aware Metal IR to MSL and the Metal toolchain, then race generated candidates against a preserved native MLX candidate under guarded runtime dispatch. A dedicated bottom gutter carries measured tuning feedback without crossing the compiler flow.</desc>
   <defs>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&amp;display=swap');
+      text {
+        font-family: Arial, Helvetica, ui-sans-serif, sans-serif;
+        fill: #20242b;
+      }
+      .heading { font-size: 27px; font-weight: 700; letter-spacing: -0.3px; }
+      .subheading { font-size: 13px; fill: #505866; }
+      .stage { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; fill: #505866; }
+      .title { font-size: 15px; font-weight: 700; }
+      .label { font-size: 12px; }
+      .small { font-size: 10.5px; fill: #4b5563; }
+      .tiny { font-size: 9.5px; fill: #4b5563; }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .box { stroke: #282d35; stroke-width: 1.25; }
+      .subbox { fill: #ffffff; stroke: #596171; stroke-width: 1; }
+      .arrow { fill: none; stroke: #303640; stroke-width: 1.5; marker-end: url(#arrow); }
+      .arrow-soft { fill: none; stroke: #687180; stroke-width: 1.25; marker-end: url(#arrow-soft); }
+      .feedback { fill: none; stroke: #39734c; stroke-width: 1.35; stroke-dasharray: 3 4; marker-end: url(#arrow-green); }
     </style>
-    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1 L 8 5 L 0 9 z" fill="#444"/>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.3" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 1L8 5L0 9Z" fill="#303640"/>
+    </marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="8.3" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 1L8 5L0 9Z" fill="#687180"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8.3" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 1L8 5L0 9Z" fill="#39734c"/>
     </marker>
   </defs>
 
-  <!-- Background -->
-  <rect width="680" height="920" fill="#fff"/>
+  <rect width="1700" height="900" fill="#ffffff"/>
 
-  <!-- ====== Stage 1: Input Python code ====== -->
-  <text x="340" y="36" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Input Python code</text>
+  <!-- Figure heading -->
+  <text x="42" y="46" class="heading">meTile compilation and runtime flow</text>
+  <text x="42" y="70" class="subheading">Proof-carrying rewrites and composable Apple GPU lowering with measured native fallback</text>
+  <line x1="42" y1="88" x2="1658" y2="88" stroke="#b9bec7" stroke-width="1"/>
 
-  <rect x="120" y="50" width="440" height="120" rx="16" fill="#fff" stroke="#333" stroke-width="2"/>
-  <text font-family="'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" font-size="13" fill="#333">
-    <tspan x="148" y="80" fill="#7c3aed">@metile.kernel</tspan>
-    <tspan x="148" y="100" fill="#7c3aed">def</tspan><tspan fill="#333"> matmul(A, B, C, M, N, K, ...):</tspan>
-    <tspan x="168" y="120">acc = metile.zeros((BM, BN))</tspan>
-    <tspan x="168" y="140" fill="#7c3aed">for</tspan><tspan fill="#333"> k </tspan><tspan fill="#7c3aed">in</tspan><tspan fill="#333"> metile.tile_range(...):</tspan>
-    <tspan x="188" y="156" fill="#888">acc = metile.dot(a, b, acc)</tspan>
-  </text>
+  <!-- Column labels use the same left inset as the boxes below them. -->
+  <text x="42" y="124" class="stage">PROGRAMS</text>
+  <text x="246" y="124" class="stage">DISCOVERY</text>
+  <text x="504" y="124" class="stage">REPRESENTATION</text>
+  <text x="752" y="124" class="stage">OPTIMIZE + SEARCH</text>
+  <text x="1034" y="124" class="stage">APPLE GPU IR</text>
+  <text x="1264" y="124" class="stage">METAL TOOLCHAIN</text>
+  <text x="1490" y="124" class="stage">GUARDED RUNTIME</text>
 
-  <!-- Arrow -->
-  <line x1="340" y1="170" x2="340" y2="210" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="356" y="196" font-size="12" fill="#555" font-style="italic">trace</text>
+  <!-- High-level graph lane -->
+  <g id="graph-input">
+    <rect x="42" y="156" width="174" height="128" rx="5" fill="#e9ddf5" class="box"/>
+    <text x="56" y="181" class="title">Compute DAG</text>
+    <text x="56" y="201" class="small">MLX / imported graph</text>
+    <rect x="56" y="218" width="146" height="48" rx="3" class="subbox"/>
+    <text x="68" y="237" class="mono tiny">QKᵀ → scale → mask</text>
+    <text x="68" y="255" class="mono tiny">→ softmax → PV</text>
+  </g>
 
-  <!-- ====== Stage 2: Tile IR ====== -->
-  <text x="340" y="234" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Tile IR</text>
+  <path d="M216 220H238" class="arrow"/>
 
-  <rect x="120" y="248" width="440" height="100" rx="16" fill="#fce4ec" stroke="#333" stroke-width="2"/>
-  <text x="340" y="278" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Hardware-agnostic operations</text>
+  <g id="formal-discovery">
+    <rect x="246" y="146" width="232" height="148" rx="5" fill="#dcefdc" class="box"/>
+    <text x="260" y="172" class="title">Formal attention discovery</text>
+    <text x="260" y="194" class="small">Exact private subgraph recognition</text>
+    <text x="260" y="214" class="mono tiny">state = (max, normalizer, numerator)</text>
+    <rect x="260" y="230" width="46" height="24" rx="3" class="subbox"/>
+    <text x="283" y="246" text-anchor="middle" class="tiny">identity</text>
+    <rect x="310" y="230" width="67" height="24" rx="3" class="subbox"/>
+    <text x="343.5" y="246" text-anchor="middle" class="tiny">associativity</text>
+    <rect x="381" y="230" width="83" height="24" rx="3" class="subbox"/>
+    <text x="422.5" y="246" text-anchor="middle" class="tiny">homomorphism</text>
+    <text x="260" y="276" class="small">verified → proof-carrying flash_attention</text>
+  </g>
 
-  <rect x="160" y="292" width="360" height="40" rx="10" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
-  <text x="340" y="317" text-anchor="middle" font-size="13" fill="#333">Dot, TileLoad, TileStore, ForRange, Zeros, ...</text>
+  <path d="M478 220H496" class="arrow"/>
 
-  <!-- Arrow -->
-  <line x1="340" y1="348" x2="340" y2="388" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="356" y="374" font-size="12" fill="#555" font-style="italic">lower</text>
+  <g id="graph-fusion">
+    <rect x="504" y="156" width="202" height="128" rx="5" fill="#f6e1e6" class="box"/>
+    <text x="518" y="181" class="title">Cut-exact graph fusion</text>
+    <text x="518" y="204" class="small">global bipartite min-cut</text>
+    <text x="518" y="224" class="small">legality + resource limits</text>
+    <text x="518" y="244" class="small">profitable disjoint regions</text>
+    <text x="518" y="266" class="mono tiny">flash_attn · add+rms_norm</text>
+  </g>
 
-  <!-- ====== Stage 3: Metal IR ====== -->
-  <text x="340" y="412" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Metal IR</text>
+  <!-- Python eDSL lane -->
+  <g id="edsl-input">
+    <rect x="42" y="432" width="174" height="128" rx="5" fill="#d9e8f7" class="box"/>
+    <text x="56" y="457" class="title">Python kernel eDSL</text>
+    <text x="56" y="478" class="mono tiny">@metile.kernel</text>
+    <rect x="56" y="494" width="146" height="48" rx="3" class="subbox"/>
+    <text x="68" y="513" class="mono tiny">for k in tile_range:</text>
+    <text x="68" y="531" class="mono tiny">  acc = dot(a,b,acc)</text>
+  </g>
 
-  <rect x="120" y="426" width="440" height="120" rx="16" fill="#fce4ec" stroke="#333" stroke-width="2"/>
-  <text x="340" y="456" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Apple GPU primitives</text>
+  <path d="M216 496H238" class="arrow"/>
 
-  <!-- Two sub-boxes side by side -->
-  <rect x="145" y="468" width="190" height="60" rx="10" fill="#bbdefb" stroke="#333" stroke-width="1.5"/>
-  <text x="240" y="494" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">Simdgroup MMA</text>
-  <text x="240" y="512" text-anchor="middle" font-size="11" fill="#555">M1 / M2 / M3</text>
+  <g id="frontend">
+    <rect x="246" y="432" width="232" height="128" rx="5" fill="#d9e8f7" class="box"/>
+    <text x="260" y="457" class="title">Trace and specialize</text>
+    <text x="260" y="480" class="small">constexpr resolution</text>
+    <text x="260" y="500" class="small">shape / dtype validation</text>
+    <text x="260" y="520" class="small">explicit loops, masks, layouts</text>
+    <text x="260" y="542" class="small">no whole-kernel templates</text>
+  </g>
 
-  <rect x="345" y="468" width="190" height="60" rx="10" fill="#bbdefb" stroke="#333" stroke-width="1.5"/>
-  <text x="440" y="494" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">Tensor Ops</text>
-  <text x="440" y="512" text-anchor="middle" font-size="11" fill="#555">M4+</text>
+  <path d="M478 496H496" class="arrow"/>
 
-  <!-- Arrow -->
-  <line x1="340" y1="546" x2="340" y2="586" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="356" y="572" font-size="12" fill="#555" font-style="italic">optimize</text>
+  <g id="tile-ir">
+    <rect x="504" y="420" width="202" height="152" rx="5" fill="#d9e8f7" class="box"/>
+    <text x="518" y="447" class="title">Tile IR</text>
+    <text x="518" y="468" class="small">hardware-independent operations</text>
+    <rect x="518" y="484" width="174" height="66" rx="3" class="subbox"/>
+    <text x="530" y="503" class="mono tiny">tile_load · dot · reduce</text>
+    <text x="530" y="521" class="mono tiny">tile_store · address_space</text>
+    <text x="530" y="539" class="mono tiny">loops · masks · precision</text>
+  </g>
 
-  <!-- ====== Stage 4: Optimization Passes ====== -->
-  <text x="340" y="610" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">Optimization Passes</text>
+  <!-- Solid orthogonal merge into the shared backend. -->
+  <path d="M706 220H726V280H744" class="arrow"/>
+  <path d="M706 496H726V440H744" class="arrow"/>
 
-  <rect x="120" y="624" width="440" height="56" rx="16" fill="#fce4ec" stroke="#333" stroke-width="2"/>
-  <rect x="145" y="636" width="390" height="30" rx="8" fill="#fff9c4" stroke="#333" stroke-width="1.5"/>
-  <text x="340" y="657" text-anchor="middle" font-size="11" fill="#333">vectorize, serpentine MMA, double-buffer, split-K, swizzle, fold</text>
+  <g id="candidate-search">
+    <rect x="752" y="174" width="252" height="398" rx="5" fill="#f7efc5" class="box"/>
+    <text x="766" y="201" class="title">Composable candidates</text>
+    <text x="766" y="222" class="small">Regions and Tile IR share the backend</text>
 
-  <!-- Arrow -->
-  <line x1="340" y1="680" x2="340" y2="720" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="356" y="706" font-size="12" fill="#555" font-style="italic">emit</text>
+    <rect x="766" y="240" width="224" height="82" rx="3" class="subbox"/>
+    <text x="778" y="260" class="label" font-weight="700">IR optimization</text>
+    <text x="778" y="280" class="tiny">fold · CSE · DCE · vectorize</text>
+    <text x="778" y="298" class="tiny">pipeline · split-K · reduction epochs</text>
 
-  <!-- ====== Stage 5: MSL Source ====== -->
-  <text x="340" y="744" text-anchor="middle" font-size="17" font-weight="bold" fill="#2563eb">MSL Source</text>
+    <rect x="766" y="336" width="224" height="104" rx="3" class="subbox"/>
+    <text x="778" y="356" class="label" font-weight="700">Schedule search</text>
+    <rect x="778" y="370" width="54" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
+    <text x="805" y="385" text-anchor="middle" class="tiny">linear</text>
+    <rect x="840" y="370" width="60" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
+    <text x="870" y="385" text-anchor="middle" class="tiny">Morton</text>
+    <rect x="908" y="370" width="61" height="22" rx="3" fill="#f7efc5" stroke="#596171"/>
+    <text x="938" y="385" text-anchor="middle" class="tiny">Hilbert</text>
+    <text x="778" y="411" class="tiny">tile shape · SIMDgroups · staging</text>
+    <text x="778" y="428" class="tiny">unroll · register / memory pressure</text>
 
-  <rect x="120" y="758" width="440" height="72" rx="16" fill="#fff" stroke="#333" stroke-width="2"/>
-  <text font-family="'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" font-size="11" fill="#555">
-    <tspan x="148" y="782">[[kernel]] void mtile_matmul(</tspan>
-    <tspan x="168" y="798">device float* A [[buffer(0)]], ...)</tspan>
-    <tspan x="148" y="814">{ ... simdgroup_multiply_accumulate ... }</tspan>
-  </text>
+    <rect x="766" y="454" width="224" height="98" rx="3" class="subbox"/>
+    <text x="778" y="474" class="label" font-weight="700">Kernel families</text>
+    <text x="778" y="494" class="tiny">online / FlashAttention · GEMM</text>
+    <text x="778" y="512" class="tiny">normalization · affine MLP / attn / vocab</text>
+    <text x="778" y="536" class="tiny" font-weight="700">M5 NAX / MPP · MXFP4 / MXFP8</text>
+  </g>
 
-  <!-- Arrow -->
-  <line x1="340" y1="830" x2="340" y2="860" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="356" y="851" font-size="12" fill="#555" font-style="italic">xcrun metal -O2</text>
+  <path d="M1004 373H1026" class="arrow"/>
 
-  <!-- ====== Stage 6: Binary ====== -->
-  <rect x="120" y="866" width="440" height="40" rx="16" fill="#c8e6c9" stroke="#333" stroke-width="2"/>
-  <text x="340" y="892" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Metal Compute Pipeline (.metallib)</text>
+  <g id="metal-ir">
+    <rect x="1034" y="214" width="202" height="318" rx="5" fill="#dcefdc" class="box"/>
+    <text x="1048" y="241" class="title">Metal IR</text>
+    <text x="1048" y="262" class="small">Apple GPU decomposition</text>
+    <rect x="1048" y="280" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="305" class="tiny">cooperative loads + layouts</text>
+    <rect x="1048" y="332" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="357" class="tiny">SIMDgroup / tensor MMA</text>
+    <rect x="1048" y="384" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="409" class="tiny">online reductions + barriers</text>
+    <rect x="1048" y="436" width="174" height="40" rx="3" class="subbox"/>
+    <text x="1060" y="461" class="tiny">NAX epilogue + fragment stores</text>
+    <text x="1048" y="507" class="small">explicit resources + synchronization</text>
+  </g>
+
+  <path d="M1236 373H1256" class="arrow"/>
+
+  <g id="metal-toolchain">
+    <rect x="1264" y="214" width="198" height="318" rx="5" fill="#e9ddf5" class="box"/>
+    <text x="1278" y="241" class="title">MSL + Metal</text>
+    <text x="1278" y="262" class="small">uniform operation emitter</text>
+    <rect x="1278" y="280" width="170" height="44" rx="3" class="subbox"/>
+    <text x="1290" y="299" class="label" font-weight="700">MSL source</text>
+    <text x="1290" y="315" class="mono tiny">Metal IR → kernel</text>
+    <path d="M1363 324V342" class="arrow-soft"/>
+    <rect x="1278" y="350" width="170" height="62" rx="3" class="subbox"/>
+    <text x="1290" y="370" class="label" font-weight="700">Metal compiler</text>
+    <text x="1290" y="388" class="mono tiny">xcrun metal -O2</text>
+    <text x="1290" y="404" class="mono tiny">or newLibraryWithSource</text>
+    <path d="M1363 412V430" class="arrow-soft"/>
+    <rect x="1278" y="438" width="170" height="54" rx="3" class="subbox"/>
+    <text x="1290" y="459" class="label" font-weight="700">Generated candidate</text>
+    <text x="1290" y="478" class="mono tiny">MTLLibrary · cached PSO</text>
+    <text x="1278" y="516" class="small">AOT with guarded JIT fallback</text>
+  </g>
+
+  <path d="M1462 373H1482" class="arrow"/>
+
+  <g id="runtime">
+    <rect x="1490" y="174" width="170" height="398" rx="5" fill="#dcefdc" class="box"/>
+    <text x="1504" y="201" class="title">Runtime selection</text>
+    <text x="1504" y="222" class="small">per device / version / shape</text>
+
+    <rect x="1504" y="240" width="142" height="62" rx="3" class="subbox"/>
+    <text x="1516" y="261" class="label" font-weight="700">Guard</text>
+    <text x="1516" y="279" class="tiny">capability + numerical</text>
+    <text x="1516" y="294" class="tiny">compile / execution success</text>
+    <path d="M1575 302V320" class="arrow-soft"/>
+    <rect x="1504" y="328" width="142" height="66" rx="3" class="subbox"/>
+    <text x="1516" y="349" class="label" font-weight="700">Interleaved race</text>
+    <text x="1516" y="368" class="tiny">generated PSO</text>
+    <text x="1516" y="384" class="tiny">vs native MLX</text>
+    <path d="M1575 394V412" class="arrow-soft"/>
+    <rect x="1504" y="420" width="142" height="50" rx="3" class="subbox"/>
+    <text x="1516" y="441" class="label" font-weight="700">Persist winner</text>
+    <text x="1516" y="458" class="tiny">measured dispatch cache</text>
+    <path d="M1575 470V488" class="arrow-soft"/>
+    <rect x="1504" y="496" width="142" height="52" rx="3" fill="#bfe3c8" stroke="#282d35" stroke-width="1"/>
+    <text x="1516" y="518" class="label" font-weight="700">Dispatch fastest</text>
+    <text x="1516" y="536" class="tiny">zero-copy or exact fallback</text>
+  </g>
+
+  <!-- Native MLX remains available beside the guarded runtime. -->
+  <rect x="1490" y="700" width="170" height="56" rx="5" fill="#eee6f7" class="box"/>
+  <text x="1504" y="724" class="title">Native MLX</text>
+  <text x="1504" y="744" class="small">preserved graph candidate</text>
+  <path d="M1660 728H1675V361H1654" class="arrow-soft"/>
+
+  <!-- Dedicated bottom gutter: measured winner back to schedule search. -->
+  <path d="M1490 522H1474V630H878V580" class="feedback"/>
+  <text x="1060" y="650" class="small" fill="#39734c">measured device / version / shape feedback</text>
+
+  <!-- Compact legend below both routing gutters. -->
+  <g id="legend">
+    <line x1="42" y1="820" x2="1658" y2="820" stroke="#d1d5db"/>
+    <text x="42" y="850" class="stage">COMPILER INVARIANTS</text>
+    <rect x="224" y="840" width="12" height="12" fill="#dcefdc" stroke="#282d35"/>
+    <text x="246" y="850" class="small">proof / target lowering</text>
+    <rect x="420" y="840" width="12" height="12" fill="#d9e8f7" stroke="#282d35"/>
+    <text x="442" y="850" class="small">program representation</text>
+    <rect x="625" y="840" width="12" height="12" fill="#f7efc5" stroke="#282d35"/>
+    <text x="647" y="850" class="small">optimization search</text>
+    <rect x="807" y="840" width="12" height="12" fill="#e9ddf5" stroke="#282d35"/>
+    <text x="829" y="850" class="small">framework / toolchain</text>
+    <text x="42" y="880" class="subheading">Every speculative rewrite or generated kernel retains a proof, numerical gate, or exact reference path.</text>
+  </g>
 </svg>

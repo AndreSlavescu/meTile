@@ -30,6 +30,8 @@ def _format_tile_op(op: tir.Op, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}thread_id(){suffix}")
     elif isinstance(op, tir.Constant):
         lines.append(f"{pad}{prefix}constant({op.value}){suffix}")
+    elif isinstance(op, tir.Cast):
+        lines.append(f"{pad}{prefix}cast(%{op.value.name}, {op.dtype}){suffix}")
     elif isinstance(op, tir.Arange):
         start = f"%{op.start.name}" if op.start else "0"
         lines.append(f"{pad}{prefix}arange({start}, {start}+{op.size}){suffix}")
@@ -160,6 +162,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}device_load({_val(op.ptr)}, {_val(op.index)})")
     elif isinstance(op, mir.DeviceStore):
         lines.append(f"{pad}device_store({_val(op.ptr)}, {_val(op.index)}, {_val(op.value)})")
+    elif isinstance(op, mir.MPointerOffset):
+        lines.append(f"{pad}{prefix}pointer_offset({_val(op.ptr)}, {op.offset})")
     elif isinstance(op, mir.MThreadgroupAlloc):
         lines.append(f"{pad}threadgroup_alloc({op.alloc_name}, {op.elem_type}, size={op.size})")
     elif isinstance(op, mir.MThreadgroupLoad):
@@ -177,7 +181,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
 
     # Barriers
     elif isinstance(op, mir.MBarrier):
-        lines.append(f"{pad}barrier({op.kind}, {op.flags})")
+        condition = f", if={op.condition}" if op.condition else ""
+        lines.append(f"{pad}barrier({op.kind}, {op.flags}{condition})")
 
     # Simdgroup ops
     elif isinstance(op, mir.MSimdgroupAccDecl):
@@ -204,6 +209,40 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}simd_shuffle_xor({_val(op.value)}, {_val(op.mask)})")
     elif isinstance(op, mir.MSimdBroadcast):
         lines.append(f"{pad}{prefix}simd_broadcast({_val(op.value)}, {_val(op.lane)})")
+    elif isinstance(op, mir.MSimdgroupQMVLayout):
+        lines.append(
+            f"{pad}simdgroup_qmv_layout(outputs={op.outputs_per_simdgroup}, "
+            f"simdgroups={op.simdgroups_per_threadgroup})"
+        )
+    elif isinstance(op, mir.MDotAccumulatorInit):
+        lines.append(f"{pad}dot_accumulator_init(outputs={op.outputs_per_simdgroup})")
+    elif isinstance(op, mir.MDotAccumulate):
+        lines.append(
+            f"{pad}dot_accumulate(input={_val(op.ptr_input)}, weight={_val(op.ptr_weight)}, "
+            f"outputs={op.outputs_per_simdgroup}, vec={op.elements_per_lane})"
+        )
+    elif isinstance(op, mir.MDotResidualStore):
+        lines.append(
+            f"{pad}dot_residual_store(residual={_val(op.ptr_residual)}, "
+            f"output={_val(op.ptr_output)}, outputs={op.outputs_per_simdgroup})"
+        )
+    elif isinstance(op, mir.MPairedDotAccumulatorInit):
+        lines.append(f"{pad}paired_dot_accumulator_init(outputs={op.outputs_per_simdgroup})")
+    elif isinstance(op, mir.MPairedDotAccumulate):
+        weights = (
+            f"interleaved={_val(op.ptr_interleaved)}"
+            if op.ptr_interleaved is not None
+            else f"left={_val(op.ptr_left)}, right={_val(op.ptr_right)}"
+        )
+        lines.append(
+            f"{pad}paired_dot_accumulate(input={_val(op.ptr_input)}, {weights}, "
+            f"outputs={op.outputs_per_simdgroup}, vec={op.elements_per_lane})"
+        )
+    elif isinstance(op, mir.MPairedDotSwiGLUStore):
+        lines.append(
+            f"{pad}paired_dot_swiglu_store(output={_val(op.ptr_output)}, "
+            f"outputs={op.outputs_per_simdgroup})"
+        )
 
     # Tensor ops
     elif isinstance(op, mir.MTensorViewDecl):
@@ -213,7 +252,94 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
             f"in={op.in_type}, out={op.out_type})"
         )
     elif isinstance(op, mir.MTileSchedule):
-        lines.append(f"{pad}tile_schedule(pattern={op.pattern}, block={op.block_m}x{op.block_n})")
+        details = [f"pattern={op.pattern}", f"block={op.block_m}x{op.block_n}"]
+        if op.encoding != "auto":
+            details.append(f"encoding={op.encoding}")
+        if op.symmetry_group is not None:
+            details.append(f"group={op.symmetry_group}")
+        if op.axis_interchangeable:
+            details.append("axis_interchangeable")
+        if op.description_bits is not None:
+            details.append(f"mdl={op.description_bits}b")
+        lines.append(f"{pad}tile_schedule({', '.join(details)})")
+    elif isinstance(op, mir.MNaxGemmSetup):
+        lines.append(f"{pad}nax_gemm_setup(block={op.block_m}x{op.block_n})")
+    elif isinstance(op, mir.MNaxGemmRun):
+        lines.append(f"{pad}nax_gemm_run({_val(op.ptr_a)}, {_val(op.ptr_b)})")
+    elif isinstance(op, mir.MNaxBlockScaledRun):
+        lines.append(
+            f"{pad}nax_block_scaled_run({_val(op.ptr_a)}, {_val(op.ptr_values)}, "
+            f"{_val(op.ptr_scales)}, bits={op.bits}, k={op.k_offset})"
+        )
+    elif isinstance(op, mir.MNaxAffineRun):
+        lines.append(
+            f"{pad}nax_affine_run({_val(op.ptr_a)}, {_val(op.ptr_values)}, "
+            f"{_val(op.ptr_scales)}, {_val(op.ptr_biases)}, k={op.k_offset})"
+        )
+    elif isinstance(op, mir.MNaxGemmEpilogue):
+        lines.append(f"{pad}nax_gemm_epilogue(ops={op.operations})")
+    elif isinstance(op, mir.MNaxGemmStore):
+        lines.append(f"{pad}nax_gemm_store({_val(op.ptr_c)})")
+    elif isinstance(op, mir.MNaxTileLayout):
+        lines.append(f"{pad}nax_tile_layout(block={op.block_m}x{op.block_n}, wn={op.wn})")
+    elif isinstance(op, mir.MNaxAccumulatorInit):
+        lines.append(f"{pad}nax_accumulator_init({', '.join(op.names)})")
+    elif isinstance(op, mir.MNaxAccumulatorReset):
+        lines.append(f"{pad}nax_accumulator_reset({', '.join(op.names)})")
+    elif isinstance(op, mir.MNaxMatmul2dDecl):
+        lines.append(
+            f"{pad}nax_matmul2d_decl({op.m}x{op.n}x{op.k}, inputs={op.left_type}x{op.right_type})"
+        )
+    elif isinstance(op, mir.MNaxLoadFragment):
+        lines.append(
+            f"{pad}nax_load_fragment({op.name}, {op.operand}, row={op.row_offset}, "
+            f"col={op.col_offset}, k={op.k_offset})"
+        )
+    elif isinstance(op, mir.MNaxLoadBlockScaledFragment):
+        lines.append(
+            f"{pad}nax_load_block_scaled_fragment({op.name}, bits={op.bits}, "
+            f"scale={op.scale}, col={op.col_offset}, k={op.k_offset}, "
+            f"type={op.fragment_type})"
+        )
+    elif isinstance(op, mir.MNaxLoadBlockScale):
+        lines.append(f"{pad}nax_load_block_scale({op.name}, col={op.col_offset}, k={op.k_offset})")
+    elif isinstance(op, mir.MNaxLoadAffineParameters):
+        lines.append(
+            f"{pad}nax_load_affine_parameters({op.scale_name}, {op.bias_name}, "
+            f"group={op.group_size}, col={op.col_offset}, k={op.k_offset})"
+        )
+    elif isinstance(op, mir.MNaxLoadAffineFragment):
+        lines.append(
+            f"{pad}nax_load_affine_fragment({op.name}, scale={op.scale}, bias={op.bias}, "
+            f"col={op.col_offset}, k={op.k_offset}, type={op.fragment_type})"
+        )
+    elif isinstance(op, mir.MNaxPackRight):
+        lines.append(f"{pad}nax_pack_right({op.low}, {op.high})")
+    elif isinstance(op, mir.MNaxFmaFragment):
+        lines.append(
+            f"{pad}nax_fma_fragment({op.left}, {op.destination_low}, {op.destination_high})"
+        )
+    elif isinstance(op, mir.MNaxApplyFragment):
+        lines.append(f"{pad}nax_apply_fragment({op.source}, ops={op.operations})")
+    elif isinstance(op, mir.MNaxBinaryFragment):
+        destination = op.destination or op.left
+        lines.append(
+            f"{pad}nax_binary_fragment({op.operation}, {op.left}, {op.right} -> {destination})"
+        )
+    elif isinstance(op, mir.MNaxSpillFragment):
+        lines.append(
+            f"{pad}nax_spill_fragment({op.source}, {op.scratch_name}, slot={op.slot}, "
+            f"slots={op.slots_per_simdgroup})"
+        )
+    elif isinstance(op, mir.MNaxReloadFragment):
+        lines.append(
+            f"{pad}nax_reload_fragment({op.destination}, {op.scratch_name}, slot={op.slot}, "
+            f"slots={op.slots_per_simdgroup})"
+        )
+    elif isinstance(op, mir.MNaxStoreFragment):
+        lines.append(
+            f"{pad}nax_store_fragment({op.source}, row={op.row_offset}, col={op.col_offset})"
+        )
     elif isinstance(op, mir.MMatmul2dSetup):
         mode = "cooperative" if op.cooperative else "preemptive"
         relaxed = "relaxed" if op.relaxed else "strict"

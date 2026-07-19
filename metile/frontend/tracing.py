@@ -447,9 +447,41 @@ def _unary(op_name: str, operand) -> TracingProxy:
     return TracingProxy(result)
 
 
+def scalar(value, dtype=None) -> TracingProxy:
+    """Create one explicit scalar SSA value.
+
+    Reusing the returned proxy across a runtime ``tile_range`` declares
+    loop-carried scalar state. This avoids relying on Python-literal identity
+    when expressing recurrences such as online softmax.
+    """
+    if isinstance(value, constexpr):
+        value = value._value
+    if not isinstance(value, (int, float)):
+        raise TypeError("scalar() value must be an int or float")
+    if dtype is None:
+        dtype = "f32" if isinstance(value, float) else "i32"
+    ctx = _get_ctx()
+    result = ctx.add_op(tir.Constant(value=value, dtype=dtype, explicit_scalar=True))
+    return TracingProxy(result)
+
+
+def cast(value, dtype) -> TracingProxy:
+    """Explicitly convert a scalar or tile to ``dtype``."""
+    if dtype not in ("f16", "f32", "i32", "u32"):
+        raise ValueError(f"unsupported cast dtype: {dtype}")
+    ctx = _get_ctx()
+    result = ctx.add_op(tir.Cast(value=_to_value(value), dtype=dtype))
+    return TracingProxy(result)
+
+
 def exp(x) -> TracingProxy:
     """Element-wise exponential."""
     return _unary("exp", x)
+
+
+def fast_exp(x) -> TracingProxy:
+    """Element-wise exponential using Metal's fast-math intrinsic."""
+    return _unary("fast_exp", x)
 
 
 def log(x) -> TracingProxy:
@@ -470,6 +502,11 @@ def abs(x) -> TracingProxy:
 def tanh(x) -> TracingProxy:
     """Element-wise tanh."""
     return _unary("tanh", x)
+
+
+def reverse_bits(x) -> TracingProxy:
+    """Reverse the bits of a scalar 32-bit integer."""
+    return _unary("reverse_bits", x)
 
 
 def maximum(a, b) -> TracingProxy:
@@ -539,14 +576,13 @@ def tile_swizzle(
     Takes two program_id values and returns swizzled block coordinates.
     The compiler applies the reordering during codegen.
 
-    If not called, the compiler infers the best pattern automatically
-    (morton for GEMM, none for element-wise).
+    If not called, the compiler selects a safe locality schedule automatically.
 
     Args:
         pid_m: program_id for the M (row) axis.
         pid_n: program_id for the N (column) axis.
-        pattern: "morton" (2x2 Z-curve blocks), "diagonal", or "" (none).
-        block_size: Block size for Morton ordering (default 2).
+        pattern: "auto", "grouped2/4/8", "hilbert", "morton", "diagonal", or "linear".
+        block_size: 4 for Hilbert or 2 for Morton ordering.
 
     Returns:
         (pid_m, pid_n) — same proxies, swizzle is applied in codegen.
@@ -558,6 +594,9 @@ def tile_swizzle(
             pattern="morton", block_size=2,
         )
     """
+    from metile.compiler.schedules import validate_schedule
+
+    pattern = validate_schedule(pattern, block_size)
     ctx = _get_ctx()
     # Record the swizzle op in IR for visibility
     op = tir.TileSwizzle(
@@ -758,6 +797,16 @@ def simd_broadcast(value, lane) -> TracingProxy:
     op = tir.SimdBroadcast(value=value_val, lane=lane_val)
     val = ctx.func.add_op(op, f"bcast_{len(ctx.func.ops)}")
     return TracingProxy(val)
+
+
+def simd_sum(value) -> TracingProxy:
+    """Sum a scalar across all lanes in the current simdgroup."""
+    return _unary("simd_sum", value)
+
+
+def simd_max(value) -> TracingProxy:
+    """Take the maximum scalar across the current simdgroup."""
+    return _unary("simd_max", value)
 
 
 def simd_lane_id() -> TracingProxy:

@@ -2,7 +2,11 @@ Autotuning
 ==========
 
 Different problem sizes benefit from different tile configurations. meTile's autotuner
-benchmarks a set of configurations and caches the fastest one per problem shape.
+benchmarks each representation and caches the fastest one per problem shape. Winners
+persist across processes and are invalidated when the device, compiler toolchain, kernel
+source, or candidate family changes.
+The concrete launch grid is part of the cache identity, which prevents a configuration
+measured at one degree of program-level parallelism from leaking into another.
 
 
 Basic Usage
@@ -45,12 +49,26 @@ The grid must be a callable that computes the grid shape from the config:
 
 On the first call with new key values, the autotuner:
 
-1. Benchmarks every config (warmup + timed iterations)
-2. Selects the fastest one
-3. Caches the result keyed by ``(kernel_name, key_values)``
-4. Dispatches with the winning config
+1. Compiles every valid config
+2. Benchmarks candidates in rotated, alternating round-robin order, recording both
+   GPU timestamps and synchronized launch-to-completion latency
+3. Re-benchmarks up to eight candidates within 8% of the provisional winner in a
+   30-round rotating finalist tournament
+4. Selects the fastest one, using generated-code size only for a sub-percent tie
+5. Caches the result and measured latency with the device and toolchain identity
+6. Dispatches with the winning config
 
-Subsequent calls with the same key values use the cached winner with zero overhead.
+Subsequent calls with the same key values reuse the winner without re-tuning.
+
+For kernels measured at one millisecond or less, selection uses synchronized end-to-end
+latency because command encoding and completion handling are material parts of the hot
+path. Longer throughput kernels use GPU timestamps so host scheduling noise does not
+distort device execution. The raw GPU latency of the selected candidate is persisted
+separately and drives the prepared dispatch completion policy.
+
+The cache defaults to ``~/Library/Caches/metile`` on macOS. Set
+``METILE_CACHE_DIR`` to relocate it, or ``METILE_DISABLE_DISK_CACHE=1`` to disable
+persistent autotune choices while debugging.
 
 .. code-block:: text
 
@@ -79,11 +97,80 @@ Config Object
        WM=4,
        WN=4,
        K_UNROLL=1,
+       SWIZZLE="hilbert",
    )
 
 Any keyword arguments become constexprs passed to the kernel. Parameters not in the
 kernel's signature are stored in ``func.constexprs`` and available to the compiler
 (e.g., ``WM``, ``WN`` control the tensor_ops simdgroup layout).
+Schedules can be searched alongside tile shapes with ``SWIZZLE="linear"``,
+``"grouped2"``, ``"grouped4"``, ``"grouped8"``, ``"diagonal"``,
+``"morton"``, ``"hilbert"``, or ``"auto"``.
+``SCHEDULE_ENCODING="arithmetic"`` or ``"bitwise"`` exposes equivalent decoder
+representations as ordinary autotune candidates; the default ``"auto"`` uses the
+compiler's target-cost and MDL extractor.
+On the aligned M5 NAX path, ``NAX_OUTER_K`` controls the reduction epoch and
+``NAX_K_UNROLL=2`` preloads two 16-wide K fragments before issuing their native MMAs.
+These are candidate parameters rather than global defaults because the winning register
+footprint and epoch width change with matrix shape.
+``NAX_SKIP_FIRST_EPOCH_BARRIER`` retains every inter-epoch scheduling fence but skips
+the redundant fence before the first epoch. It is searched as a separate representation
+because the uniform predicate helps medium reductions but the unconditional form can
+remain faster for long reductions.
+``NAX_TRAILING_EPOCH_BARRIER`` moves the same inter-epoch fence to the end of each
+non-final epoch. This equivalent placement shortens live ranges on sustained reductions
+and is independently measured rather than selected by a fixed heuristic.
+The block-scaled runtime also measures a paired reduction representation that reuses
+one E8M0 scale load across the two 16-wide steps in each 32-value quantization group.
+It executes the decoded weight fragments sequentially to avoid the register-pressure
+cost of dense-style fragment preloading. Small aligned shapes additionally search a
+``32x64`` two-SIMDgroup tile, which provides finer occupancy than the conventional
+four-SIMDgroup ``64x64`` tile on the base M5.
+
+
+Schedule Algebra and MDL
+------------------------
+
+Schedule selection is a composable Metal IR pass, not a whole-kernel template.
+Each traversal is represented as a finite permutation of the launch grid. The pass
+closes a small set of reflection and axis-exchange generators to derive the exact
+shape-preserving action: ``D4`` for interchangeable square grid and tile axes, ``D2``
+for ordinary rectangles or anisotropic square tiles, ``C2`` for degenerate one-axis
+grids, and the trivial group for a single tile. It verifies the action through orbit
+and stabilizer construction, canonicalizes traversals under the action, and searches
+one representative per orbit.
+
+Every static traversal lowers to a scalar schedule-expression program. Exact rewrite
+alternatives replace constant power-of-two multiply, divide, and remainder operations
+with shifts and masks. Extraction first minimizes a Metal operation-cost model and then
+uses the DEFLATE-compressed canonical expression encoding as a deterministic
+minimum-description-length tie-break. Code generation consumes the selected expression
+tree directly, so adding a decoder representation does not add a whole-kernel template.
+
+This is a finite symmetry group and fundamental-domain construction, not a
+topological fundamental group. Likewise, exact Kolmogorov complexity is
+uncomputable. For cross-kernel autotuning, meTile uses DEFLATE-compressed generated MSL
+length as a reproducible minimum-description-length upper bound. Measured latency is
+always primary: MDL can only choose a smaller representation when it is within 0.25%
+of the fastest result.
+
+The same compositional policy applies beyond GEMM traversal. The FFT candidate family
+keeps one kernel expressed from ordinary eDSL operations while searching threadgroup
+width, the number of register-local radix-2 stages, bit-reversed gather versus shared
+scatter, and global versus threadgroup twiddle placement. Native ``reverse_bits``
+lowering makes the permutation decoder branch-free without a host-generated index table.
+
+Decode attention applies the same policy across algorithms. Short and highly parallel
+shapes search one online-softmax threadgroup per head. Long contexts additionally search
+a multi-threadgroup partial pass followed by an online merge pass. Both kernels remain
+ordinary eDSL programs, and the persisted winner is keyed by head grid, context length,
+head dimension, device, toolchain, source, and candidate family.
+
+The optional MLX backend also includes native MLX itself as a candidate. Framework
+integration adds a 5% switch margin before selecting generated Metal, because an opaque
+custom primitive can change graph scheduling even when isolated timings are nearly tied.
+Attention and RMSNorm choices persist independently by MLX version, device, dtype, and
+shape bucket.
 
 
 Verbose Output
@@ -125,12 +212,40 @@ Prepared Dispatch
 -----------------
 
 For latency-sensitive inference, use ``.prepare()`` to autotune once and get a
-fast dispatcher that skips all Python overhead on subsequent calls:
+fast dispatcher that skips tracing, lowering, compilation, and argument-conversion
+overhead on subsequent calls:
 
 .. code-block:: python
 
+   from metile.runtime.metal_device import MetalDevice
+
    dispatch = autotuned_matmul[grid].prepare(A, B, C, M, N, K)
 
-   # hot path with minimal python overhead
-   for _ in range(1000):
-       dispatch()
+   # Encode repeated work under one runtime lock. Compatible calls batch until
+   # sync(), numpy(), or an ordinary launch flushes them.
+   dispatch.repeat(1000)
+
+   MetalDevice.get().sync()
+
+Prepared GEMMs use an ordered encoder. Independent element-wise kernels can use a
+concurrent encoder; the runtime tracks input/output buffer hazards and inserts Metal
+buffer barriers between dependent dispatches. Multi-buffer kernels use one cached
+``setBuffers:offsets:withRange:`` call instead of repeated Objective-C bindings.
+Repeated compatible dispatches also reuse unchanged pipeline and buffer state within
+the shared encoder. ``repeat(count)`` additionally removes repeated Python lock
+transitions when the same prepared operation is intentionally encoded many times.
+Optional selectors are capability checked, and bound buffers remain alive through
+completion.
+
+The autotuner persists the selected kernel's measured GPU latency with its device-
+and toolchain-specific configuration. Prepared kernels measured at one millisecond or
+less receive a completion-poll budget derived from that latency: three times the GPU
+time plus 300 microseconds, bounded between 900 and 1500 microseconds. Longer kernels
+keep the blocking ``waitUntilCompleted`` path. A command buffer containing an
+unclassified dispatch also blocks, and batches beyond eight dispatches never spin.
+
+This measured policy covers short reductions and rectangular GEMMs without relying on
+a square-shape heuristic. Directly configured small static GEMMs retain a conservative
+900-microsecond fallback. Set ``METILE_LOW_LATENCY_SPIN_US=0`` to disable active
+waiting, or provide a non-negative microsecond cap for application-specific
+latency/power tradeoffs; the default cap is 1500 microseconds.

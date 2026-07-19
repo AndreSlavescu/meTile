@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from metile.compiler.schedule_expr import select_schedule_program
 from metile.ir import metal_ir as mir
 from metile.ir.types import PtrType, ScalarType
 
@@ -27,11 +28,15 @@ _CMP_SYMBOLS = {
 
 _UNARY_MSL = {
     "exp": "exp",
+    "fast_exp": "fast::exp",
     "log": "log",
     "sqrt": "sqrt",
     "abs": "abs",
     "neg": "-",
     "tanh": "tanh",
+    "reverse_bits": "reverse_bits",
+    "simd_sum": "simd_sum",
+    "simd_max": "simd_max",
 }
 
 _BINOP_SYMBOLS_EPILOGUE = {
@@ -126,7 +131,9 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
     # Find setup op to determine if we need sgid
     need_sgid = False
     for op in func.ops:
-        if isinstance(op, mir.MMatmul2dSetup) and not op.cooperative:
+        if isinstance(op, (mir.MNaxTileLayout, mir.MSimdgroupQMVLayout)) or (
+            isinstance(op, mir.MMatmul2dSetup) and not op.cooperative
+        ):
             need_sgid = True
             break
 
@@ -138,6 +145,10 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
         "using namespace mpp::tensor_ops;",
         "",
     ]
+    if any(isinstance(op, mir.MBlockScaledTensorViewDecl) for op in func.ops) or _uses_op_type(
+        func.ops, mir.MNaxLoadBlockScaledFragment
+    ):
+        lines.extend(_block_scaled_helpers())
 
     # Function signature
     params = []
@@ -154,11 +165,16 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
             params.append(f"    constant {msl_t}& {p.name} [[buffer({buffer_idx})]]")
 
     params.append("    uint3 tgp_id [[threadgroup_position_in_grid]]")
+    if _uses_op_type(func.ops, mir.ThreadPositionInThreadgroup):
+        params.append("    uint lid [[thread_index_in_threadgroup]]")
     if need_sgid:
         params.append("    uint sgid [[simdgroup_index_in_threadgroup]]")
+    if _uses_op_type(func.ops, mir.MThreadInSimdgroup):
+        params.append("    uint slid [[thread_index_in_simdgroup]]")
 
     params_str = ",\n".join(params)
-    lines.append(f"[[kernel]] void {func.name}(")
+    max_threads = func.threadgroup_size[0] * func.threadgroup_size[1] * func.threadgroup_size[2]
+    lines.append(f"[[kernel, max_total_threads_per_threadgroup({max_threads})]] void {func.name}(")
     lines.append(params_str)
     lines.append(") {")
 
@@ -343,6 +359,9 @@ def _emit_gemm_op(
     if isinstance(op, mir.MSimdgroupId):
         pass  # provided as function parameter 'sgid'
 
+    elif isinstance(op, mir.ThreadPositionInThreadgroup):
+        pass  # provided as function parameter 'lid'
+
     elif isinstance(op, mir.MThreadInSimdgroup):
         pass  # provided as function parameter 'slid'
 
@@ -387,6 +406,11 @@ def _emit_gemm_op(
     elif isinstance(op, mir.MThreadgroupAlloc):
         lines.append(f"{pad}threadgroup {op.elem_type} {op.alloc_name}[{op.size}];")
 
+    elif isinstance(op, mir.MPointerOffset):
+        ptr_type = op.result.type.to_msl()
+        ptr = _val_name_gemm(op.ptr, func)
+        lines.append(f"{pad}{ptr_type} {op.result.name} = {ptr} + {op.offset};")
+
     # --- New decomposed simdgroup primitive handlers ---
     elif isinstance(op, mir.MSimdgroupAccDecl):
         _emit_simdgroup_acc_decl(op, lines, indent)
@@ -410,6 +434,94 @@ def _emit_gemm_op(
     elif isinstance(op, mir.MTileSchedule):
         _emit_tile_schedule(op, lines, indent)
 
+    elif isinstance(op, mir.MBlockScaledTensorViewDecl):
+        _emit_block_scaled_tensor_views(op, lines, indent, func)
+
+    elif isinstance(op, mir.MBlockScaledTileLoad):
+        _emit_block_scaled_tile_load(op, lines, indent, func)
+
+    elif isinstance(
+        op,
+        (
+            mir.MNaxGemmSetup,
+            mir.MNaxGemmRun,
+            mir.MNaxBlockScaledRun,
+            mir.MNaxAffineRun,
+            mir.MNaxGemmEpilogue,
+            mir.MNaxGemmStore,
+        ),
+    ):
+        raise ValueError("fused NAX operations must run through decompose_nax_fragments")
+
+    elif isinstance(op, mir.MNaxTileLayout):
+        _emit_nax_tile_layout(op, lines, indent)
+
+    elif isinstance(op, mir.MSimdgroupQMVLayout):
+        _emit_simdgroup_qmv_layout(op, lines, indent)
+
+    elif isinstance(op, mir.MDotAccumulatorInit):
+        _emit_dot_accumulator_init(op, lines, indent)
+
+    elif isinstance(op, mir.MDotAccumulate):
+        _emit_dot_accumulate(op, lines, indent, func)
+
+    elif isinstance(op, mir.MDotResidualStore):
+        _emit_dot_residual_store(op, lines, indent, func)
+
+    elif isinstance(op, mir.MPairedDotAccumulatorInit):
+        _emit_paired_dot_accumulator_init(op, lines, indent)
+
+    elif isinstance(op, mir.MPairedDotAccumulate):
+        _emit_paired_dot_accumulate(op, lines, indent, func)
+
+    elif isinstance(op, mir.MPairedDotSwiGLUStore):
+        _emit_paired_dot_swiglu_store(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxAccumulatorInit):
+        _emit_nax_accumulator_init(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxAccumulatorReset):
+        _emit_nax_accumulator_reset(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxMatmul2dDecl):
+        _emit_nax_matmul2d_decl(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxLoadFragment):
+        _emit_nax_load_fragment(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxLoadBlockScale):
+        _emit_nax_load_block_scale(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxLoadBlockScaledFragment):
+        _emit_nax_load_block_scaled_fragment(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxLoadAffineParameters):
+        _emit_nax_load_affine_parameters(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxLoadAffineFragment):
+        _emit_nax_load_affine_fragment(op, lines, indent, func)
+
+    elif isinstance(op, mir.MNaxPackRight):
+        _emit_nax_pack_right(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxFmaFragment):
+        _emit_nax_fma_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxApplyFragment):
+        _emit_nax_apply_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxBinaryFragment):
+        _emit_nax_binary_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxSpillFragment):
+        _emit_nax_spill_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxReloadFragment):
+        _emit_nax_reload_fragment(op, lines, indent)
+
+    elif isinstance(op, mir.MNaxStoreFragment):
+        _emit_nax_store_fragment(op, lines, indent, func)
+
     elif isinstance(op, mir.MMatmul2dSetup):
         _emit_matmul2d_setup(op, lines, indent, func)
 
@@ -429,10 +541,15 @@ def _emit_gemm_op(
         _emit_coop_tensor_store(op, lines, indent)
 
     elif isinstance(op, mir.MBarrier):
-        if op.kind == "threadgroup":
-            lines.append(f"{pad}threadgroup_barrier(mem_flags::{op.flags});")
+        barrier = (
+            f"threadgroup_barrier(mem_flags::{op.flags});"
+            if op.kind == "threadgroup"
+            else f"simdgroup_barrier(mem_flags::{op.flags});"
+        )
+        if op.condition:
+            lines.append(f"{pad}if ({op.condition}) {{ {barrier} }}")
         else:
-            lines.append(f"{pad}simdgroup_barrier(mem_flags::{op.flags});")
+            lines.append(f"{pad}{barrier}")
 
     elif isinstance(op, mir.MSimdShuffleXor):
         result_type = ScalarType(op.dtype).to_msl()
@@ -767,36 +884,729 @@ def _emit_tensor_view_decl(op, lines, indent, func):
     lines.append("")
 
 
+def _block_scaled_helpers():
+    return [
+        "inline float mtile_decode_e2m1(uchar bits) {",
+        "    const ushort raw = (ushort(bits & 7u) << 9u) | (ushort(bits & 8u) << 12u);",
+        "    return float(as_type<half>(raw)) * 16384.0f;",
+        "}",
+        "",
+        "inline float4 mtile_decode_e2m1(uchar4 bits) {",
+        "    const ushort4 raw = (ushort4(bits & 7u) << 9u) | (ushort4(bits & 8u) << 12u);",
+        "    return float4(as_type<half4>(raw)) * 16384.0f;",
+        "}",
+        "",
+        "inline float mtile_decode_e4m3(uchar bits) {",
+        "    const ushort raw = (ushort(bits & 127u) << 7u) | (ushort(bits & 128u) << 8u);",
+        "    return float(as_type<half>(raw)) * 256.0f;",
+        "}",
+        "",
+        "inline float4 mtile_decode_e4m3(uchar4 bits) {",
+        "    const ushort4 raw = (ushort4(bits & 127u) << 7u) | (ushort4(bits & 128u) << 8u);",
+        "    return float4(as_type<half4>(raw)) * 256.0f;",
+        "}",
+        "",
+        "inline float mtile_decode_e8m0(uchar bits) {",
+        "    const uint raw = bits == 0u ? 0x00400000u : uint(bits) << 23u;",
+        "    return as_type<float>(raw);",
+        "}",
+        "",
+        "inline float4 mtile_decode_e8m0(uchar4 bits) {",
+        "    const uint4 raw = select(uint4(bits) << 23u, uint4(0x00400000u), bits == 0u);",
+        "    return as_type<float4>(raw);",
+        "}",
+        "",
+    ]
+
+
+def _emit_block_scaled_tensor_views(op, lines, indent, func):
+    pad = "    " * indent
+    a_name = _val_name_gemm(op.ptr_a, func)
+    c_name = _val_name_gemm(op.ptr_c, func)
+    lines.append(f"{pad}constexpr uint M = {op.m}u;")
+    lines.append(f"{pad}constexpr uint N = {op.n}u;")
+    lines.append(f"{pad}constexpr uint K = {op.k}u;")
+    lines.append(f"{pad}auto tA = tensor<device float, dextents<int32_t, 2>, tensor_inline>(")
+    lines.append(f"{pad}    {a_name}, dextents<int32_t, 2>(K, M));")
+    lines.append(f"{pad}auto tC = tensor<device float, dextents<int32_t, 2>, tensor_inline>(")
+    lines.append(f"{pad}    {c_name}, dextents<int32_t, 2>(N, M));")
+    lines.append(f"{pad}threadgroup {op.stage_type} b_tile[{op.block_k * op.block_n}];")
+    lines.append(
+        f"{pad}auto tB = tensor<threadgroup {op.stage_type}, dextents<int32_t, 2>, tensor_inline>("
+    )
+    lines.append(f"{pad}    b_tile, dextents<int32_t, 2>({op.block_n}, {op.block_k}));")
+    lines.append("")
+
+
+def _emit_block_scaled_tile_load(op, lines, indent, func):
+    pad = "    " * indent
+    values = _val_name_gemm(op.ptr_values, func)
+    scales = _val_name_gemm(op.ptr_scales, func)
+    total = op.block_k * op.block_n
+    scale_groups = op.block_k // 32
+    lines.append(f"{pad}const uint scale_n = lid % {op.block_n}u;")
+    lines.append(f"{pad}float block_scales[{scale_groups}];")
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (uint group = 0u; group < {scale_groups}u; ++group) {{")
+    lines.append(
+        f"{pad}    block_scales[group] = mtile_decode_e8m0({scales}[(uint(k) / 32u + group) * {op.matrix_n}u + pid_n * {op.block_n}u + scale_n]);"
+    )
+    lines.append(f"{pad}}}")
+    lines.append(f"{pad}for (uint index = lid; index < {total}u; index += {op.num_threads}u) {{")
+    lines.append(f"{pad}    const uint local_k = index / {op.block_n}u;")
+    lines.append(f"{pad}    const uint local_n = index % {op.block_n}u;")
+    lines.append(f"{pad}    const uint global_k = uint(k) + local_k;")
+    lines.append(f"{pad}    const uint global_n = pid_n * {op.block_n}u + local_n;")
+    lines.append(f"{pad}    const uint element = global_k * {op.matrix_n}u + global_n;")
+    if op.bits == 4:
+        lines.append(f"{pad}    const uchar byte = {values}[element >> 1u];")
+        lines.append(
+            f"{pad}    const uchar quantized = (element & 1u) ? (byte >> 4u) : (byte & 15u);"
+        )
+        decode = "mtile_decode_e2m1(quantized)"
+    else:
+        decode = f"mtile_decode_e4m3({values}[element])"
+    lines.append(
+        f"{pad}    b_tile[index] = {op.stage_type}(block_scales[local_k >> 5u] * {decode});"
+    )
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_vector(
+    lines,
+    pad,
+    name,
+    row0,
+    row1,
+    ptr,
+    stride,
+    element_type,
+    condition0=None,
+    condition1=None,
+):
+    zero = f"{element_type}4(0)"
+    load0 = f"*((device const {element_type}4*)(&{ptr}[{row0} * {stride}]))"
+    load1 = f"*((device const {element_type}4*)(&{ptr}[{row1} * {stride}]))"
+    if condition0:
+        load0 = f"({condition0}) ? {load0} : {zero}"
+    if condition1:
+        load1 = f"({condition1}) ? {load1} : {zero}"
+    lines.append(f"{pad}const {element_type}4 {name}0 = {load0};")
+    lines.append(f"{pad}const {element_type}4 {name}1 = {load1};")
+    lines.append(
+        f"{pad}const metal::vec<{element_type}, 8> {name} = metal::vec<{element_type}, 8>("
+    )
+    lines.append(
+        f"{pad}    {name}0.x, {name}0.y, {name}0.z, {name}0.w, "
+        f"{name}1.x, {name}1.y, {name}1.z, {name}1.w);"
+    )
+
+
+def _emit_nax_quantized_vector(
+    lines, pad, name, row, col, values, scales, bits, decoded_scale=None
+):
+    lines.append(f"{pad}const uint {name}_element = ({row}) * N + ({col});")
+    if decoded_scale is None:
+        lines.append(
+            f"{pad}const uchar4 {name}_scales = "
+            f"*((device const uchar4*)(&{scales}[(({row}) >> 5u) * N + ({col})]));"
+        )
+        decoded_scale = f"mtile_decode_e8m0({name}_scales)"
+    if bits == 4:
+        lines.append(
+            f"{pad}const ushort {name}_packed = "
+            f"*((device const ushort*)(&{values}[{name}_element >> 1u]));"
+        )
+        lines.append(
+            f"{pad}const uchar4 {name}_quantized = uchar4("
+            + ", ".join(f"uchar(({name}_packed >> {shift}u) & 15u)" for shift in (0, 4, 8, 12))
+            + ");"
+        )
+        decoder = "mtile_decode_e2m1"
+    else:
+        lines.append(
+            f"{pad}const uchar4 {name}_packed = "
+            f"*((device const uchar4*)(&{values}[{name}_element]));"
+        )
+        lines.append(f"{pad}const uchar4 {name}_quantized = {name}_packed;")
+        decoder = "mtile_decode_e4m3"
+    lines.append(f"{pad}const float4 {name} = {decoded_scale} * {decoder}({name}_quantized);")
+
+
+def _emit_nax_tile_layout(op, lines, indent):
+    pad = "    " * indent
+    if op.m and op.n and op.k:
+        lines.append(f"{pad}constexpr uint M = {op.m}u;")
+        lines.append(f"{pad}constexpr uint N = {op.n}u;")
+        lines.append(f"{pad}constexpr uint K = {op.k}u;")
+    lines.append(f"{pad}const uint sg_row = sgid / {op.wn}u;")
+    lines.append(f"{pad}const uint sg_col = sgid % {op.wn}u;")
+    lines.append(f"{pad}const uint tile_row = pid_m * {op.block_m}u + sg_row * 32u;")
+    lines.append(f"{pad}const uint tile_col = pid_n * {op.block_n}u + sg_col * 32u;")
+    lines.append(f"{pad}const uint qid = slid >> 2u;")
+    lines.append(f"{pad}const uint frag_m = ((qid & 4u) | ((slid >> 1u) & 3u));")
+    lines.append(f"{pad}const uint frag_n = ((qid & 2u) | (slid & 1u)) * 4u;")
+
+
+def _emit_simdgroup_qmv_layout(op, lines, indent):
+    pad = "    " * indent
+    stride = op.outputs_per_simdgroup * op.simdgroups_per_threadgroup
+    lines.append(
+        f"{pad}const uint qmv_output_base = tgp_id.x * {stride}u "
+        f"+ sgid * {op.outputs_per_simdgroup}u;"
+    )
+
+
+def _emit_dot_accumulator_init(op, lines, indent):
+    pad = "    " * indent
+    for output in range(op.outputs_per_simdgroup):
+        lines.append(f"{pad}float qmv_dot_{output} = 0.0f;")
+
+
+def _emit_dot_accumulate(op, lines, indent, func):
+    if op.elements_per_lane != 4:
+        raise ValueError("SIMDgroup dot accumulation requires four elements per lane")
+    pad = "    " * indent
+    input_ptr = _val_name_gemm(op.ptr_input, func)
+    weight_ptr = _val_name_gemm(op.ptr_weight, func)
+    dtype = op.ptr_input.type.dtype if isinstance(op.ptr_input.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    lines.append(f"{pad}const uint qmv_k = uint(k) + slid * 4u;")
+    lines.append(
+        f"{pad}const {element_type}4 qmv_input = "
+        f"*((device const {element_type}4*)(&{input_ptr}[qmv_k]));"
+    )
+    for output in range(op.outputs_per_simdgroup):
+        values = f"qmv_weight_values_{output}"
+        row = f"qmv_output_base + {output}u"
+        lines.append(
+            f"{pad}const {element_type}4 {values} = *((device const {element_type}4*)"
+            f"(&{weight_ptr}[({row}) * {op.input_features}u + qmv_k]));"
+        )
+        for component in "xyzw":
+            lines.append(
+                f"{pad}qmv_dot_{output} += "
+                f"float({values}.{component}) * float(qmv_input.{component});"
+            )
+
+
+def _emit_dot_residual_store(op, lines, indent, func):
+    pad = "    " * indent
+    residual_ptr = _val_name_gemm(op.ptr_residual, func)
+    output_ptr = _val_name_gemm(op.ptr_output, func)
+    dtype = op.ptr_output.type.dtype if isinstance(op.ptr_output.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    low_type = op.round_intermediates or element_type
+    for output in range(op.outputs_per_simdgroup):
+        index = f"qmv_output_base + {output}u"
+        lines.append(f"{pad}#pragma clang loop unroll(full)")
+        lines.append(f"{pad}for (ushort offset = 16; offset >= 1; offset >>= 1) {{")
+        lines.append(f"{pad}    qmv_dot_{output} += simd_shuffle_down(qmv_dot_{output}, offset);")
+        lines.append(f"{pad}}}")
+        lines.append(f"{pad}if (slid == 0u) {{")
+        lines.append(f"{pad}    const {low_type} qmv_projected = {low_type}(qmv_dot_{output});")
+        lines.append(
+            f"{pad}    {output_ptr}[{index}] = "
+            f"{element_type}(qmv_projected + {residual_ptr}[{index}]);"
+        )
+        lines.append(f"{pad}}}")
+
+
+def _emit_paired_dot_accumulator_init(op, lines, indent):
+    pad = "    " * indent
+    for output in range(op.outputs_per_simdgroup):
+        lines.append(f"{pad}float qmv_left_{output} = 0.0f;")
+        lines.append(f"{pad}float qmv_right_{output} = 0.0f;")
+
+
+def _emit_paired_dot_accumulate(op, lines, indent, func):
+    if op.elements_per_lane != 4:
+        raise ValueError("paired SIMDgroup dot accumulation requires four elements per lane")
+    pad = "    " * indent
+    input_ptr = _val_name_gemm(op.ptr_input, func)
+    left_ptr = _val_name_gemm(op.ptr_left, func) if op.ptr_left is not None else None
+    right_ptr = _val_name_gemm(op.ptr_right, func) if op.ptr_right is not None else None
+    interleaved_ptr = (
+        _val_name_gemm(op.ptr_interleaved, func) if op.ptr_interleaved is not None else None
+    )
+    dtype = op.ptr_input.type.dtype if isinstance(op.ptr_input.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    suffix = f"_{op.k_offset}" if op.k_offset else ""
+    qmv_k = f"qmv_k{suffix}"
+    qmv_input = f"qmv_input{suffix}"
+    offset = f" + {op.k_offset}u" if op.k_offset else ""
+    lines.append(f"{pad}const uint {qmv_k} = uint(k){offset} + slid * 4u;")
+    lines.append(
+        f"{pad}const {element_type}4 {qmv_input} = "
+        f"*((device const {element_type}4*)(&{input_ptr}[{qmv_k}]));"
+    )
+    for output in range(op.outputs_per_simdgroup):
+        row = f"qmv_output_base + {output}u"
+        if interleaved_ptr is not None:
+            base = f"qmv_weight_base_{output}{suffix}"
+            low = f"qmv_paired_low_{output}{suffix}"
+            high = f"qmv_paired_high_{output}{suffix}"
+            lines.append(
+                f"{pad}const uint {base} = (({row}) * {op.input_features}u + {qmv_k}) * 2u;"
+            )
+            lines.append(
+                f"{pad}const {element_type}4 {low} = *((device const {element_type}4*)"
+                f"(&{interleaved_ptr}[{base}]));"
+            )
+            lines.append(
+                f"{pad}const {element_type}4 {high} = *((device const {element_type}4*)"
+                f"(&{interleaved_ptr}[{base} + 4u]));"
+            )
+            for input_component, source, component in zip(
+                "xyzw",
+                (low, low, high, high),
+                "xzxz",
+                strict=True,
+            ):
+                lines.append(
+                    f"{pad}qmv_left_{output} += float({source}.{component}) "
+                    f"* float({qmv_input}.{input_component});"
+                )
+            for input_component, source, component in zip(
+                "xyzw",
+                (low, low, high, high),
+                "ywyw",
+                strict=True,
+            ):
+                lines.append(
+                    f"{pad}qmv_right_{output} += float({source}.{component}) "
+                    f"* float({qmv_input}.{input_component});"
+                )
+        else:
+            left = f"qmv_left_values_{output}{suffix}"
+            right = f"qmv_right_values_{output}{suffix}"
+            lines.append(
+                f"{pad}const {element_type}4 {left} = *((device const {element_type}4*)"
+                f"(&{left_ptr}[({row}) * {op.input_features}u + {qmv_k}]));"
+            )
+            lines.append(
+                f"{pad}const {element_type}4 {right} = *((device const {element_type}4*)"
+                f"(&{right_ptr}[({row}) * {op.input_features}u + {qmv_k}]));"
+            )
+            for component in "xyzw":
+                lines.append(
+                    f"{pad}qmv_left_{output} += "
+                    f"float({left}.{component}) * float({qmv_input}.{component});"
+                )
+            for component in "xyzw":
+                lines.append(
+                    f"{pad}qmv_right_{output} += "
+                    f"float({right}.{component}) * float({qmv_input}.{component});"
+                )
+
+
+def _emit_paired_dot_swiglu_store(op, lines, indent, func):
+    pad = "    " * indent
+    output_ptr = _val_name_gemm(op.ptr_output, func)
+    dtype = op.ptr_output.type.dtype if isinstance(op.ptr_output.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    exponential = "fast::exp" if op.fast_math else "exp"
+    low_type = op.round_intermediates or element_type
+    for output in range(op.outputs_per_simdgroup):
+        lines.append(f"{pad}#pragma clang loop unroll(full)")
+        lines.append(f"{pad}for (ushort offset = 16; offset >= 1; offset >>= 1) {{")
+        lines.append(f"{pad}    qmv_left_{output} += simd_shuffle_down(qmv_left_{output}, offset);")
+        lines.append(
+            f"{pad}    qmv_right_{output} += simd_shuffle_down(qmv_right_{output}, offset);"
+        )
+        lines.append(f"{pad}}}")
+        lines.append(f"{pad}if (slid == 0u) {{")
+        lines.append(f"{pad}    const {low_type} swiglu_left = {low_type}(qmv_left_{output});")
+        lines.append(f"{pad}    const {low_type} swiglu_right = {low_type}(qmv_right_{output});")
+        lines.append(f"{pad}    const auto swiglu_y = 1 / (1 + {exponential}(abs(swiglu_left)));")
+        lines.append(
+            f"{pad}    const {low_type} swiglu_sigmoid = "
+            f"(swiglu_left < {low_type}(0)) ? swiglu_y : 1 - swiglu_y;"
+        )
+        lines.append(f"{pad}    const {low_type} swiglu_activation = swiglu_left * swiglu_sigmoid;")
+        lines.append(
+            f"{pad}    {output_ptr}[qmv_output_base + {output}u] = "
+            f"{element_type}(swiglu_activation * swiglu_right);"
+        )
+        lines.append(f"{pad}}}")
+
+
+def _emit_nax_accumulator_init(op, lines, indent):
+    pad = "    " * indent
+    for name in op.names:
+        lines.append(f"{pad}metal::vec<float, 8> {name} = metal::vec<float, 8>(0.0f);")
+
+
+def _emit_nax_accumulator_reset(op, lines, indent):
+    pad = "    " * indent
+    for name in op.names:
+        lines.append(f"{pad}{name} = metal::vec<float, 8>(0.0f);")
+
+
+def _emit_nax_matmul2d_decl(op, lines, indent):
+    pad = "    " * indent
+    lines.append(f"{pad}constexpr auto nax_desc = matmul2d_descriptor(")
+    lines.append(f"{pad}    {op.m}, {op.n}, {op.k}, false, false, true,")
+    lines.append(f"{pad}    matmul2d_descriptor::mode::multiply_accumulate);")
+    lines.append(f"{pad}matmul2d<nax_desc, execution_simdgroup> nax_mma;")
+    lines.append(
+        f"{pad}auto nax_a = nax_mma.get_left_input_cooperative_tensor<"
+        f"{op.left_type}, {op.right_type}, {op.accumulator_type}>();"
+    )
+    lines.append(
+        f"{pad}auto nax_b = nax_mma.get_right_input_cooperative_tensor<"
+        f"{op.left_type}, {op.right_type}, {op.accumulator_type}>();"
+    )
+    lines.append(f"{pad}auto nax_c = nax_mma.get_destination_cooperative_tensor<")
+    lines.append(f"{pad}    decltype(nax_a), decltype(nax_b), {op.accumulator_type}>();")
+    lines.append("")
+
+
+def _emit_nax_load_fragment(op, lines, indent, func):
+    pad = "    " * indent
+    ptr = _val_name_gemm(op.ptr, func)
+    dtype = op.ptr.type.dtype if isinstance(op.ptr.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    if op.operand == "left":
+        row = "tile_row + frag_m"
+        if op.row_offset:
+            row = f"tile_row + {op.row_offset}u + frag_m"
+        col = f"K + {k} + frag_n"
+        if op.col_offset:
+            col += f" + {op.col_offset}u"
+    elif op.operand == "right":
+        row = f"{k} + frag_m"
+        if op.row_offset:
+            row += f" + {op.row_offset}u"
+        col = "N + tile_col + frag_n"
+        if op.col_offset:
+            col = f"N + tile_col + {op.col_offset}u + frag_n"
+    else:
+        raise ValueError(f"unknown NAX fragment operand: {op.operand}")
+    condition0 = condition1 = None
+    if op.operand == "left" and op.row_bound:
+        condition0 = f"({row}) < {op.row_bound}u"
+        condition1 = f"({row} + 8u) < {op.row_bound}u"
+    _emit_nax_vector(
+        lines,
+        pad,
+        op.name,
+        f"({row})",
+        f"({row} + 8u)",
+        ptr,
+        col,
+        element_type,
+        condition0,
+        condition1,
+    )
+
+
+def _emit_nax_load_block_scaled_fragment(op, lines, indent, func):
+    pad = "    " * indent
+    values = _val_name_gemm(op.ptr_values, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    col = "tile_col + frag_n"
+    if op.col_offset:
+        col = f"tile_col + {op.col_offset}u + frag_n"
+    _emit_nax_quantized_vector(
+        lines,
+        pad,
+        f"{op.name}0",
+        f"{k} + frag_m",
+        col,
+        values,
+        None,
+        op.bits,
+        op.scale,
+    )
+    _emit_nax_quantized_vector(
+        lines,
+        pad,
+        f"{op.name}1",
+        f"{k} + frag_m + 8u",
+        col,
+        values,
+        None,
+        op.bits,
+        op.scale,
+    )
+    lines.append(
+        f"{pad}const metal::vec<{op.fragment_type}, 8> {op.name} = "
+        f"metal::vec<{op.fragment_type}, 8>("
+    )
+    cast = "" if op.fragment_type == "float" else "bfloat"
+    components = []
+    for vector in (f"{op.name}0", f"{op.name}1"):
+        for field in "xyzw":
+            component = f"{vector}.{field}"
+            components.append(component if not cast else f"{cast}({component})")
+    lines.append(f"{pad}    {', '.join(components[:4])}, {', '.join(components[4:])});")
+
+
+def _emit_nax_load_block_scale(op, lines, indent, func):
+    pad = "    " * indent
+    scales = _val_name_gemm(op.ptr_scales, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    col = "tile_col + frag_n"
+    if op.col_offset:
+        col = f"tile_col + {op.col_offset}u + frag_n"
+    lines.append(
+        f"{pad}const uchar4 {op.name}_bits = "
+        f"*((device const uchar4*)(&{scales}[(({k} + frag_m) >> 5u) * N + ({col})]));"
+    )
+    lines.append(f"{pad}const float4 {op.name} = mtile_decode_e8m0({op.name}_bits);")
+
+
+def _emit_nax_load_affine_parameters(op, lines, indent, func):
+    pad = "    " * indent
+    scales = _val_name_gemm(op.ptr_scales, func)
+    biases = _val_name_gemm(op.ptr_biases, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    col = "tile_col + frag_n"
+    if op.col_offset:
+        col = f"tile_col + {op.col_offset}u + frag_n"
+    index = f"(({k} + frag_m) / {op.group_size}u) * N + ({col})"
+    lines.append(
+        f"{pad}const half4 {op.scale_name} = *((device const half4*)(&{scales}[{index}]));"
+    )
+    lines.append(f"{pad}const half4 {op.bias_name} = *((device const half4*)(&{biases}[{index}]));")
+
+
+def _emit_nax_load_affine_fragment(op, lines, indent, func):
+    pad = "    " * indent
+    values = _val_name_gemm(op.ptr_values, func)
+    k = "uint(k)" if not op.k_offset else f"uint(k) + {op.k_offset}u"
+    col = "tile_col + frag_n"
+    if op.col_offset:
+        col = f"tile_col + {op.col_offset}u + frag_n"
+
+    vectors = []
+    for suffix, row in (("0", f"{k} + frag_m"), ("1", f"{k} + frag_m + 8u")):
+        name = f"{op.name}{suffix}"
+        lines.append(f"{pad}const uint {name}_element = ({row}) * N + ({col});")
+        lines.append(
+            f"{pad}const ushort {name}_packed = "
+            f"*((device const ushort*)(&{values}[{name}_element >> 1u]));"
+        )
+        lines.append(
+            f"{pad}const half4 {name}_quantized = half4("
+            + ", ".join(f"half(({name}_packed >> {shift}u) & 15u)" for shift in (0, 4, 8, 12))
+            + ");"
+        )
+        lines.append(f"{pad}const half4 {name} = {name}_quantized * {op.scale} + {op.bias};")
+        vectors.append(name)
+
+    lines.append(
+        f"{pad}const metal::vec<{op.fragment_type}, 8> {op.name} = "
+        f"metal::vec<{op.fragment_type}, 8>("
+    )
+    components = []
+    for vector in vectors:
+        components.extend(f"{op.fragment_type}({vector}.{field})" for field in "xyzw")
+    lines.append(f"{pad}    {', '.join(components[:4])}, {', '.join(components[4:])});")
+
+
+def _emit_nax_pack_right(op, lines, indent):
+    pad = "    " * indent
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    nax_b[i] = {op.low}[i];")
+    lines.append(f"{pad}    nax_b[8 + i] = {op.high}[i];")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_fma_fragment(op, lines, indent):
+    pad = "    " * indent
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    nax_a[i] = {op.left}[i];")
+    lines.append(f"{pad}    nax_c[i] = {op.destination_low}[i];")
+    lines.append(f"{pad}    nax_c[8 + i] = {op.destination_high}[i];")
+    lines.append(f"{pad}}}")
+    lines.append(f"{pad}nax_mma.run(nax_a, nax_b, nax_c);")
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    {op.destination_low}[i] = nax_c[i];")
+    lines.append(f"{pad}    {op.destination_high}[i] = nax_c[8 + i];")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_apply_fragment(op, lines, indent):
+    pad = "    " * indent
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    _emit_epilogue_chain(op.operations, f"{op.source}[i]", lines, f"{pad}    ")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_binary_fragment(op, lines, indent):
+    pad = "    " * indent
+    destination = op.destination or op.left
+    raw_left = f"{op.left}[i]"
+    raw_right = f"{op.right}[i]"
+    left = raw_left
+    right = raw_right
+    if op.round_inputs:
+        left = f"float({op.round_inputs}({left}))"
+        right = f"float({op.round_inputs}({right}))"
+    if op.operation == "add":
+        expression = f"{left} + {right}"
+    elif op.operation == "multiply":
+        expression = f"{left} * {right}"
+    elif op.operation == "swiglu":
+        exponential = "fast::exp" if op.fast_math else "exp"
+        if op.round_intermediates:
+            low_type = op.round_intermediates
+            lines.append(f"{pad}#pragma clang loop unroll(full)")
+            lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+            lines.append(f"{pad}    const {low_type} swiglu_left = {low_type}({raw_left});")
+            lines.append(f"{pad}    const {low_type} swiglu_right = {low_type}({raw_right});")
+            lines.append(
+                f"{pad}    const auto swiglu_y = 1 / (1 + {exponential}(abs(swiglu_left)));"
+            )
+            lines.append(
+                f"{pad}    const {low_type} swiglu_sigmoid = "
+                f"(swiglu_left < {low_type}(0)) ? swiglu_y : 1 - swiglu_y;"
+            )
+            lines.append(
+                f"{pad}    const {low_type} swiglu_activation = swiglu_left * swiglu_sigmoid;"
+            )
+            lines.append(
+                f"{pad}    {destination}[i] = float({low_type}(swiglu_activation * swiglu_right));"
+            )
+            lines.append(f"{pad}}}")
+            return
+        activation = f"({left} / (1.0f + {exponential}(-{left})))"
+        expression = f"{activation} * {right}"
+    else:
+        raise ValueError(f"unknown NAX binary fragment operation: {op.operation}")
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    {destination}[i] = {expression};")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_scratch_index(op):
+    return f"((sgid * {op.slots_per_simdgroup}u + {op.slot}u) * 256u + uint(i) * 32u + slid)"
+
+
+def _emit_nax_spill_fragment(op, lines, indent):
+    pad = "    " * indent
+    index = _emit_nax_scratch_index(op)
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    {op.scratch_name}[{index}] = {op.source}[i];")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_reload_fragment(op, lines, indent):
+    pad = "    " * indent
+    index = _emit_nax_scratch_index(op)
+    lines.append(f"{pad}#pragma clang loop unroll(full)")
+    lines.append(f"{pad}for (ushort i = 0; i < 8; ++i) {{")
+    lines.append(f"{pad}    {op.destination}[i] = {op.scratch_name}[{index}];")
+    lines.append(f"{pad}}}")
+
+
+def _emit_nax_store_fragment(op, lines, indent, func):
+    pad = "    " * indent
+    ptr_c = _val_name_gemm(op.ptr_c, func)
+    dtype = op.ptr_c.type.dtype if isinstance(op.ptr_c.type, PtrType) else "f32"
+    element_type = ScalarType(dtype).to_msl()
+    for component_offset, source_offset in ((op.row_offset, 0), (op.row_offset + 8, 4)):
+        row = f"tile_row + {component_offset}u + frag_m"
+        components = [f"{op.source}[{source_offset + index}]" for index in range(4)]
+        if dtype == "bf16":
+            components = [f"bfloat({component})" for component in components]
+        statement = (
+            f"*((device {element_type}4*)(&{ptr_c}[({row}) * N + tile_col "
+            f"+ {op.col_offset}u + frag_n])) = {element_type}4("
+            f"{', '.join(components)});"
+        )
+        if op.row_bound:
+            lines.append(f"{pad}if (({row}) < {op.row_bound}u) {{ {statement} }}")
+        else:
+            lines.append(f"{pad}{statement}")
+
+
 def _emit_tile_schedule(op, lines, indent):
-    """Emit tile scheduling (Morton, diagonal, or linear)."""
+    """Emit a bijective cache-local tile schedule for every grid shape."""
     pad = "    " * indent
     BM, BN = op.block_m, op.block_n
+    if op.is_static:
+        lines.append(f"{pad}constexpr uint grid_m = {op.grid_m}u;")
+        lines.append(f"{pad}constexpr uint grid_n = {op.grid_n}u;")
+        _emit_static_tile_schedule(op, lines, indent)
+        lines.append("")
+        return
     lines.append(f"{pad}const uint grid_m = (uint(M) + {BM}u - 1u) / {BM}u;")
     lines.append(f"{pad}const uint grid_n = (uint(N) + {BN}u - 1u) / {BN}u;")
-    if op.pattern == "morton":
+    if op.pattern.startswith("grouped"):
+        group = int(op.pattern.removeprefix("grouped"))
         lines.append(f"{pad}uint pid_m, pid_n;")
-        lines.append(f"{pad}if (grid_m >= 2u && grid_n >= 2u) {{")
-        lines.append(f"{pad}    const uint linear_id = tgp_id.x * grid_n + tgp_id.y;")
-        lines.append(f"{pad}    const uint blocks_n = (grid_n + 1u) / 2u;")
-        lines.append(f"{pad}    const uint block_id = linear_id / 4u;")
-        lines.append(f"{pad}    const uint within = linear_id % 4u;")
-        lines.append(f"{pad}    const uint block_row = block_id / blocks_n;")
-        lines.append(f"{pad}    const uint block_col = block_id % blocks_n;")
-        lines.append(f"{pad}    pid_m = block_row * 2u + (within / 2u);")
-        lines.append(f"{pad}    pid_n = block_col * 2u + (within % 2u);")
-        lines.append(f"{pad}    if (pid_m >= grid_m) pid_m = grid_m - 1u;")
-        lines.append(f"{pad}    if (pid_n >= grid_n) pid_n = grid_n - 1u;")
+        lines.append(f"{pad}if ((grid_m % {group}u) == 0u) {{")
+        lines.append(f"{pad}    const uint linear_id = tgp_id.y * grid_m + tgp_id.x;")
+        lines.append(f"{pad}    const uint virtual_x = linear_id % (grid_n * {group}u);")
+        lines.append(f"{pad}    const uint virtual_y = linear_id / (grid_n * {group}u);")
+        lines.append(f"{pad}    pid_m = virtual_y * {group}u + virtual_x % {group}u;")
+        lines.append(f"{pad}    pid_n = virtual_x / {group}u;")
         lines.append(f"{pad}}} else {{")
         lines.append(f"{pad}    pid_m = tgp_id.x;")
-        lines.append(f"{pad}    pid_n = tgp_id.y;")
+        lines.append(f"{pad}    pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
         lines.append(f"{pad}}}")
-    elif op.pattern == "diagonal":
-        lines.append(f"{pad}const uint pid_m = tgp_id.x;")
-        lines.append(f"{pad}const uint pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
-    else:
+        lines.append("")
+        return
+    if op.pattern == "linear":
         lines.append(f"{pad}const uint pid_m = tgp_id.x;")
         lines.append(f"{pad}const uint pid_n = tgp_id.y;")
+        lines.append("")
+        return
+
+    lines.append(f"{pad}const uint linear_id = tgp_id.x * grid_n + tgp_id.y;")
+    lines.append(f"{pad}uint pid_m, pid_n;")
+
+    if op.pattern in {"auto", "hilbert"}:
+        lines.append(f"{pad}if ((grid_m & 3u) == 0u && (grid_n & 3u) == 0u) {{")
+        lines.append(f"{pad}    constexpr ulong hilbert_m = 0xEBFA5014ul;")
+        lines.append(f"{pad}    constexpr ulong hilbert_n = 0x05BEBE50ul;")
+        lines.append(f"{pad}    const uint panel_id = linear_id >> 4u;")
+        lines.append(f"{pad}    const uint within = linear_id & 15u;")
+        lines.append(f"{pad}    const uint panels_n = grid_n >> 2u;")
+        lines.append(f"{pad}    pid_m = (panel_id / panels_n) * 4u")
+        lines.append(f"{pad}        + uint((hilbert_m >> (within * 2u)) & 3ul);")
+        lines.append(f"{pad}    pid_n = (panel_id % panels_n) * 4u")
+        lines.append(f"{pad}        + uint((hilbert_n >> (within * 2u)) & 3ul);")
+        lines.append(f"{pad}}} else if ((grid_m & 1u) == 0u && (grid_n & 1u) == 0u) {{")
+        branch_indent = "    "
+    elif op.pattern == "morton":
+        lines.append(f"{pad}if ((grid_m & 1u) == 0u && (grid_n & 1u) == 0u) {{")
+        branch_indent = "    "
+    else:
+        branch_indent = ""
+
+    if op.pattern in {"auto", "hilbert", "morton"}:
+        inner = pad + branch_indent
+        lines.append(f"{inner}const uint panel_id = linear_id >> 2u;")
+        lines.append(f"{inner}const uint within = linear_id & 3u;")
+        lines.append(f"{inner}const uint panels_n = grid_n >> 1u;")
+        lines.append(f"{inner}pid_m = (panel_id / panels_n) * 2u + within / 2u;")
+        lines.append(f"{inner}pid_n = (panel_id % panels_n) * 2u + within % 2u;")
+        lines.append(f"{pad}}} else {{")
+        lines.append(f"{pad}    pid_m = tgp_id.x;")
+        lines.append(f"{pad}    pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
+        lines.append(f"{pad}}}")
+    else:
+        lines.append(f"{pad}pid_m = tgp_id.x;")
+        lines.append(f"{pad}pid_n = (tgp_id.y + tgp_id.x) % grid_n;")
     lines.append("")
+
+
+def _emit_static_tile_schedule(op, lines, indent):
+    """Emit the branch-free expression program extracted by schedule search."""
+    pad = "    " * indent
+    program = select_schedule_program(op.pattern, op.grid_m, op.grid_n, op.encoding)
+    lines.extend(f"{pad}{line}" for line in program.emit_lines())
 
 
 def _emit_matmul2d_setup(op, lines, indent, func):
@@ -848,22 +1658,26 @@ def _emit_coop_tensor_init(op, lines, indent):
     """Emit cooperative_tensor declaration + zero-init."""
     pad = "    " * indent
     in_type = op.in_type
+    left_type = op.left_type or in_type
+    right_type = op.right_type or in_type
     acc_type = op.acc_type
 
     if op.use_separated:
         lines.append(
-            f"{pad}auto ct_a = op.get_left_input_cooperative_tensor<{in_type}, {in_type}, {acc_type}>();"
+            f"{pad}auto ct_a = op.get_left_input_cooperative_tensor<{left_type}, {right_type}, {acc_type}>();"
         )
         lines.append(
-            f"{pad}auto ct_b = op.get_right_input_cooperative_tensor<{in_type}, {in_type}, {acc_type}>();"
+            f"{pad}auto ct_b = op.get_right_input_cooperative_tensor<{left_type}, {right_type}, {acc_type}>();"
         )
         lines.append(f"{pad}auto {op.ct_name} = op.get_destination_cooperative_tensor<")
         lines.append(f"{pad}    decltype(ct_a), decltype(ct_b), {acc_type}>();")
     else:
         lines.append(f"{pad}auto {op.ct_name} = op.get_destination_cooperative_tensor<")
-        lines.append(f"{pad}    tensor<device {in_type}, dextents<int32_t, 2>, tensor_inline>,")
         lines.append(
-            f"{pad}    tensor<device {in_type}, dextents<int32_t, 2>, tensor_inline>, {acc_type}>();"
+            f"{pad}    tensor<{op.left_address_space} {left_type}, dextents<int32_t, 2>, tensor_inline>,"
+        )
+        lines.append(
+            f"{pad}    tensor<{op.right_address_space} {right_type}, dextents<int32_t, 2>, tensor_inline>, {acc_type}>();"
         )
 
     # Zero-init
@@ -1075,9 +1889,8 @@ def _emit_for_loop_regular(
     lines.append(
         f"{pad}for (int {op.iv_name} = {start}; {op.iv_name} < {end}; {op.iv_name} += {op.step}) {{"
     )
-    # Inner K-loop: emit "const int k = k0 + k1;" so load offsets work
-    if getattr(op, "_inner_k", False):
-        lines.append(f"{pad}    const int k = k0 + {op.iv_name};")
+    if op.index_alias and op.index_expression:
+        lines.append(f"{pad}    const int {op.index_alias} = {op.index_expression};")
     for body_op in op.body:
         _emit_gemm_op(body_op, lines, indent + 1, func, has_swizzle)
     if getattr(op, "_tg_barrier", False):
@@ -1266,9 +2079,8 @@ def _emit_for_loop(
         lines.append(
             f"{pad}for (int {op.iv_name} = {start}; {op.iv_name} < {end}; {op.iv_name} += {op.step}) {{"
         )
-        # Inner K-loop: emit "const int k = k0 + k1;" so load offsets work
-        if getattr(op, "_inner_k", False):
-            lines.append(f"{pad}    const int k = k0 + {op.iv_name};")
+        if op.index_alias and op.index_expression:
+            lines.append(f"{pad}    const int {op.index_alias} = {op.index_expression};")
         for body_op in op.body:
             _emit_gemm_op(body_op, lines, indent + 1, func, has_swizzle)
         if getattr(op, "_tg_barrier", False):
@@ -1311,10 +2123,15 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         lines.append(f"{pad}threadgroup {op.elem_type} {op.alloc_name}[{op.size}];")
 
     elif isinstance(op, mir.MBarrier):
-        if op.kind == "threadgroup":
-            lines.append(f"{pad}threadgroup_barrier(mem_flags::{op.flags});")
+        barrier = (
+            f"threadgroup_barrier(mem_flags::{op.flags});"
+            if op.kind == "threadgroup"
+            else f"simdgroup_barrier(mem_flags::{op.flags});"
+        )
+        if op.condition:
+            lines.append(f"{pad}if ({op.condition}) {{ {barrier} }}")
         else:
-            lines.append(f"{pad}simdgroup_barrier(mem_flags::{op.flags});")
+            lines.append(f"{pad}{barrier}")
 
     elif isinstance(op, mir.MThreadgroupReduce):
         _emit_threadgroup_reduce(op, lines, indent, func)
@@ -1517,7 +2334,7 @@ def _emit_vec4_for_loop(
             f"{pad}for (int {op.iv_name} = {start}; {op.iv_name} < {var}; "
             f"{op.iv_name} += {vstep}) {{"
         )
-        vec4_vals: set[str] = set()
+        vec4_vals: dict[str, str] = {}
         for body_op in op.body:
             _emit_vec4_op(body_op, lines, indent + 1, func, vec4_vals, vec_size)
         lines.append(f"{pad}}}")
@@ -1534,7 +2351,7 @@ def _emit_vec4_for_loop(
             offset = stage * vstep
             lines.append(f"{pad}    {{ // stage {stage}")
             lines.append(f"{pad}        const int {op.iv_name} = {pipe_iv} + {offset};")
-            vec4_vals_stage: set[str] = set()
+            vec4_vals_stage: dict[str, str] = {}
             for body_op in op.body:
                 _emit_vec4_op(body_op, lines, indent + 2, func, vec4_vals_stage, vec_size)
             lines.append(f"{pad}    }}")
@@ -1546,18 +2363,21 @@ def _emit_vec4_op(
     lines: list[str],
     indent: int,
     func: mir.MFunction,
-    vec4_vals: set[str],
+    vec4_vals: dict[str, str],
     vec_size: int,
 ):
-    """Emit a single op in vec4 context, tracking which values are float4."""
+    """Emit one vectorized op while preserving each value's element type."""
     pad = "    " * indent
 
     if isinstance(op, mir.MCast):
         src = _val_name(op.value, func)
         target_type = ScalarType(op.target_dtype).to_msl()
         name = op.result.name
-        # Multiply lid by vec_size to space threads apart
-        if src == "lid":
+        if src in vec4_vals:
+            vector_type = f"{target_type}4"
+            vec4_vals[name] = vector_type
+            lines.append(f"{pad}{vector_type} {name} = {vector_type}({src});")
+        elif src == "lid":
             lines.append(
                 f"{pad}{target_type} {name} = static_cast<{target_type}>(lid) * {vec_size};"
             )
@@ -1568,15 +2388,19 @@ def _emit_vec4_op(
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
         name = op.result.name
-        vec4_vals.add(name)
-        lines.append(f"{pad}float4 {name} = *(device const float4*)({ptr} + {idx});")
+        vector_type = f"{ScalarType(op.dtype).to_msl()}4"
+        vec4_vals[name] = vector_type
+        lines.append(f"{pad}{vector_type} {name} = *(device const {vector_type}*)({ptr} + {idx});")
 
     elif isinstance(op, mir.DeviceStore):
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
         val = _val_name(op.value, func)
         if val in vec4_vals:
-            lines.append(f"{pad}*(device float4*)({ptr} + {idx}) = {val};")
+            pointer_dtype = op.ptr.type.dtype if isinstance(op.ptr.type, PtrType) else "f32"
+            vector_type = f"{ScalarType(pointer_dtype).to_msl()}4"
+            stored_value = val if vec4_vals[val] == vector_type else f"{vector_type}({val})"
+            lines.append(f"{pad}*(device {vector_type}*)({ptr} + {idx}) = {stored_value};")
         else:
             lines.append(f"{pad}{ptr}[{idx}] = {val};")
 
@@ -1628,14 +2452,15 @@ def _emit_vec4_op(
                 return
 
             # --- Vec4 x Vec4, or Vec4 x scalar (broadcast) ---
-            vec4_vals.add(name)
+            vector_type = f"{op.result.type.to_msl()}4"
+            vec4_vals[name] = vector_type
             if op.op in ("max", "min"):
-                lines.append(f"{pad}float4 {name} = {op.op}({lhs}, {rhs});")
+                lines.append(f"{pad}{vector_type} {name} = {op.op}({lhs}, {rhs});")
             elif op.op in _BINOP_SYMBOLS:
                 sym = _BINOP_SYMBOLS[op.op]
-                lines.append(f"{pad}float4 {name} = {lhs} {sym} {rhs};")
+                lines.append(f"{pad}{vector_type} {name} = {lhs} {sym} {rhs};")
             else:
-                lines.append(f"{pad}float4 {name} = {op.op}({lhs}, {rhs});")
+                lines.append(f"{pad}{vector_type} {name} = {op.op}({lhs}, {rhs});")
         else:
             # Scalar-only op (index math, etc.)
             result_type = op.result.type.to_msl()
@@ -1650,11 +2475,12 @@ def _emit_vec4_op(
         name = op.result.name
         msl_fn = _UNARY_MSL.get(op.op, op.op)
         if src in vec4_vals:
-            vec4_vals.add(name)
+            vector_type = f"{op.result.type.to_msl()}4"
+            vec4_vals[name] = vector_type
             if op.op == "neg":
-                lines.append(f"{pad}float4 {name} = -{src};")
+                lines.append(f"{pad}{vector_type} {name} = -{src};")
             else:
-                lines.append(f"{pad}float4 {name} = {msl_fn}({src});")
+                lines.append(f"{pad}{vector_type} {name} = {msl_fn}({src});")
         else:
             result_type = op.result.type.to_msl()
             if op.op == "neg":
@@ -1668,8 +2494,9 @@ def _emit_vec4_op(
         fv = _val_name(op.false_val, func)
         name = op.result.name
         if tv in vec4_vals or fv in vec4_vals:
-            vec4_vals.add(name)
-            lines.append(f"{pad}float4 {name} = select({fv}, {tv}, {cond});")
+            vector_type = vec4_vals.get(tv, vec4_vals.get(fv))
+            vec4_vals[name] = vector_type
+            lines.append(f"{pad}{vector_type} {name} = select({fv}, {tv}, {cond});")
         else:
             result_type = op.result.type.to_msl()
             lines.append(f"{pad}{result_type} {name} = {cond} ? {tv} : {fv};")

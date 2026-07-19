@@ -59,7 +59,7 @@ def main():
         Out_buf = metile.Buffer.zeros((nrows * hidden,))
 
         grid = (nrows,)
-        dispatch = autotuned_rmsnorm[grid].prepare(X_buf, W_buf, Out_buf, hidden)
+        dispatch = autotuned_rmsnorm[grid].prepare(X_buf, W_buf, Out_buf, hidden, 1e-5)
 
         dev.sync()
 

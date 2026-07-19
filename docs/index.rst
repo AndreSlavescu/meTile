@@ -37,10 +37,13 @@ Programming Guide
 .. toctree::
    :maxdepth: 2
 
+   guide/architecture
    guide/language
    guide/memory
    guide/tile-ops
    guide/autotuning
+   guide/graph-fusion
+   guide/mlx-backend
 
 Kernel Examples
 ---------------
@@ -50,6 +53,7 @@ Kernel Examples
 
    examples/vector-add
    examples/softmax
+   examples/attention
    examples/matmul
    examples/layernorm
    examples/fused-activations

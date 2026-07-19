@@ -91,6 +91,9 @@ Launching
 The Compilation Pipeline
 ------------------------
 
+This section follows the kernel-local path. See :doc:`/guide/architecture` for
+the complete graph-discovery, fusion, code-generation, and guarded-runtime flow.
+
 When you call ``add[grid](...)``, meTile:
 
 1. **Traces** the Python function with symbolic values to build a Tile IR

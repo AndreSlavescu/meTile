@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from metile.compiler.schedules import validate_schedule
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
 from metile.ir.layout import Layout, _ceil_div, row_major
@@ -20,9 +21,10 @@ def lower(func: tir.Function) -> mir.MFunction:
         from metile.runtime.metal_device import MetalDevice
 
         dtype, _ = _detect_dtype(func)
-        if MetalDevice.get().supports_tensor_ops and dtype == "f32":
+        constexprs = func.constexprs
+        low_precision_nax = dtype == "f16" and constexprs.get("NAX_FRAGMENTS", False)
+        if MetalDevice.get().supports_tensor_ops and (dtype == "f32" or low_precision_nax):
             # tensor_ops matmul2d requires SM,SN <= 32 for valid descriptor
-            constexprs = func.constexprs
             BM = constexprs.get("BLOCK_M", 128)
             BN = constexprs.get("BLOCK_N", 64)
             WM = constexprs.get("WM", 2)
@@ -980,7 +982,9 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     if func.swizzle_pattern is not None:
         swizzle = func.swizzle_pattern
     else:
-        swizzle = constexprs.get("SWIZZLE", "morton")
+        swizzle = constexprs.get("SWIZZLE", "auto")
+    swizzle = validate_schedule(swizzle)
+    swizzle_block_size = func.swizzle_block_size if func.swizzle_pattern is not None else 4
     k_unroll = constexprs.get("K_UNROLL", 1)
     num_stages = constexprs.get("num_stages", 1)
 
@@ -998,8 +1002,142 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     acc_type = "float"
     out_type = msl_type
 
+    if constexprs.get("NAX_FRAGMENTS", False):
+        if msl_type not in {"float", "half"} or cooperative or SM != 32 or SN != 32 or BK != 16:
+            raise ValueError(
+                "NAX fragments require f16/f32, 32x32 per-simdgroup tiles, and BLOCK_K=16"
+            )
+        if not all(constexprs.get(f"_ALIGNED_{axis}", False) for axis in ("N", "K")):
+            raise ValueError("NAX fragments currently require aligned N and K")
+        outer_k = int(constexprs.get("NAX_OUTER_K", 0))
+        nax_k_unroll = int(constexprs.get("NAX_K_UNROLL", 1))
+        if nax_k_unroll not in {1, 2}:
+            raise ValueError("NAX_K_UNROLL must be 1 or 2")
+        reduction_step = 16 * nax_k_unroll
+        static_shape = tuple(constexprs.get(f"_STATIC_{axis}") for axis in ("M", "N", "K"))
+        if all(dimension is not None for dimension in static_shape):
+            static_m, static_n, static_k = (int(dimension) for dimension in static_shape)
+            mfunc.params = [param for param in mfunc.params if param.name not in {"M", "N", "K"}]
+            K_val = static_k
+        else:
+            static_m = static_n = static_k = 0
+        row_bound = static_m if not constexprs.get("_ALIGNED_M", False) else 0
+        if outer_k and (
+            outer_k % reduction_step or not constexprs.get("_ALIGNED_NAX_OUTER_K", False)
+        ):
+            raise ValueError("NAX_OUTER_K must align to the reduction step and evenly divide K")
+        mfunc.add_op(mir.MThreadInSimdgroup())
+        mfunc.add_op(
+            mir.MTileSchedule(
+                pattern=swizzle,
+                block_m=BM,
+                block_n=BN,
+                block_size=swizzle_block_size,
+                grid_m=constexprs.get("_GRID_M"),
+                grid_n=constexprs.get("_GRID_N"),
+                encoding=constexprs.get("SCHEDULE_ENCODING", "auto"),
+            )
+        )
+        mfunc.add_op(
+            mir.MNaxGemmSetup(
+                block_m=BM,
+                block_n=BN,
+                wm=WM,
+                wn=WN,
+                m=static_m,
+                n=static_n,
+                k=static_k,
+                left_type=msl_type,
+                right_type=msl_type,
+            )
+        )
+        if outer_k:
+            epoch_a_op = mir.MPointerOffset(ptr=ptr_A, offset="k0")
+            epoch_a = mir.MValue("nax_epoch_a", epoch_a_op.result_type(), epoch_a_op)
+            epoch_a_op.result = epoch_a
+            epoch_b_op = mir.MPointerOffset(ptr=ptr_B, offset="k0 * N")
+            epoch_b = mir.MValue("nax_epoch_b", epoch_b_op.result_type(), epoch_b_op)
+            epoch_b_op.result = epoch_b
+            inner_loop = mir.MForLoop(
+                iv_name="k1",
+                start=0,
+                end=outer_k,
+                step=reduction_step,
+                body=[
+                    mir.MNaxGemmRun(
+                        ptr_a=epoch_a,
+                        ptr_b=epoch_b,
+                        k_offset=offset,
+                        row_bound=row_bound,
+                    )
+                    for offset in range(0, reduction_step, 16)
+                ],
+                index_alias="k",
+                index_expression="k1",
+            )
+            if constexprs.get("NAX_TRAILING_EPOCH_BARRIER", False):
+                epoch_body = [
+                    epoch_a_op,
+                    epoch_b_op,
+                    inner_loop,
+                    mir.MBarrier(
+                        kind="threadgroup",
+                        flags="mem_none",
+                        condition=f"k0 + {outer_k}u < K",
+                    ),
+                ]
+            else:
+                epoch_body = [
+                    mir.MBarrier(
+                        kind="threadgroup",
+                        flags="mem_none",
+                        condition=(
+                            "k0 != 0u"
+                            if constexprs.get("NAX_SKIP_FIRST_EPOCH_BARRIER", False)
+                            else None
+                        ),
+                    ),
+                    epoch_a_op,
+                    epoch_b_op,
+                    inner_loop,
+                ]
+            mfunc.add_op(
+                mir.MForLoop(
+                    iv_name="k0",
+                    start=0,
+                    end=K_val,
+                    step=outer_k,
+                    body=epoch_body,
+                )
+            )
+        else:
+            mfunc.add_op(
+                mir.MForLoop(
+                    iv_name="k",
+                    start=0,
+                    end=K_val,
+                    step=reduction_step,
+                    body=[
+                        mir.MNaxGemmRun(
+                            ptr_a=ptr_A,
+                            ptr_b=ptr_B,
+                            k_offset=offset,
+                            row_bound=row_bound,
+                        )
+                        for offset in range(0, reduction_step, 16)
+                    ],
+                )
+            )
+        if epilogue:
+            mfunc.add_op(mir.MNaxGemmEpilogue(operations=epilogue))
+        mfunc.add_op(mir.MNaxGemmStore(ptr_c=ptr_C, row_bound=row_bound))
+        return mfunc
+
     # Use separated loads when descriptor dimensions allow cooperative_tensor inputs
-    use_separated = SM <= 32 and SN <= 32
+    separated_default = not cooperative and SM <= 32 and SN <= 32
+    use_separated = constexprs.get("SEPARATED", separated_default) and not cooperative
+    if use_separated and (SM > 32 or SN > 32):
+        raise ValueError("separated tensor inputs require per-simdgroup M/N tiles <= 32")
     bk_inner = min(32, BK) if use_separated else BK
 
     # --- Emit decomposed tensor ops ---
@@ -1021,6 +1159,10 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
             pattern=swizzle,
             block_m=BM,
             block_n=BN,
+            block_size=swizzle_block_size,
+            grid_m=constexprs.get("_GRID_M"),
+            grid_n=constexprs.get("_GRID_N"),
+            encoding=constexprs.get("SCHEDULE_ENCODING", "auto"),
         )
     )
 
@@ -1119,8 +1261,8 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                     b_slice_d0=SN if not cooperative else BN,
                     b_slice_d1=BK,
                     a_offset_0=f"k + {BK * u}" if u > 0 else "k",
-                    a_offset_1="tile_row" if not cooperative else "row_expr",
-                    b_offset_0="tile_col" if not cooperative else "col_expr",
+                    a_offset_1="tile_row" if not cooperative else f"pid_m * {BM}u",
+                    b_offset_0="tile_col" if not cooperative else f"pid_n * {BN}u",
                     b_offset_1=f"k + {BK * u}" if u > 0 else "k",
                 )
             )
@@ -1449,6 +1591,8 @@ class _ElementwiseLoweringContext:
         self._next_sg: int = 0  # tracks next available simdgroup index for role assignment
         # Track shared memory allocations: tile IR value name -> threadgroup array name
         self._shared_allocs: dict[str, str] = {}
+        self._loop_post_refs: dict[int, set[str]] = {}
+        self._index_loop_post_refs(self.func.ops)
 
     def lower(self) -> mir.MFunction:
         self._lower_params()
@@ -1567,6 +1711,14 @@ class _ElementwiseLoweringContext:
 
         elif isinstance(op, tir.Constant):
             m_op = mir.MConstant(value=op.value, dtype=op.dtype)
+            mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
+            m_op.result = mv
+            self.value_map[op.result.name] = mv
+            return [m_op]
+
+        elif isinstance(op, tir.Cast):
+            value = self._resolve(op.value)
+            m_op = mir.MCast(value=value, target_dtype=op.dtype)
             mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
             m_op.result = mv
             self.value_map[op.result.name] = mv
@@ -2026,8 +2178,8 @@ class _ElementwiseLoweringContext:
     def _detect_accumulation(self, for_range_op: tir.ForRange):
         """Detect accumulation patterns in a ForRange body.
 
-        Looks for Constants that feed into BinOp chains, where the
-        final values are used after the ForRange. Returns a list of
+        Looks for explicit scalar initializers that feed into BinOp chains,
+        where the final values are used after the ForRange. Returns a list of
         (init_name, init_value, final_name) tuples, or None if empty.
         """
         body = for_range_op.body
@@ -2038,18 +2190,11 @@ class _ElementwiseLoweringContext:
             if hasattr(body_op, "result") and body_op.result:
                 body_defs[body_op.result.name] = body_op
 
-        # Find values used after the ForRange
-        post_refs = set()
-        found = False
-        for parent_op in self.func.ops:
-            if parent_op is for_range_op:
-                found = True
-                continue
-            if found:
-                self._collect_tile_ir_refs(parent_op, post_refs)
+        # Find values used by later siblings in the loop's containing block.
+        post_refs = self._loop_post_refs.get(id(for_range_op), set())
 
         # Find escaped values (defined in body, used after)
-        escaped = set(body_defs.keys()) & post_refs
+        escaped = [name for name in body_defs if name in post_refs]
 
         results = []
         used_inits = set()
@@ -2061,7 +2206,7 @@ class _ElementwiseLoweringContext:
         return results or None
 
     def _walk_acc_chain(self, start_name, body_defs):
-        """Walk backward through BinOp chain to find the Constant root.
+        """Walk backward through BinOp chains to find a scalar state root.
 
         Returns (init_name, init_value, final_name) or None.
         """
@@ -2073,6 +2218,11 @@ class _ElementwiseLoweringContext:
             op = body_defs[current_name]
 
             if isinstance(op, tir.BinOp):
+                for operand in (op.lhs, op.rhs):
+                    defining_op = operand.defining_op
+                    if isinstance(defining_op, tir.Constant) and defining_op.explicit_scalar:
+                        return (operand.name, defining_op.value, start_name)
+
                 lhs_name = op.lhs.name
                 rhs_name = op.rhs.name
 
@@ -2111,6 +2261,20 @@ class _ElementwiseLoweringContext:
                 refs.add(val.name)
         if isinstance(op, tir.Store) and getattr(op, "mask", None) is not None:
             refs.add(op.mask.name)
+        for body_op in getattr(op, "body", ()):
+            self._collect_tile_ir_refs(body_op, refs)
+
+    def _index_loop_post_refs(self, ops):
+        """Index references after every runtime loop within its parent block."""
+        for index, op in enumerate(ops):
+            if isinstance(op, tir.ForRange):
+                refs = set()
+                for sibling in ops[index + 1 :]:
+                    self._collect_tile_ir_refs(sibling, refs)
+                self._loop_post_refs[id(op)] = refs
+            body = getattr(op, "body", None)
+            if body is not None:
+                self._index_loop_post_refs(body)
 
     def _replace_mvalue_refs(self, ops: list, old_mv: mir.MValue, new_mv: mir.MValue):
         """Replace all references to old_mv with new_mv in Metal IR ops."""

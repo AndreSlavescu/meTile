@@ -191,6 +191,7 @@ class TensorView:
         Writes to this array are immediately visible to the GPU,
         and GPU writes are immediately visible here.
         """
+        MetalDevice.get().sync()
         return self._space.numpy_view(self._byte_offset, self._shape, self._dtype)
 
     def fill(self, value=0):

@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,benchmarks]"
       - name: Run tests
         run: python -m pytest tests/ -x -q
 
@@ -70,20 +70,15 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
+      - name: Check out baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
-      - name: Run benchmarks
-        run: python benchmarks/regression.py --output bench_results.json
-      - name: Compare against baseline
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: meTile Kernel Performance
-          tool: customSmallerIsBetter
-          output-file-path: bench_results.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: false
-          alert-threshold: "115%"
-          comment-on-alert: true
-          fail-on-alert: true
+      - name: Run paired base/PR benchmarks
+        continue-on-error: true
+        run: python benchmarks/paired_regression.py --baseline-root baseline

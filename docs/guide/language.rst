@@ -282,10 +282,11 @@ For low-level control over Apple GPU simdgroups:
 Tile Scheduling
 ---------------
 
-.. function:: metile.tile_swizzle(pid_m, pid_n, pattern="morton", block_size=2)
+.. function:: metile.tile_swizzle(pid_m, pid_n, pattern="auto", block_size=4)
 
    Apply a tile scheduling pattern for better cache locality in 2D grids.
-   Supported patterns: ``"morton"`` (Z-order), ``"diagonal"``.
+   Supported patterns: ``"auto"``, ``"hilbert"`` (4x4), ``"morton"`` (2x2
+   Z-order), ``"diagonal"``, and ``"linear"``.
 
    .. code-block:: python
 

@@ -1,7 +1,9 @@
 import numpy as np
+import pytest
 
 import metile
 from kernels.gemm import matmul
+from kernels.mlp import matmul_gelu, matmul_silu
 from metile.runtime.metal_device import MetalDevice
 
 # tensor_ops uses TF32 (reduced precision) — need wider tolerance
@@ -83,6 +85,206 @@ class TestSimdgroupGemm:
     def test_larger_512x512(self):
         _run_matmul(512, 512, 512, BM=64, BN=64, BK=32)
 
+    def test_odd_tile_grid_is_bijective(self):
+        _run_matmul(192, 320, 64, BM=64, BN=64, BK=16)
+
+    def test_cooperative_tensor_ops_compiles(self):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(23)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=32,
+            WM=2,
+            WN=2,
+            COOPERATIVE=True,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
+    def test_aligned_nax_fragments_compile_and_match(self):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(29)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
+    def test_ragged_fp16_nax_fragments_compile_and_match(self):
+        if not _TENSOR_OPS:
+            return
+        rows = 63
+        features = 64
+        rng = np.random.default_rng(30)
+        activations = rng.normal(size=(rows, features)).astype(np.float16)
+        weight = rng.normal(size=(features, features)).astype(np.float16)
+        output = np.zeros((rows, features), dtype=np.float16)
+
+        matmul[(1, 1)](
+            activations,
+            weight,
+            output,
+            rows,
+            features,
+            features,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+            NAX_K_UNROLL=2,
+        )
+
+        expected = (activations.astype(np.float32) @ weight.astype(np.float32)).astype(np.float16)
+        np.testing.assert_allclose(output, expected, rtol=8e-2, atol=8e-2)
+
+    def test_aligned_nax_outer_k_epoch_compiles_and_matches(self):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(37)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+            NAX_OUTER_K=64,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
+    @pytest.mark.parametrize(
+        "barrier_config",
+        [
+            {"NAX_SKIP_FIRST_EPOCH_BARRIER": True},
+            {"NAX_TRAILING_EPOCH_BARRIER": True},
+        ],
+    )
+    def test_aligned_nax_can_move_epoch_barriers(self, barrier_config):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(38)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+            NAX_OUTER_K=64,
+            **barrier_config,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
+    def test_aligned_nax_preloaded_k_fragments_compile_and_match(self):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(39)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        matmul[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+            NAX_K_UNROLL=2,
+        )
+        np.testing.assert_allclose(C, A @ B, rtol=5e-2, atol=5e-2)
+
+    @pytest.mark.parametrize(
+        ("kernel", "activation"),
+        [
+            (matmul_gelu, lambda value: value / (1.0 + np.exp(-1.702 * value))),
+            (matmul_silu, lambda value: value / (1.0 + np.exp(-value))),
+        ],
+    )
+    def test_aligned_nax_fused_epilogue_compiles_and_matches(self, kernel, activation):
+        if not _TENSOR_OPS:
+            return
+        M = N = K = 64
+        rng = np.random.default_rng(41)
+        A = rng.normal(size=(M, K)).astype(np.float32)
+        B = rng.normal(size=(K, N)).astype(np.float32)
+        C = np.zeros((M, N), dtype=np.float32)
+        kernel[(1, 1)](
+            A,
+            B,
+            C,
+            M,
+            N,
+            K,
+            BLOCK_M=64,
+            BLOCK_N=64,
+            BLOCK_K=16,
+            WM=2,
+            WN=2,
+            SWIZZLE="linear",
+            NAX_FRAGMENTS=True,
+        )
+        np.testing.assert_allclose(C, activation(A @ B), rtol=6e-2, atol=6e-2)
+
 
 class TestF16NaiveGemm:
     def test_square_32x32(self):
@@ -110,6 +312,37 @@ class TestF16SimdgroupGemm:
 
 
 class TestAutotunedGemm:
+    def test_reautotune_replaces_existing_config_family(self):
+        """Wrapping an autotuned kernel tunes its underlying kernel, not the wrapper."""
+        replacement = metile.autotune(
+            configs=[metile.Config(BLOCK_M=32, BLOCK_N=32, BLOCK_K=32)],
+            key=["M", "N", "K"],
+            verbose=False,
+        )(matmul)
+        assert replacement.kernel_fn is matmul.kernel_fn
+
+    def test_in_memory_cache_identity_includes_config_family(self):
+        first = metile.autotune(
+            configs=[metile.Config(BLOCK_M=32, BLOCK_N=32, BLOCK_K=32)],
+            key=["M", "N", "K"],
+            verbose=False,
+        )(matmul)
+        second = metile.autotune(
+            configs=[metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=32)],
+            key=["M", "N", "K"],
+            verbose=False,
+        )(matmul)
+        assert first[(1, 1)]._cache_key((64, 64, 64)) != second[(1, 1)]._cache_key((64, 64, 64))
+
+    def test_autotune_cache_key_includes_launch_grid(self):
+        tuned = metile.autotune(
+            configs=[metile.Config(BLOCK_M=32)],
+            key=["M"],
+            verbose=False,
+        )(matmul)
+
+        assert tuned[(1, 1)]._cache_key((64,)) != tuned[(2, 1)]._cache_key((64,))
+
     def test_autotune_selects_config(self):
         """Autotuner picks a config and produces correct results."""
 
@@ -196,7 +429,10 @@ class TestAutotunedGemm:
 
         # First call: autotunes
         matmul_cached[grid](A, B, C, M, N, K)
-        assert ("matmul_cached", (64, 64, 64)) in _autotune_cache
+        assert any(
+            cache_key[0] == "matmul_cached" and cache_key[-1] == (64, 64, 64)
+            for cache_key in _autotune_cache
+        )
 
         # Second call: uses cache
         C2 = np.zeros((M, N), dtype=np.float32)
