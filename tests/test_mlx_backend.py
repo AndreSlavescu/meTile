@@ -3652,6 +3652,7 @@ def test_prepare_mlx_lm_compressed_gate_up_preserves_layer_pairs(monkeypatch):
 
 
 def test_mlx_lm_compressed_gate_up_patch_is_reversible_and_decode_only(monkeypatch):
+    pytest.importorskip("mlx.core")
     from metile.integrations import mlx_lm
 
     calls = []
