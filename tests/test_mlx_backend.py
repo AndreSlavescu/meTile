@@ -3741,6 +3741,7 @@ def test_mlx_lm_compressed_gate_up_patch_is_reversible_and_decode_only(monkeypat
 
 
 def test_mlx_lm_compressed_gate_up_falls_back_to_projection_patches(monkeypatch):
+    pytest.importorskip("mlx.core")
     from metile.integrations import mlx_lm
 
     class Linear:
@@ -3960,6 +3961,7 @@ def test_prepare_mlx_lm_compressed_attention_preserves_layer_groups(monkeypatch)
 
 
 def test_mlx_lm_compressed_attention_patch_is_reversible_decode_only_and_biased():
+    pytest.importorskip("mlx.core")
     from metile.integrations import mlx_lm
 
     calls = []
@@ -4056,6 +4058,7 @@ def test_prepare_mlx_lm_compressed_vocab_supports_tied_embedding(monkeypatch):
 
 
 def test_mlx_lm_compressed_vocab_tied_patch_is_reversible_and_decode_only():
+    pytest.importorskip("mlx.core")
     from metile.integrations import mlx_lm
 
     calls = []
@@ -4106,6 +4109,7 @@ def test_mlx_lm_compressed_vocab_tied_patch_is_reversible_and_decode_only():
 
 
 def test_mlx_lm_compressed_vocab_untied_patch_uses_linear_call():
+    pytest.importorskip("mlx.core")
     from metile.integrations import mlx_lm
 
     class Linear:
