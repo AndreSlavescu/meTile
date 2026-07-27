@@ -9,7 +9,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from metile.backends.mlx import _mlx_dtype_to_numpy, _mlx_kernel_body
+from metile.backends.mlx import (
+    _mlx_dtype_to_numpy,
+    _mlx_kernel_body,
+    calibrate_tournament_batch,
+)
 from metile.backends.mlx_quantized import repack_mlx_affine_weight
 from metile.codegen.msl_emitter import emit
 from metile.compiler.affine_quantized import lower_affine_matmul
@@ -289,6 +293,9 @@ def _tune_config(values, weight, configs):
             continue
 
     def measure(active, rounds):
+        # One eval per batch; see calibrate_tournament_batch for why evaluating a single
+        # dispatch per sample compresses the ratios between candidates toward 1.0.
+        batch = calibrate_tournament_batch(active[0][1])
         samples = {config: [] for config, _, _ in active}
         for round_index in range(rounds):
             shift = round_index % len(active)
@@ -297,8 +304,8 @@ def _tune_config(values, weight, configs):
                 ordered.reverse()
             for config, dispatch, _ in ordered:
                 start = time.perf_counter_ns()
-                mx.eval(dispatch())
-                samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+                mx.eval([dispatch() for _ in range(batch)])
+                samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
         return samples
 
     provisional = measure(dispatches, 9)

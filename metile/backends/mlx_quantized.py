@@ -23,6 +23,7 @@ from metile.backends.mlx import (
     _replace_identifier,
     _specialize_mlx_source,
     _token_bucket,
+    calibrate_tournament_batch,
 )
 from metile.codegen.msl_emitter import emit
 from metile.compiler.affine_quantized import lower_affine_qmv, lower_affine_swiglu_qmv
@@ -47,11 +48,13 @@ _affine_cache_lock = threading.RLock()
 _affine_cache_path = cache_root() / "mlx-affine-swiglu-autotune-v7.json"
 _affine_residual_cache_path = cache_root() / "mlx-affine-residual-autotune-v3.json"
 _SWITCH_MARGIN = 0.03
-_COMPILED_SWITCH_MARGIN = 0.005
+# Switching to the mx.compile variant has to clear the run-to-run noise floor, which is
+# several percent on this hardware. At the previous 0.005 it won tournaments on noise and
+# then measured 0.88-0.90x against eager MLX in steady state.
+_COMPILED_SWITCH_MARGIN = 0.03
 _RESIDUAL_SWITCH_MARGIN = 0.01
 _AFFINE_SWIGLU_TUNER_VERSION = 7
 _AFFINE_RESIDUAL_TUNER_VERSION = 3
-_AFFINE_TUNING_BATCH = 8
 
 
 @dataclass(frozen=True)
@@ -1244,6 +1247,11 @@ def _tune_affine_dispatches(configs, make_dispatch, choose_config):
             compatible.append((config, dispatch, description_bits))
     kernels = compatible
 
+    # One eval per batch rather than per dispatch: the blocking round trip costs roughly
+    # 200 us whatever the kernel does, so evaluating per dispatch adds that constant to
+    # every candidate and compresses their ratios toward 1.0, letting the switch margins
+    # admit a kernel that is actually slower than native MLX.
+    batch = calibrate_tournament_batch(native_dispatch)
     samples = {config: [] for config, _, _ in kernels}
     for round_index in range(11):
         ordered = kernels[round_index % len(kernels) :] + kernels[: round_index % len(kernels)]
@@ -1251,9 +1259,8 @@ def _tune_affine_dispatches(configs, make_dispatch, choose_config):
             ordered.reverse()
         for config, dispatch, _ in ordered:
             start = time.perf_counter_ns()
-            for _ in range(_AFFINE_TUNING_BATCH):
-                mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / _AFFINE_TUNING_BATCH)
+            mx.eval([dispatch() for _ in range(batch)])
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
 
     provisional = {
         config: statistics.median(config_samples) for config, config_samples in samples.items()
@@ -1281,9 +1288,8 @@ def _tune_affine_dispatches(configs, make_dispatch, choose_config):
             ordered.reverse()
         for config, dispatch, _ in ordered:
             start = time.perf_counter_ns()
-            for _ in range(_AFFINE_TUNING_BATCH):
-                mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / _AFFINE_TUNING_BATCH)
+            mx.eval([dispatch() for _ in range(batch)])
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     return choose_config(
         [
             (statistics.median(samples[config]), description_bits, config)
@@ -1377,7 +1383,7 @@ def mlx_affine_swiglu_backend_signature():
             "selection": inspect.getsource(_choose_affine_swiglu_config),
             "switch_margin": _SWITCH_MARGIN,
             "tune": inspect.getsource(_tune_affine_swiglu),
-            "tuning_batch": _AFFINE_TUNING_BATCH,
+            "tuning_measure": inspect.getsource(_tune_affine_dispatches),
             "tuner": _AFFINE_SWIGLU_TUNER_VERSION,
         }
     )

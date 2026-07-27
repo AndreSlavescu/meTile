@@ -15,6 +15,7 @@ from metile.backends.mlx import (
     _mlx_compiler_dtype,
     _mlx_kernel_body,
     _specialize_mlx_source,
+    calibrate_tournament_batch,
 )
 from metile.compiler.lowering import _lower_tensor_ops_gemm
 from metile.compiler.passes import decompose_nax_fragments
@@ -189,6 +190,7 @@ def mlx_dense_backend_signature():
             "decomposition": inspect.getsource(decompose_nax_fragments),
             "dispatch": inspect.getsource(mlx_dense_matmul),
             "lowering": inspect.getsource(_lower_tensor_ops_gemm),
+            "measure": inspect.getsource(_measure_dispatches),
             "selection": inspect.getsource(_choose_config),
             "switch_margin": _SWITCH_MARGIN,
             "tune": inspect.getsource(_tune_config),
@@ -255,9 +257,11 @@ def _choose_config(results):
     return choose_mdl_tie([result for result in alternatives if result[0] <= cutoff])
 
 
-def _measure_dispatches(dispatches, rounds):
+def _measure_dispatches(dispatches, rounds, *, batch=None):
     import mlx.core as mx
 
+    if batch is None:
+        batch = calibrate_tournament_batch(dispatches[0][1])
     samples = {config: [] for config, _, _ in dispatches}
     for round_index in range(rounds):
         shift = round_index % len(dispatches)
@@ -266,8 +270,10 @@ def _measure_dispatches(dispatches, rounds):
             ordered.reverse()
         for config, dispatch, _ in ordered:
             start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+            # One eval per batch; see calibrate_tournament_batch for why per-dispatch
+            # evaluation distorts the comparison between candidates.
+            mx.eval([dispatch() for _ in range(batch)])
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     return samples
 
 

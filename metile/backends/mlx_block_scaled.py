@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from metile.backends.mlx import (
+    _batched_evaluator,
     _mlx_compiler_dtype,
     _mlx_kernel_body,
     _tune_framework_kernels,
@@ -304,11 +305,14 @@ def _tune_config(activations, weight, configs):
                 compatible.append(candidate)
         return _tune_framework_kernels(
             compatible,
-            lambda dispatch: mx.eval(dispatch()),
+            _batched_evaluator(),
             margin=_SWITCH_MARGIN,
         )
 
     def measure(active, rounds):
+        # One eval per batch; see calibrate_tournament_batch for why evaluating a single
+        # dispatch per sample compresses the ratios between candidates toward 1.0.
+        batch = calibrate_tournament_batch(active[0][1])
         samples = {config: [] for config, _, _ in active}
         for round_index in range(rounds):
             shift = round_index % len(active)
@@ -317,8 +321,8 @@ def _tune_config(activations, weight, configs):
                 ordered.reverse()
             for config, dispatch, _ in ordered:
                 start = time.perf_counter_ns()
-                mx.eval(dispatch())
-                samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+                mx.eval([dispatch() for _ in range(batch)])
+                samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
         return samples
 
     provisional = measure(kernels, 9)

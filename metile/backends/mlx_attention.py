@@ -10,11 +10,12 @@ from dataclasses import dataclass
 import metile
 from kernels.attention import ATTENTION_FLASH_CONFIGS, attention_flash_kernel
 from metile.backends.mlx import (
-    MLXAttentionConfig,
     _choose_framework_config,
     _mlx_dtype_to_numpy,
     _mlx_kernel_body,
     _replace_identifier,
+    MLXAttentionConfig,
+    calibrate_tournament_batch,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 
@@ -156,6 +157,8 @@ def _tune_flash_attention(query, key, value, scale, causal):
         if candidate[0].algorithm == "mlx"
         or bool(mx.allclose(candidate[3], reference, rtol=tolerance, atol=tolerance).item())
     ]
+    # One eval per batch; see calibrate_tournament_batch.
+    batch = calibrate_tournament_batch(compatible[0][1])
     samples = {config: [] for config, _, _, _ in compatible}
     for round_index in range(11):
         ordered = (
@@ -166,8 +169,8 @@ def _tune_flash_attention(query, key, value, scale, causal):
             ordered.reverse()
         for config, dispatch, _, _ in ordered:
             start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+            mx.eval([dispatch() for _ in range(batch)])
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     provisional = {
         config: statistics.median(config_samples) for config, config_samples in samples.items()
     }
@@ -193,8 +196,8 @@ def _tune_flash_attention(query, key, value, scale, causal):
             ordered.reverse()
         for config, dispatch, _, _ in ordered:
             start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+            mx.eval([dispatch() for _ in range(batch)])
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     return _choose_framework_config(
         [
             (statistics.median(samples[config]), description_bits, config)
