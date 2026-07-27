@@ -14,8 +14,12 @@ which is why nothing here uses it.
 DECODE = "#2a78d6"
 PREFILL = "#eb6834"
 ACCENT = "#1baf7a"
+FOURTH = "#eda100"
 
-SERIES = (DECODE, PREFILL, ACCENT)
+# Slots 1-3 clear the validator on the all-pairs list, so scatter and dot plots may use
+# any of them together. The fourth slot only clears the adjacent list, so it is for line
+# charts, where neighbouring series are what a reader compares.
+SERIES = (DECODE, PREFILL, ACCENT, FOURTH)
 
 INK = "#0b0b0b"
 INK_SOFT = "#52514e"

@@ -341,18 +341,23 @@ def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
     mx.eval(reference)
     rows = values.size // values.shape[-1]
     exact_reference = reference
-    if rows > 1:
-        # MLX switches to a tile kernel above one row, so its result is not bit-comparable.
-        # Hold the SIMDgroup candidates to the stronger property instead: every row must
-        # match MLX's own single-row SwiGLU, so a batched step stays equivalent to
-        # decoding those tokens one at a time.
+    # MLX switches to a tile kernel above one row, so its result is not bit-comparable.
+    # Hold the SIMDgroup candidates to the stronger property instead: every row must match
+    # MLX's own single-row SwiGLU, so a batched step stays equivalent to decoding those
+    # tokens one at a time. Only those candidates are gated on it and they exist only in
+    # the QMV band, so building it at prefill sizes would cost one native call per row for
+    # nothing. Rows are taken from a flattened view because callers pass rank-3
+    # [batch, sequence, hidden] as well as rank-2, and slicing axis 0 on the former yields
+    # empty rows.
+    if 1 < rows < _NAX_MIN_ROWS:
+        flat = values.reshape(rows, values.shape[-1])
         exact_reference = mx.concatenate(
             [
-                _native_dense_swiglu(values[row : row + 1], gate_weight, up_weight)
+                _native_dense_swiglu(flat[row : row + 1], gate_weight, up_weight)
                 for row in range(rows)
             ],
             axis=0,
-        )
+        ).reshape(reference.shape)
         mx.eval(exact_reference)
     dispatches = []
     for config in configs:

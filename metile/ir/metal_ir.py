@@ -384,6 +384,9 @@ class MVarDecl(MOp):
     var_name: str = ""
     init_value: MValue = None
     dtype: str = "f32"
+    # True when the variable stands in for a per-thread tile element, so a vectorized
+    # loop must declare it at the vector width and broadcast the initial value.
+    tile_valued: bool = False
 
     def result_type(self):
         return None

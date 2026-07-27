@@ -345,6 +345,67 @@ def test_mlx_dense_swiglu_qmv_matches_per_row_reference_exactly(rows, monkeypatc
     )
 
 
+@pytest.mark.parametrize("shape", ((1, 6, 256), (2, 3, 256), (1, 1, 256)))
+def test_multi_row_dense_tuning_handles_rank_three_activations(shape, monkeypatch):
+    """MLX-LM passes [batch, sequence, hidden], not [rows, hidden].
+
+    The per-row reference the tuner builds has to take rows from a flattened view.
+    Slicing axis 0 of a rank-3 tensor yields empty rows once batch is smaller than the
+    row count, and concatenating those crashes MLX inside eval.
+    """
+    mx = pytest.importorskip("mlx.core")
+    nn = pytest.importorskip("mlx.nn")
+    from metile.backends import mlx_dense_residual, mlx_dense_swiglu
+    from metile.backends.mlx_dense import MLXDenseWeight
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    for module in (mlx_dense_swiglu, mlx_dense_residual):
+        module._kernel_cache.clear()
+        module._schedule_cache.clear()
+
+    hidden, intermediate = shape[-1], 512
+    random = np.random.default_rng(5501)
+
+    def sample(*dims):
+        return mx.array(random.normal(size=dims).astype(np.float32)).astype(mx.bfloat16)
+
+    gate, up = sample(intermediate, hidden), sample(intermediate, hidden)
+    down = sample(hidden, intermediate)
+    paired = mx.stack((gate, up), axis=-1)
+    values, residual = sample(*shape), sample(*shape)
+    mx.eval(gate, up, down, paired, values, residual)
+
+    actual = mlx_dense_residual.mlx_dense_residual_qmv(
+        mlx_dense_swiglu.mlx_dense_swiglu(
+            values,
+            MLXDenseWeight.from_mlx(gate),
+            MLXDenseWeight.from_mlx(up),
+            paired_weight=paired,
+        ),
+        down,
+        residual,
+    )
+
+    rows = values.size // hidden
+    flat_values = values.reshape(rows, hidden)
+    flat_residual = residual.reshape(rows, hidden)
+    expected = mx.concatenate(
+        [
+            (nn.silu(flat_values[row : row + 1] @ gate.T) * (flat_values[row : row + 1] @ up.T))
+            @ down.T
+            + flat_residual[row : row + 1]
+            for row in range(rows)
+        ],
+        axis=0,
+    ).reshape(shape)
+    mx.eval(actual, expected)
+
+    assert actual.shape == shape
+    np.testing.assert_array_equal(
+        np.array(actual.astype(mx.float32)), np.array(expected.astype(mx.float32))
+    )
+
+
 def test_dense_qmv_candidates_bound_live_accumulators():
     """Row batching must not push the SIMDgroup into register spills."""
     from metile.backends import mlx_dense_residual, mlx_dense_swiglu

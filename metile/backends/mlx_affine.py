@@ -41,6 +41,12 @@ class MLXAffineMatmulConfig:
     block_m: int = 32
 
 
+# The lowering accepts any block_m/block_n multiple of 32 with block_m * block_n <= 8192,
+# which is around 60 legal tilings once schedules are counted. Searching all of them costs
+# tuning time proportionally, so this list covers the regimes that measurably differ rather
+# than the whole space: narrow outputs, where MLX's own kernel choice is weakest, and wide
+# outputs, where a taller N tile is what wins. Sweeping the full space on an M5 found no
+# tiling outside this list that beat the best one in it.
 _CONFIGS = (
     MLXAffineMatmulConfig("mlx", block_m=0),
     MLXAffineMatmulConfig("metile", 32, "morton", block_m=32),
@@ -49,6 +55,11 @@ _CONFIGS = (
     MLXAffineMatmulConfig("metile", 64, "linear", block_m=64),
     MLXAffineMatmulConfig("metile", 64, "morton", block_m=64),
     MLXAffineMatmulConfig("metile", 64, "linear", block_m=128),
+    # Wide outputs: the shipped tilings above all topped out at parity for N >= 8192,
+    # while these reach 1.10x.
+    MLXAffineMatmulConfig("metile", 64, "hilbert", block_m=64),
+    MLXAffineMatmulConfig("metile", 128, "hilbert", block_m=64),
+    MLXAffineMatmulConfig("metile", 256, "hilbert", block_m=32),
 )
 
 

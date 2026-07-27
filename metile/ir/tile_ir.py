@@ -325,6 +325,12 @@ class ForRange(Op):
     iv: Value = None  # induction variable
     body: list[Op] = field(default_factory=list)
     num_stages: int = 1  # software pipeline stages (1 = no pipelining)
+    # Value masked-off lanes take instead of branching around the body. A body holding a
+    # threadgroup reduction cannot sit inside a mask branch, because threads that skip it
+    # never reach the barrier. Setting this makes the ragged tail predicate the load to a
+    # reduction identity and leave the rest of the body unguarded. An algorithmic rewrite
+    # supplies the value from the law it was proved against.
+    masked_identity: float | None = None
 
     def result_type(self):
         return None
