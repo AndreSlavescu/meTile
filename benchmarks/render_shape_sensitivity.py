@@ -133,16 +133,15 @@ def render_batch(payload, output):
             for record in rows
         )
 
-    # Where meTile has no kernel it hands the shape to MLX, so plotting both would draw
-    # one line on top of another. Say so in the label instead of leaving the reader to
-    # wonder why a series is missing.
-    lines = [("bf16", "metile_bandwidth", style.DECODE, "meTile BF16"),
-             ("bf16", "mlx_bandwidth", style.PREFILL, "MLX BF16")]
+    # For the quantized formats meTile has no kernel of its own and calls MLX's, so one
+    # line describes both backends. That is not two implementations tying, it is the same
+    # code measured twice, so the label says "both" rather than drawing a duplicate.
+    lines = [("bf16", "metile_bandwidth", style.DECODE, "BF16, meTile"),
+             ("bf16", "mlx_bandwidth", style.PREFILL, "BF16, MLX")]
     for format_name, colour in (("int8", style.ACCENT), ("int4", style.FOURTH)):
-        suffix = (
-            " (meTile defers to MLX)" if tracks_mlx(format_name) else " (MLX)"
-        )
-        lines.append((format_name, "mlx_bandwidth", colour, format_name.upper() + suffix))
+        shared = tracks_mlx(format_name)
+        label = f"{format_name.upper()}, {'both' if shared else 'MLX'}"
+        lines.append((format_name, "mlx_bandwidth", colour, label))
     lines = tuple(lines)
     endpoints = []
     for format_name, field, colour, label in lines:
