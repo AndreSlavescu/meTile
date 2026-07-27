@@ -1,0 +1,419 @@
+{
+  "hardware": {
+    "chip": "Apple M5",
+    "machine": "arm64",
+    "memory": "32 GB",
+    "model_name": "Mac17,2",
+    "processor": "arm",
+    "release": "25.2.0",
+    "system": "Darwin"
+  },
+  "measurements": [
+    {
+      "format": "bf16",
+      "metile_seconds": 0.00071739575,
+      "metile_tokens_per_second": 1393.9307557927405,
+      "mlx_seconds": 0.0007208335,
+      "mlx_tokens_per_second": 1387.2829162351638,
+      "rows": 1,
+      "speedup": 1.0124546268122427,
+      "win_rate": 0.64
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.0007091665,
+      "metile_tokens_per_second": 2820.212178663262,
+      "mlx_seconds": 0.0011664375,
+      "mlx_tokens_per_second": 1714.622515136902,
+      "rows": 2,
+      "speedup": 1.649484425113999,
+      "win_rate": 1.0
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.00072183325,
+      "metile_tokens_per_second": 5541.446033415612,
+      "mlx_seconds": 0.0012408645,
+      "mlx_tokens_per_second": 3223.559059026993,
+      "rows": 4,
+      "speedup": 1.7188874153814462,
+      "win_rate": 1.0
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.000712573,
+      "metile_tokens_per_second": 11226.919908556738,
+      "mlx_seconds": 0.00122008325,
+      "mlx_tokens_per_second": 6556.929619351795,
+      "rows": 8,
+      "speedup": 1.6518921570140883,
+      "win_rate": 1.0
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.0007728855,
+      "metile_tokens_per_second": 20701.64338702175,
+      "mlx_seconds": 0.00118878125,
+      "mlx_tokens_per_second": 13459.162482584581,
+      "rows": 16,
+      "speedup": 1.53593647157813,
+      "win_rate": 1.0
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.001091073,
+      "metile_tokens_per_second": 29328.926662102356,
+      "mlx_seconds": 0.00114123975,
+      "mlx_tokens_per_second": 28039.682284112518,
+      "rows": 32,
+      "speedup": 1.0497173776081932,
+      "win_rate": 0.84
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.00118090625,
+      "metile_tokens_per_second": 54195.66540527666,
+      "mlx_seconds": 0.0012391355,
+      "mlx_tokens_per_second": 51648.911680764526,
+      "rows": 64,
+      "speedup": 1.0439055073434815,
+      "win_rate": 0.8
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.00113264575,
+      "metile_tokens_per_second": 113009.73848178037,
+      "mlx_seconds": 0.00126402075,
+      "mlx_tokens_per_second": 101264.16041825262,
+      "rows": 128,
+      "speedup": 1.1104807680275606,
+      "win_rate": 1.0
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.00177778125,
+      "metile_tokens_per_second": 143999.7187505493,
+      "mlx_seconds": 0.001992073,
+      "mlx_tokens_per_second": 128509.34679602605,
+      "rows": 256,
+      "speedup": 1.119747859867461,
+      "win_rate": 0.72
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.00404722925,
+      "metile_tokens_per_second": 126506.30057588163,
+      "mlx_seconds": 0.0034398125,
+      "mlx_tokens_per_second": 148845.3222377673,
+      "rows": 512,
+      "speedup": 0.8527756322938449,
+      "win_rate": 0.36
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.00664971875,
+      "metile_tokens_per_second": 153991.47520336855,
+      "mlx_seconds": 0.006636802,
+      "mlx_tokens_per_second": 154291.17819094198,
+      "rows": 1024,
+      "speedup": 1.0008621524549388,
+      "win_rate": 0.52
+    },
+    {
+      "format": "bf16",
+      "metile_seconds": 0.013136667,
+      "metile_tokens_per_second": 155899.51393302425,
+      "mlx_seconds": 0.01312925,
+      "mlx_tokens_per_second": 155987.58497248509,
+      "rows": 2048,
+      "speedup": 1.0006388871756675,
+      "win_rate": 0.56
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.0002292395,
+      "metile_tokens_per_second": 4362.2499612850315,
+      "mlx_seconds": 0.00021447925,
+      "mlx_tokens_per_second": 4662.455692100751,
+      "note": "",
+      "rows": 1,
+      "speedup": 0.9436255364806867,
+      "win_rate": 0.12
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.000224552,
+      "metile_tokens_per_second": 8906.622964836653,
+      "mlx_seconds": 0.00022071875,
+      "mlx_tokens_per_second": 9061.305394308367,
+      "note": "",
+      "rows": 2,
+      "speedup": 0.9550719546636764,
+      "win_rate": 0.4
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.0002463855,
+      "metile_tokens_per_second": 16234.721604964578,
+      "mlx_seconds": 0.0002488125,
+      "mlx_tokens_per_second": 16076.362722933936,
+      "note": "",
+      "rows": 4,
+      "speedup": 1.0026954177897573,
+      "win_rate": 0.6
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.00041952075,
+      "metile_tokens_per_second": 19069.37857066665,
+      "mlx_seconds": 0.0004204585,
+      "mlx_tokens_per_second": 19026.848071807322,
+      "note": "",
+      "rows": 8,
+      "speedup": 1.002441560040827,
+      "win_rate": 0.6
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.00061302075,
+      "metile_tokens_per_second": 26100.258433340146,
+      "mlx_seconds": 0.00061173975,
+      "mlx_tokens_per_second": 26154.91309825788,
+      "note": "",
+      "rows": 16,
+      "speedup": 0.995278272880115,
+      "win_rate": 0.44
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.00067539575,
+      "metile_tokens_per_second": 47379.62890645966,
+      "mlx_seconds": 0.000674823,
+      "mlx_tokens_per_second": 47419.841943739324,
+      "note": "",
+      "rows": 32,
+      "speedup": 0.9978895621276338,
+      "win_rate": 0.48
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.00091858325,
+      "metile_tokens_per_second": 69672.50926902924,
+      "mlx_seconds": 0.0009436875,
+      "mlx_tokens_per_second": 67819.06086495795,
+      "note": "",
+      "rows": 64,
+      "speedup": 1.03755419655265,
+      "win_rate": 0.76
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.001682552,
+      "metile_tokens_per_second": 76074.91477232205,
+      "mlx_seconds": 0.0017076665,
+      "mlx_tokens_per_second": 74956.08773727188,
+      "note": "",
+      "rows": 128,
+      "speedup": 1.0131997685520036,
+      "win_rate": 0.68
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.001750448,
+      "metile_tokens_per_second": 146248.2747273841,
+      "mlx_seconds": 0.00182267725,
+      "mlx_tokens_per_second": 140452.7323748623,
+      "note": "",
+      "rows": 256,
+      "speedup": 1.0332774144955321,
+      "win_rate": 0.84
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.00352584375,
+      "metile_tokens_per_second": 145213.46840738476,
+      "mlx_seconds": 0.0036692085,
+      "mlx_tokens_per_second": 139539.63095855687,
+      "note": "",
+      "rows": 512,
+      "speedup": 1.0365828658752492,
+      "win_rate": 0.96
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.00699011475,
+      "metile_tokens_per_second": 146492.58797933182,
+      "mlx_seconds": 0.00728278125,
+      "mlx_tokens_per_second": 140605.62371003523,
+      "note": "",
+      "rows": 1024,
+      "speedup": 1.0427986022831253,
+      "win_rate": 0.96
+    },
+    {
+      "format": "int4",
+      "metile_seconds": 0.013757896,
+      "metile_tokens_per_second": 148859.97103045406,
+      "mlx_seconds": 0.0140930625,
+      "mlx_tokens_per_second": 145319.727348119,
+      "note": "",
+      "rows": 2048,
+      "speedup": 1.020083857886145,
+      "win_rate": 0.88
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00039286475,
+      "metile_tokens_per_second": 2545.4052571527477,
+      "mlx_seconds": 0.000399625,
+      "mlx_tokens_per_second": 2502.3459493274945,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 1,
+      "speedup": 1.0093739651308407,
+      "win_rate": 0.6
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00039890625,
+      "metile_tokens_per_second": 5013.709361535449,
+      "mlx_seconds": 0.000390927,
+      "mlx_tokens_per_second": 5116.0446835342655,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 2,
+      "speedup": 0.9838722366454252,
+      "win_rate": 0.44
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00039498975,
+      "metile_tokens_per_second": 10126.845063701021,
+      "mlx_seconds": 0.00039557275,
+      "mlx_tokens_per_second": 10111.919994489004,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 4,
+      "speedup": 1.0017704201155708,
+      "win_rate": 0.52
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00050561475,
+      "metile_tokens_per_second": 15822.323221385454,
+      "mlx_seconds": 0.00050635425,
+      "mlx_tokens_per_second": 15799.215667687198,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 8,
+      "speedup": 0.9970236210499652,
+      "win_rate": 0.48
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00066591675,
+      "metile_tokens_per_second": 24027.02740244933,
+      "mlx_seconds": 0.00066765625,
+      "mlx_tokens_per_second": 23964.427802480695,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 16,
+      "speedup": 0.9980798067543085,
+      "win_rate": 0.44
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00066504175,
+      "metile_tokens_per_second": 48117.27985498655,
+      "mlx_seconds": 0.00066289575,
+      "mlx_tokens_per_second": 48273.05047588554,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 32,
+      "speedup": 1.0104685025347586,
+      "win_rate": 0.6
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00092016675,
+      "metile_tokens_per_second": 69552.61098056412,
+      "mlx_seconds": 0.00094609375,
+      "mlx_tokens_per_second": 67646.57308009909,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 64,
+      "speedup": 1.0350663304294248,
+      "win_rate": 0.8
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.0016595,
+      "metile_tokens_per_second": 77131.66616450739,
+      "mlx_seconds": 0.00170521875,
+      "mlx_tokens_per_second": 75063.68317847783,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 128,
+      "speedup": 1.0262742147827721,
+      "win_rate": 0.96
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00188154175,
+      "metile_tokens_per_second": 136058.6338304744,
+      "mlx_seconds": 0.0019479585,
+      "mlx_tokens_per_second": 131419.6375333458,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 256,
+      "speedup": 1.0415697259103915,
+      "win_rate": 0.92
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00359446875,
+      "metile_tokens_per_second": 142441.0770019909,
+      "mlx_seconds": 0.00376966675,
+      "mlx_tokens_per_second": 135821.0244977225,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 512,
+      "speedup": 1.0455972022955524,
+      "win_rate": 1.0
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.00729053125,
+      "metile_tokens_per_second": 140456.15674440734,
+      "mlx_seconds": 0.00736647925,
+      "mlx_tokens_per_second": 139008.06141549913,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 1024,
+      "speedup": 1.006786160175312,
+      "win_rate": 0.72
+    },
+    {
+      "format": "int8",
+      "metile_seconds": 0.0149960625,
+      "metile_tokens_per_second": 136569.18274380357,
+      "mlx_seconds": 0.014884396,
+      "mlx_tokens_per_second": 137593.75926305642,
+      "note": "down projection stays native: no meTile int8 path",
+      "rows": 2048,
+      "speedup": 0.9909380240270967,
+      "win_rate": 0.28
+    }
+  ],
+  "precision_comparison": {
+    "class": "same_representation",
+    "note": "Both sides run identical weights in identical formats, so every speedup is a kernel comparison rather than a representation change.",
+    "same_weight_representation": true
+  },
+  "recorded_at": "2026-07-27T05:21:14.993499+00:00",
+  "revision": "5f70b2095a8037f56f098c4b0fc049fa3f08a8cd",
+  "rounds": 25,
+  "schema_version": 1,
+  "scope": "matched_representation_matrix",
+  "seed": 0,
+  "shape": {
+    "group_size": 64,
+    "hidden": 1536,
+    "intermediate": 8960,
+    "label": "Qwen2.5-1.5B MLP"
+  },
+  "software": {
+    "mlx": "0.32.0",
+    "mlx_lm": "0.31.3",
+    "python": "3.12.12"
+  }
+}

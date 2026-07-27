@@ -7,7 +7,11 @@ import threading
 import time
 from dataclasses import dataclass
 
-from metile.backends.mlx import _mlx_kernel_body, _specialize_mlx_source
+from metile.backends.mlx import (
+    _mlx_kernel_body,
+    _specialize_mlx_source,
+    calibrate_tournament_batch,
+)
 from metile.backends.mlx_dense import MLXDenseWeight, mlx_dense_matmul
 from metile.codegen import msl_emitter
 from metile.codegen.msl_emitter import _emit_nax_binary_fragment, emit
@@ -126,6 +130,10 @@ def mlx_dense_swiglu_projected(values, gate_weight, up_weight):
     return nn.silu(gate) * up
 
 
+_NAX_MIN_ROWS = 32
+_MAX_QMV_ACCUMULATOR_PAIRS = 16
+
+
 def _candidate_configs(rows, reduction, output_features, paired_available=False):
     return tuple(
         config
@@ -133,7 +141,10 @@ def _candidate_configs(rows, reduction, output_features, paired_available=False)
         if config.algorithm == "mlx"
         or (
             config.implementation.startswith("simdgroup")
-            and rows == 1
+            # Each row carries a gate and an up accumulator per output, so bound the
+            # product rather than the row count to keep the SIMDgroup off the spill path.
+            and 1 <= rows < _NAX_MIN_ROWS
+            and rows * config.outputs_per_simdgroup <= _MAX_QMV_ACCUMULATOR_PAIRS
             and reduction % 128 == 0
             and (config.implementation != "simdgroup_paired" or paired_available)
             and (config.implementation != "simdgroup" or not paired_available)
@@ -142,7 +153,7 @@ def _candidate_configs(rows, reduction, output_features, paired_available=False)
         )
         or (
             config.implementation == "nax"
-            and rows >= 32
+            and rows >= _NAX_MIN_ROWS
             and output_features % config.block_n == 0
             and reduction % (16 * config.k_unroll) == 0
         )
@@ -163,8 +174,8 @@ def _compile_mlx_dense_swiglu(rows, reduction, output_features, dtype, config):
 
     function_name = f"metile_dense_swiglu_{stable_digest(key)[:16]}"
     if config.implementation.startswith("simdgroup"):
-        if rows != 1:
-            raise ValueError("SIMDgroup dense SwiGLU requires exactly one row")
+        if rows < 1:
+            raise ValueError("SIMDgroup dense SwiGLU requires at least one row")
         metal_ir = lower_dense_swiglu_qmv(
             function_name,
             output_features,
@@ -173,6 +184,7 @@ def _compile_mlx_dense_swiglu(rows, reduction, output_features, dtype, config):
             simdgroups_per_threadgroup=config.simdgroups_per_threadgroup,
             interleaved=config.implementation == "simdgroup_paired",
             k_unroll=config.k_unroll,
+            rows=rows,
         )
     else:
         metal_ir = optimize_tile_schedules(
@@ -229,6 +241,7 @@ def mlx_dense_swiglu_backend_signature():
             "exact_switch_margin": _EXACT_SWITCH_MARGIN,
             "lowering": inspect.getsource(lower_dense_swiglu),
             "qmv_lowering": inspect.getsource(lower_dense_swiglu_qmv),
+            "measure": inspect.getsource(_measure_dispatches),
             "selection": inspect.getsource(_choose_config),
             "switch_margin": _SWITCH_MARGIN,
             "tune": inspect.getsource(_tune_config),
@@ -300,9 +313,11 @@ def _choose_config(results):
     return choose_mdl_tie([result for result in alternatives if result[0] <= cutoff])
 
 
-def _measure_dispatches(dispatches, rounds, *, batch=1):
+def _measure_dispatches(dispatches, rounds, *, batch=None):
     import mlx.core as mx
 
+    if batch is None:
+        batch = calibrate_tournament_batch(dispatches[0][1])
     samples = {config: [] for config, _, _ in dispatches}
     for round_index in range(rounds):
         shift = round_index % len(dispatches)
@@ -311,8 +326,10 @@ def _measure_dispatches(dispatches, rounds, *, batch=1):
             ordered.reverse()
         for config, dispatch, _ in ordered:
             start = time.perf_counter_ns()
-            for _ in range(batch):
-                mx.eval(dispatch())
+            # One eval for the whole batch. Evaluating per dispatch would add the
+            # blocking round trip to every candidate and compress the ratios between
+            # them toward 1.0, which lets the switch margins admit a slower kernel.
+            mx.eval([dispatch() for _ in range(batch)])
             samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     return samples
 
@@ -322,6 +339,21 @@ def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
 
     reference = _native_dense_swiglu(values, gate_weight, up_weight)
     mx.eval(reference)
+    rows = values.size // values.shape[-1]
+    exact_reference = reference
+    if rows > 1:
+        # MLX switches to a tile kernel above one row, so its result is not bit-comparable.
+        # Hold the SIMDgroup candidates to the stronger property instead: every row must
+        # match MLX's own single-row SwiGLU, so a batched step stays equivalent to
+        # decoding those tokens one at a time.
+        exact_reference = mx.concatenate(
+            [
+                _native_dense_swiglu(values[row : row + 1], gate_weight, up_weight)
+                for row in range(rows)
+            ],
+            axis=0,
+        )
+        mx.eval(exact_reference)
     dispatches = []
     for config in configs:
         if config.algorithm == "mlx":
@@ -335,7 +367,7 @@ def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
             continue
         try:
             kernel = _compile_mlx_dense_swiglu(
-                values.size // values.shape[-1],
+                rows,
                 gate_weight.shape[0],
                 gate_weight.shape[1],
                 values.dtype,
@@ -344,7 +376,7 @@ def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
             actual = kernel(values, gate_weight, up_weight, paired_weight)
             mx.eval(actual)
             exact_qmv = not config.implementation.startswith("simdgroup") or bool(
-                mx.array_equal(actual, reference).item()
+                mx.array_equal(actual, exact_reference).item()
             )
             if exact_qmv and _accuracy_compatible(actual, reference):
                 dispatches.append(
@@ -363,7 +395,7 @@ def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
             continue
 
     qmv = values.size // values.shape[-1] == 1
-    batch = 4 if qmv else 1
+    batch = calibrate_tournament_batch(dispatches[0][1])
     provisional = _measure_dispatches(dispatches, 11 if qmv else 9, batch=batch)
     medians = {config: statistics.median(samples) for config, samples in provisional.items()}
     best = min(medians.values())
@@ -386,7 +418,7 @@ def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
         for candidate in finalists
         if candidate[0].algorithm == "mlx" or candidate[0] == selected
     ]
-    holdout = _measure_dispatches(holdout_candidates, 127, batch=8)
+    holdout = _measure_dispatches(holdout_candidates, 127, batch=batch)
     return _choose_config(
         [
             (statistics.median(holdout[config]), description_bits, config)
@@ -408,7 +440,8 @@ def mlx_dense_swiglu(values, gate_weight, up_weight, *, paired_weight=None, auto
         or values.dtype != up_weight.native_weight.dtype
     ):
         raise TypeError("dense SwiGLU requires matching activation and weight dtypes")
-    if str(values.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16"):
+    dtype_name = str(values.dtype)
+    if dtype_name not in ("mlx.core.bfloat16", "mlx.core.float16"):
         raise TypeError("dense SwiGLU requires bfloat16 or float16")
     if paired_weight is not None and (
         paired_weight.shape != (gate_weight.shape[1], gate_weight.shape[0], 2)
@@ -418,21 +451,23 @@ def mlx_dense_swiglu(values, gate_weight, up_weight, *, paired_weight=None, auto
 
     rows = values.size // values.shape[-1]
     paired_available = paired_weight is not None
-    configs = _candidate_configs(
-        rows,
-        gate_weight.shape[0],
-        gate_weight.shape[1],
-        paired_available,
-    )
     schedule_key = (
         rows,
         gate_weight.shape[0],
         gate_weight.shape[1],
-        str(values.dtype),
+        dtype_name,
         paired_available,
     )
     selected = _schedule_cache.get(schedule_key)
     if selected is None:
+        # Candidate filtering is only needed when the schedule is unknown; keeping it
+        # off the steady-state decode path saves ~5 us per dispatch per layer.
+        configs = _candidate_configs(
+            rows,
+            gate_weight.shape[0],
+            gate_weight.shape[1],
+            paired_available,
+        )
         with _cache_lock:
             selected = _schedule_cache.get(schedule_key)
             if selected is None:

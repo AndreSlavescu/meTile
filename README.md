@@ -388,9 +388,16 @@ the full generation workload before measurement. When no optimized plan clears t
 decode, and end-to-end safety bars, both labels share the same native measurement instead of
 presenting system noise as a speedup:
 
-| Prefill and decode throughput | TTFT and end-to-end latency |
-|:--:|:--:|
-| ![Native MLX and MLX with meTile prefill and decode throughput across four models](docs/_static/mlx-model-throughput.png) | ![Native MLX and MLX with meTile TTFT and end-to-end latency across four models](docs/_static/mlx-model-latency.png) |
+![Decode and prefill speedup against native MLX for every benchmarked model, grouped by precision class](docs/_static/mlx-model-speedup.png)
+
+![Time-to-first-token and end-to-end speedup against native MLX for every benchmarked model](docs/_static/mlx-model-latency-speedup.png)
+
+Both charts report results the same way: a multiplier against native MLX, where 1.00x is
+parity. Only matched-representation runs are graphed, meaning both sides execute identical
+weights in identical formats, so every point is a kernel comparison. The BF16 capacity suite
+further down is deliberately not graphed: there meTile runs affine-INT8 decode projections
+while MLX runs BF16, so its gains are a change of weight representation rather than a faster
+kernel.
 
 | Model | MLX decode | MLX + meTile | Native TTFT | Decode | Prefill | TTFT | End-to-end |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -411,8 +418,7 @@ python benchmarks/mlx_lm_suite.py \
   --plan-trials 7 --confirmation-trials 5 \
   --output benchmarks/results/m5-mlx-lm-models.json
 
-python benchmarks/render_mlx_lm_results.py \
-  benchmarks/results/m5-mlx-lm-models.json
+python benchmarks/render_model_speedups.py
 ```
 
 ### Benchmark Precision Classes
@@ -456,9 +462,18 @@ TTFT, and total time remained effectively neutral. The preceding nine-pair confi
 the plan with 1.028x prefill, 1.022x TTFT, 1.012x total, and 1.001x decode medians. Logit
 verification was bit-exact (zero KL, mean error, and max error):
 
-| Focused BF16 throughput | Focused BF16 latency |
-|:--:|:--:|
-| ![Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 throughput](docs/_static/mlx-bf16-dense-throughput.png) | ![Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 latency](docs/_static/mlx-bf16-dense-latency.png) |
+This run appears as `Qwen2.5 1.5B BF16` in the matched-representation group above.
+
+Model-level decode is one token per step, where MLX already runs at the memory roofline.
+The kernel headroom is at small batch sizes, which is what a speculative-decode
+verification pass runs at:
+
+![Speedup against native MLX by batch size for BF16, INT4 and INT8 at matched weight representation](docs/_static/mlx-matched-speedup.png)
+
+Every point runs identical weights in an identical format on both sides. BF16 peaks in the
+2-16 row band and is per-row bit-exact against MLX's own single-row result. INT4 and INT8
+track parity, because meTile has no kernel advantage over MLX's quantized kernels and
+defers to them.
 
 Raw alternating trials, confirmation pairs, fidelity, memory, and the selected Morton/grouped
 schedules are in `benchmarks/results/m5-mlx-lm-bf16-dense-qwen15.json`.
@@ -472,9 +487,10 @@ seven model-plan trials, seven complete-generation confirmation pairs, seven mea
 a one-second paired cooldown, and a 30-second cooldown between model subprocesses.
 `mx.get_peak_memory()` reports MLX allocator peak memory rather than total system memory:
 
-| Throughput | Latency |
-|:--:|:--:|
-| ![Native MLX BF16-source and meTile affine-INT8-decode throughput across seven models](docs/_static/mlx-bf16-model-throughput.png) | ![Native MLX BF16-source and meTile affine-INT8-decode latency across seven models](docs/_static/mlx-bf16-model-latency.png) |
+These seven models are not plotted with the matched-representation charts above, and the
+numbers below are not kernel speedups: meTile reads fewer weight bytes than MLX here, so the
+gain comes from the representation change. Read them as a capacity/throughput trade-off with
+a bounded fidelity cost.
 
 | Model | MLX peak | Native BF16 decode | meTile mixed decode | Decode | TTFT | End-to-end | Selected plan |
 |---|---:|---:|---:|---:|---:|---:|---|
@@ -517,10 +533,7 @@ METILE_DISABLE_DISK_CACHE=1 python benchmarks/mlx_lm_suite.py \
   --compressed-attention --compressed-attention-group-size auto \
   --output benchmarks/results/m5-mlx-lm-bf16-models.json
 
-python benchmarks/render_mlx_lm_results.py \
-  benchmarks/results/m5-mlx-lm-bf16-models.json \
-  --throughput-output docs/_static/mlx-bf16-model-throughput.png \
-  --latency-output docs/_static/mlx-bf16-model-latency.png
+python benchmarks/render_model_speedups.py
 ```
 
 ## Install
