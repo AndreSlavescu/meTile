@@ -204,8 +204,7 @@ def main():
         context,
         arguments.throughput_output,
         "Decode and prefill speedup by model",
-        "Identical weights and format on both sides, as a multiplier against native MLX. "
-        "Right of the dashed rule is faster.",
+        "Same weights, same format, both sides.",
         (("decode", style.DECODE, "decode"), ("prefill", style.PREFILL, "prefill")),
     )
     _render(
@@ -213,7 +212,7 @@ def main():
         context,
         arguments.latency_output,
         "Time-to-first-token and end-to-end speedup by model",
-        "Same models and runs, latency side. Right of the dashed rule is faster.",
+        "Same runs, latency side.",
         (("ttft", style.DECODE, "time to first token"),
          ("end_to_end", style.PREFILL, "end to end")),
     )

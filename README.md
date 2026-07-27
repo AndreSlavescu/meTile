@@ -44,9 +44,9 @@ is the range a speculative-decoding verification pass runs in.
 
 | rows per dispatch | 1 | 2 | 4 | 8 | 16 | 32 | 128 |
 |---|---|---|---|---|---|---|---|
-| **BF16** | 1.01x | **1.65x** | **1.72x** | **1.65x** | **1.54x** | 1.05x | 1.11x |
-| INT4 | 0.94x | 0.96x | 1.00x | 1.00x | 1.00x | 1.00x | 1.01x |
-| INT8 | 1.01x | 0.98x | 1.00x | 1.00x | 1.00x | 1.01x | 1.03x |
+| **BF16** | 1.01x | **1.66x** | **1.79x** | **1.58x** | **1.57x** | 1.08x | 1.07x |
+| INT4 | 0.99x | 0.88x | 0.99x | 1.00x | 0.99x | 0.98x | 1.00x |
+| INT8 | 0.99x | 1.02x | 0.99x | 0.97x | 1.00x | 1.00x | 1.03x |
 
 The BF16 results are **bit-identical** to running those rows through MLX one at a time, so
 batching changes the speed and nothing else. INT4 and INT8 sit at parity because meTile
@@ -80,7 +80,7 @@ try meTile on your own model:
 MLX switches kernel somewhere between output widths 2048 and 2560, and the one it uses below
 that is poor. A model wins if its layers are narrow enough to land in that band. Llama 3.2 1B
 has a 2048-wide down projection and gets 3.18x; Llama 3.2 3B has a 3072-wide one and gets
-1.08x. Depth is irrelevant, since it multiplies both sides equally.
+1.06x. Depth is irrelevant, since it multiplies both sides equally.
 
 At the wider shapes we are already at **97% of the fastest matmul this machine can run**, so
 there is nothing left to win there rather than something we have not got to yet.
@@ -169,7 +169,9 @@ python -m pytest tests/test_gemm.py -v         # one file
 
 make bench                                     # everything
 python benchmarks/matched_representation_matrix.py   # the batch-size table above
+python benchmarks/shape_sensitivity.py               # the two shape charts above
 python benchmarks/graph_fusion_speedup.py            # the kernel table above
+python benchmarks/compile_comparison.py              # meTile vs mx.compile
 ```
 
 ## Documentation
