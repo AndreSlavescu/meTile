@@ -112,7 +112,7 @@ def render(payload, output):
     style.headings(
         figure,
         "Speedup by batch size, at matched weight representation",
-        "Identical weights and format on both sides, so every point is a kernel comparison.",
+        "Same weights, same format, both sides.",
         f"{hardware.get('chip', '')} · {hardware.get('memory', '')} · "
         f"MLX {software.get('mlx', '')} · {shape.get('label', '')} "
         f"{shape.get('hidden')}->{shape.get('intermediate')}->{shape.get('hidden')} · "

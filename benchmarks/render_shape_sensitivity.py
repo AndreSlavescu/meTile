@@ -92,8 +92,7 @@ def render_width(payload, output):
     style.headings(
         figure,
         "The 4-bit prefill win depends on how wide the projection is",
-        "MLX changes kernel between 2048 and 2560 and the one it uses below that is poor.\n"
-        "A model wins only if its layers are narrow enough to land in that band.",
+        "MLX changes kernel above 2048 wide.",
         _footer(payload),
     )
     figure.tight_layout(rect=style.layout_rect(figure))
@@ -166,8 +165,7 @@ def render_batch(payload, output):
     style.headings(
         figure,
         "Batching should be free, and for quantized weights it is not",
-        "The weights are read once however many rows there are, so these lines should\n"
-        "stay flat. meTile holds BF16 at the ceiling; nothing yet holds INT4 or INT8.",
+        "Weights are read once, so these should stay flat.",
         _footer(payload),
     )
     figure.tight_layout(rect=style.layout_rect(figure))
