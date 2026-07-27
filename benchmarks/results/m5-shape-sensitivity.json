@@ -1,0 +1,253 @@
+{
+  "batch_sweep": [
+    {
+      "format": "bf16",
+      "metile_bandwidth": 102.76558627931396,
+      "metile_seconds": 0.00080353125,
+      "mlx_bandwidth": 114.06996260538388,
+      "mlx_seconds": 0.000723901,
+      "rows": 1,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 101.55309454265948,
+      "mlx_seconds": 0.00020328125,
+      "rows": 1,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 99.94116114602329,
+      "mlx_seconds": 0.000413119875,
+      "rows": 1,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 116.27773465346534,
+      "metile_seconds": 0.00071015625,
+      "mlx_bandwidth": 67.49828496249805,
+      "mlx_seconds": 0.00122336975,
+      "rows": 2,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 111.13148381921884,
+      "mlx_seconds": 0.0001857605,
+      "rows": 2,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 116.90882107365222,
+      "mlx_seconds": 0.000353161375,
+      "rows": 2,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 118.42033766320371,
+      "metile_seconds": 0.00069730725,
+      "mlx_bandwidth": 68.14935186184331,
+      "mlx_seconds": 0.00121168225,
+      "rows": 4,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 94.95742889867113,
+      "mlx_seconds": 0.000217401,
+      "rows": 4,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 113.26565085801015,
+      "mlx_seconds": 0.00036452075,
+      "rows": 4,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 119.54179103802394,
+      "metile_seconds": 0.000690765625,
+      "mlx_bandwidth": 74.00641610200518,
+      "mlx_seconds": 0.0011157865,
+      "rows": 8,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 52.356780339932406,
+      "mlx_seconds": 0.000394291625,
+      "rows": 8,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 86.7568674997531,
+      "mlx_seconds": 0.000475901,
+      "rows": 8,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 105.56275923166754,
+      "metile_seconds": 0.0007822395,
+      "mlx_bandwidth": 68.1496330809215,
+      "mlx_seconds": 0.00121167725,
+      "rows": 16,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 33.7443912836666,
+      "mlx_seconds": 0.000611771,
+      "rows": 16,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 61.53919990818533,
+      "mlx_seconds": 0.00067091675,
+      "rows": 16,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 71.68516481656232,
+      "metile_seconds": 0.001151917,
+      "mlx_bandwidth": 66.66023007063572,
+      "mlx_seconds": 0.00123875,
+      "rows": 32,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 30.721920120007503,
+      "mlx_seconds": 0.000671958,
+      "rows": 32,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": null,
+      "metile_seconds": null,
+      "mlx_bandwidth": 56.91743544215849,
+      "mlx_seconds": 0.000725396,
+      "rows": 32,
+      "weight_bytes": 41287680
+    }
+  ],
+  "hardware": {
+    "chip": "Apple M5",
+    "machine": "arm64",
+    "memory": "32 GB",
+    "model_name": "Mac17,2",
+    "processor": "arm",
+    "release": "25.2.0",
+    "system": "Darwin"
+  },
+  "precision_comparison": {
+    "class": "same_representation",
+    "same_weight_representation": true
+  },
+  "prefill_rows": 127,
+  "recorded_at": "2026-07-27T08:02:31.114221+00:00",
+  "reduction": 8192,
+  "revision": "c782369f17aa350b6fbdcad693d07ca51eeb16c2",
+  "rounds": 15,
+  "schema_version": 1,
+  "scope": "shape_sensitivity",
+  "shape": {
+    "hidden": 1536,
+    "intermediate": 8960
+  },
+  "software": {
+    "mlx": "0.32.0",
+    "mlx_lm": "0.31.3",
+    "python": "3.12.12"
+  },
+  "width_sweep": [
+    {
+      "metile_seconds": 0.0002275105,
+      "mlx_seconds": 0.000652646,
+      "model": "",
+      "output_features": 1024,
+      "speedup": 2.8686412275477395
+    },
+    {
+      "metile_seconds": 0.0003422395,
+      "mlx_seconds": 0.0009566355,
+      "model": "Qwen2.5 1.5B",
+      "output_features": 1536,
+      "speedup": 2.7952223515988073
+    },
+    {
+      "metile_seconds": 0.0003888125,
+      "mlx_seconds": 0.00123739575,
+      "model": "Llama 3.2 1B",
+      "output_features": 2048,
+      "speedup": 3.1824999196270696
+    },
+    {
+      "metile_seconds": 0.000426375,
+      "mlx_seconds": 0.000498573,
+      "model": "",
+      "output_features": 2560,
+      "speedup": 1.1693298153034302
+    },
+    {
+      "metile_seconds": 0.00053958325,
+      "mlx_seconds": 0.0005808125,
+      "model": "Llama 3.2 3B",
+      "output_features": 3072,
+      "speedup": 1.0764094326501052
+    },
+    {
+      "metile_seconds": 0.0006913645,
+      "mlx_seconds": 0.0007446355,
+      "model": "",
+      "output_features": 4096,
+      "speedup": 1.077051974754272
+    },
+    {
+      "metile_seconds": 0.000785323,
+      "mlx_seconds": 0.000916729,
+      "model": "",
+      "output_features": 5120,
+      "speedup": 1.167327329009847
+    },
+    {
+      "metile_seconds": 0.0014260415,
+      "mlx_seconds": 0.001439771,
+      "model": "",
+      "output_features": 8192,
+      "speedup": 1.009627700175626
+    }
+  ]
+}

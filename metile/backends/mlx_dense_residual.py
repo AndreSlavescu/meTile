@@ -224,16 +224,24 @@ def _tune_config(values, weight, residual, configs, rows=1):
 
     reference = _native_dense_residual(values, weight, residual)
     mx.eval(reference)
-    if rows > 1:
-        # MLX switches to a tile kernel above one row, so its result is not bit-comparable.
-        # Require instead that every row match MLX's own single-row projection exactly,
-        # which is what a batched decode step must reproduce to stay equivalent to
-        # decoding those tokens one at a time.
+    # MLX switches to a tile kernel above one row, so its result is not bit-comparable.
+    # Require instead that every row match MLX's own single-row projection exactly, which
+    # is what a batched decode step must reproduce to stay equivalent to decoding those
+    # tokens one at a time. Rows come from a flattened view because callers pass rank-3
+    # [batch, sequence, hidden] as well as rank-2, and slicing axis 0 on the former
+    # yields empty rows.
+    if 1 < rows <= _MAX_QMV_ROWS:
+        flat_values = values.reshape(rows, values.shape[-1])
+        flat_residual = residual.reshape(rows, residual.shape[-1])
         per_row = mx.concatenate(
-            [_native_dense_residual(values[r : r + 1], weight, residual[r : r + 1])
-             for r in range(rows)],
+            [
+                _native_dense_residual(
+                    flat_values[row : row + 1], weight, flat_residual[row : row + 1]
+                )
+                for row in range(rows)
+            ],
             axis=0,
-        )
+        ).reshape(reference.shape)
         mx.eval(per_row)
         reference = per_row
     dispatches = []

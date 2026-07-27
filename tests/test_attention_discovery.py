@@ -3,7 +3,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from metile.compiler.attention_discovery import (
+from metile.compiler.algo_discovery import (
     discover_flash_attention,
     find_flash_attention,
 )

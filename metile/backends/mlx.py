@@ -327,6 +327,7 @@ def _persistent_key(query, key, scale, configs):
             "configs": [vars(config) for config in configs],
             "dtype": str(query.dtype),
             "key_value_heads": key.shape[1],
+            "measure": inspect.getsource(_tune_framework_kernels),
             "mlx": mx.__version__,
             "query_heads": query.shape[1],
             "scale": scale,
@@ -376,6 +377,7 @@ def _rms_persistent_key(values, eps, configs):
             "mlx": mx.__version__,
             "rows": _token_bucket(values.size // values.shape[-1]),
             "source": inspect.getsource(rmsnorm.fn),
+            "measure": inspect.getsource(_tune_framework_kernels),
             "switch_margin": _FRAMEWORK_SWITCH_MARGIN,
             "tuner": 2,
         }
@@ -420,6 +422,7 @@ def _add_rms_persistent_key(values, eps, configs):
             "mlx": mx.__version__,
             "rows": _token_bucket(values.size // values.shape[-1]),
             "source": inspect.getsource(add_rmsnorm.fn),
+            "measure": inspect.getsource(_tune_framework_kernels),
             "switch_margin": _GRAPH_FUSION_SWITCH_MARGIN,
             "tuner": 2,
         }

@@ -109,7 +109,12 @@ def _native_attention(query, key, value, scale, causal):
 
     arguments = {"scale": scale}
     if causal:
-        arguments["mask"] = _causal_attention_bias(query, key)
+        # MLX masks causally without materializing anything. Building the bias tensor
+        # instead costs a full [queries, keys] allocation on every call, which made the
+        # native reference look slower than it is and biased the tournament toward the
+        # generated kernel. The two agree bitwise, including when queries < keys, where
+        # both align the mask to the bottom right.
+        arguments["mask"] = "causal"
     return mx.fast.scaled_dot_product_attention(query, key, value, **arguments)
 
 
@@ -217,6 +222,10 @@ def _persistent_key(query, key, scale, causal):
             "dtype": str(query.dtype),
             "key_shape": tuple(key.shape),
             "mlx": mx.__version__,
+            # The tournament compares against _native_attention and times candidates with
+            # _tune_flash_attention, so a change to either invalidates the stored pick.
+            "native": inspect.getsource(_native_attention),
+            "measure": inspect.getsource(_tune_flash_attention),
             "query_shape": tuple(query.shape),
             "scale": float(scale),
             "source": inspect.getsource(attention_flash_kernel.fn),

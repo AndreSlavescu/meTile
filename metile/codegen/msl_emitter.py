@@ -2529,6 +2529,15 @@ def _emit_vec4_op(
         rhs = _val_name(op.rhs, func)
         lines.append(f"{pad}bool {op.result.name} = {lhs} {sym} {rhs};")
 
+    elif isinstance(op, mir.MVarDecl) and op.tile_valued:
+        # Stands in for a tile element, so it has to be as wide as the lane group and
+        # the identity has to reach every lane.
+        msl_type = ScalarType(op.dtype).to_msl()
+        vector_type = f"{msl_type}{vec_size}"
+        vec4_vals[op.var_name] = vector_type
+        init = _val_name(op.init_value, func)
+        lines.append(f"{pad}{vector_type} {op.var_name} = {vector_type}({init});")
+
     elif isinstance(op, mir.MVarAssign):
         val = _val_name(op.value, func)
         lines.append(f"{pad}{op.var_name} = {val};")
@@ -2537,13 +2546,47 @@ def _emit_vec4_op(
         msl_type = ScalarType(op.dtype).to_msl()
         lines.append(f"{pad}{msl_type} {op.result.name} = {_format_literal(op.value, op.dtype)};")
 
+    elif isinstance(op, mir.MThreadgroupReduce):
+        # Reducing inside a vectorized loop: the operand holds one vector per thread, so
+        # the lanes have to be folded before the cross-thread reduction.
+        _emit_threadgroup_reduce(op, lines, indent, func, vec4_vals)
+
     else:
         # Fallback: emit with normal path
         _emit_op(op, lines, indent, func)
 
 
+def _fold_vector_lanes(operand, vector_type, reduce_op, msl_type, name, lines, pad):
+    """Reduce a per-thread vector to a scalar with the same operator.
+
+    A threadgroup reduction combines one value per thread, but inside a vectorized loop
+    each thread holds `width` elements. Folding the lanes first keeps the reduction
+    associative-equivalent to the scalar loop and matches what the accumulator path
+    already emits for `scalar_acc OP vec4`.
+    """
+    width = int(vector_type[-1]) if vector_type[-1].isdigit() else 4
+    lanes = ("x", "y", "z", "w")[:width]
+    if len(lanes) < 2:
+        return operand
+    if reduce_op == "sum":
+        expression = " + ".join(f"{operand}.{lane}" for lane in lanes)
+    elif reduce_op in ("max", "min"):
+        expression = f"{operand}.{lanes[0]}"
+        for lane in lanes[1:]:
+            expression = f"{reduce_op}({expression}, {operand}.{lane})"
+    else:
+        return operand
+    folded = f"_lane_{name}"
+    lines.append(f"{pad}{msl_type} {folded} = {expression};")
+    return folded
+
+
 def _emit_threadgroup_reduce(
-    op: mir.MThreadgroupReduce, lines: list[str], indent: int, func: mir.MFunction
+    op: mir.MThreadgroupReduce,
+    lines: list[str],
+    indent: int,
+    func: mir.MFunction,
+    vec4_vals: dict[str, str] | None = None,
 ):
     """Emit threadgroup reduction: simd_sum + shared memory tree + broadcast."""
     pad = "    " * indent
@@ -2551,6 +2594,12 @@ def _emit_threadgroup_reduce(
     name = op.result.name
     num_sg = op.block_size // 32
     msl_type = ScalarType(op.dtype).to_msl()
+
+    vector_type = (vec4_vals or {}).get(operand)
+    if vector_type is not None:
+        operand = _fold_vector_lanes(
+            operand, vector_type, op.reduce_op, msl_type, name, lines, pad
+        )
 
     _SIMD_REDUCE = {"sum": "simd_sum", "max": "simd_max", "min": "simd_min"}
     simd_fn = _SIMD_REDUCE.get(op.reduce_op, "simd_sum")

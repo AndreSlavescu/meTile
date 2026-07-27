@@ -5,7 +5,7 @@ from functools import lru_cache
 
 from metile.backends.mlx import mlx_add_rms_norm, mlx_attention_decode
 from metile.backends.mlx_attention import mlx_flash_attention
-from metile.compiler.attention_discovery import discover_flash_attention
+from metile.compiler.algo_discovery import discover_flash_attention
 from metile.compiler.graph_fusion import FusionPlan, FusionRegion, plan_graph_fusion
 from metile.ir.graph_ir import ComputeGraph, GraphNode, GraphValue
 

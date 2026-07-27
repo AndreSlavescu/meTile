@@ -497,6 +497,17 @@ class KernelLauncher:
             if _debug_dir:
                 _dump(os.path.join(_debug_dir, "tile_ir", f"{tile_ir.name}.txt"), ir_text)
 
+        # Step 1.5: Algorithmic discovery (Tile IR -> Tile IR)
+        # Rewrites a 3-pass softmax into a 2-pass online softmax, which moves three
+        # arrays instead of four and measures 1.28x at DRAM-bound sizes against a
+        # 1.33x transfer-ratio ceiling. Only applied when the reduction law it is
+        # proved against discharges its obligations. Set METILE_ONLINE_SOFTMAX=0 to
+        # skip discovery.
+        if os.environ.get("METILE_ONLINE_SOFTMAX") != "0":
+            from metile.compiler.algo_discovery import discover
+
+            tile_ir = discover(tile_ir)
+
         # Step 2: Lower to Metal IR (handles both element-wise and GEMM)
         metal_ir = lower(tile_ir)
 
