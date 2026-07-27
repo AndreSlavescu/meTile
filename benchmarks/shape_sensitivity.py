@@ -136,6 +136,10 @@ def _batch_sweep(arguments, mx, nn):
     from metile.backends.mlx_dense import MLXDenseWeight
     from metile.backends.mlx_dense_residual import mlx_dense_residual_qmv
     from metile.backends.mlx_dense_swiglu import mlx_dense_swiglu
+    from metile.backends.mlx_quantized import (
+        mlx_affine_mlp_executor,
+        mlx_affine_swiglu_executor,
+    )
 
     hidden, intermediate = arguments.hidden, arguments.intermediate
     mx.random.seed(0)
@@ -164,13 +168,8 @@ def _batch_sweep(arguments, mx, nn):
         mx.eval(values, residual)
         inner = max(1, min(8, 64 // rows))
 
-        native = _median(
+        native, generated = _paired(
             lambda: (nn.silu(values @ gate.T) * (values @ up.T)) @ down.T + residual,
-            mx,
-            inner,
-            arguments.rounds,
-        )
-        generated = _median(
             lambda: mlx_dense_residual_qmv(
                 mlx_dense_swiglu(values, gate_dense, up_dense, paired_weight=paired),
                 down,
@@ -209,32 +208,49 @@ def _batch_sweep(arguments, mx, nn):
                 )
 
             quantized_bytes = dense_bytes * bits // 16
-            native = _median(
+            # Measure meTile's quantized path rather than assuming what it does. Above one
+            # row it has no multi-row kernel and hands the shape back to MLX, so this line
+            # is expected to land on the native one; measuring says so instead of leaving
+            # a gap the reader has to interpret.
+            swiglu = mlx_affine_swiglu_executor(
+                activations, gq, gs, gb, uq, us, ub, group_size=64, bits=bits
+            )
+            if bits == 4:
+                execute = mlx_affine_mlp_executor(
+                    activations, gq, gs, gb, uq, us, ub, dq, ds, db, residual16,
+                    group_size=64, bits=bits,
+                )
+            else:
+                def execute(values_, residual_, _swiglu=swiglu):
+                    return quantized_matmul(_swiglu(values_), dq, ds, db) + residual_
+
+            native, generated = _paired(
                 lambda: quantized_matmul(
                     nn.silu(quantized_matmul(activations, gq, gs, gb))
                     * quantized_matmul(activations, uq, us, ub),
                     dq, ds, db,
                 )
                 + residual16,
+                lambda: execute(activations, residual16),
                 mx,
                 inner,
                 arguments.rounds,
             )
-            # meTile has no multi-row quantized kernel, so it defers to MLX above one row.
             records.append(
                 {
                     "format": f"int{bits}",
                     "rows": rows,
                     "weight_bytes": quantized_bytes,
                     "mlx_seconds": native,
-                    "metile_seconds": None,
+                    "metile_seconds": generated,
                     "mlx_bandwidth": quantized_bytes / native / 1e9,
-                    "metile_bandwidth": None,
+                    "metile_bandwidth": quantized_bytes / generated / 1e9,
                 }
             )
             print(
                 f"{'int' + str(bits):<9}{rows:>5}{native * 1e6:10.1f}"
-                f"{quantized_bytes / native / 1e9:10.1f}{'-':>13}"
+                f"{quantized_bytes / native / 1e9:10.1f}"
+                f"{quantized_bytes / generated / 1e9:13.1f}"
             )
     return records
 

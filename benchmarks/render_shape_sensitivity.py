@@ -122,12 +122,28 @@ def render_batch(payload, output):
         label=f"most this machine can move ({STREAMING_CEILING:.0f} GB/s)",
     )
 
-    lines = (
-        ("bf16", "metile_bandwidth", style.DECODE, "meTile BF16"),
-        ("bf16", "mlx_bandwidth", style.PREFILL, "MLX BF16"),
-        ("int8", "mlx_bandwidth", style.ACCENT, "MLX INT8"),
-        ("int4", "mlx_bandwidth", style.FOURTH, "MLX INT4"),
-    )
+    def tracks_mlx(format_name, tolerance=0.08):
+        """True when meTile's line would sit on MLX's, because it defers to it."""
+        rows = [record for record in records if record["format"] == format_name]
+        if any(record["metile_bandwidth"] is None for record in rows):
+            return False
+        return all(
+            abs(record["metile_bandwidth"] - record["mlx_bandwidth"])
+            <= tolerance * record["mlx_bandwidth"]
+            for record in rows
+        )
+
+    # Where meTile has no kernel it hands the shape to MLX, so plotting both would draw
+    # one line on top of another. Say so in the label instead of leaving the reader to
+    # wonder why a series is missing.
+    lines = [("bf16", "metile_bandwidth", style.DECODE, "meTile BF16"),
+             ("bf16", "mlx_bandwidth", style.PREFILL, "MLX BF16")]
+    for format_name, colour in (("int8", style.ACCENT), ("int4", style.FOURTH)):
+        suffix = (
+            " (meTile defers to MLX)" if tracks_mlx(format_name) else " (MLX)"
+        )
+        lines.append((format_name, "mlx_bandwidth", colour, format_name.upper() + suffix))
+    lines = tuple(lines)
     endpoints = []
     for format_name, field, colour, label in lines:
         rows, values = series(format_name, field)
