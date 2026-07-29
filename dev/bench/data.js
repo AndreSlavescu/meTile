@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785365947350,
+  "lastUpdate": 1785366239138,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1257,6 +1257,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 407.42,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d84518b33723c04db5115b6e278ba09bfd3b325e",
+          "message": "Rank kernels by how they behave ordinarily, not at their best (#15)\n\nThis is the actual fix for the 0.79x the previous commit could only mitigate, and\nit came from measuring the thing rather than the ratio. At a 17408-wide affine\nmatmul the same three kernels, sampled 25 times in five independent rounds:\n\n              min       median\n  native     2038       2070\n  bn=128     1643       2874\n  bn=256     1633       2745\n\nThe generated kernels are bimodal. They are genuinely quicker than native at\ntheir best, by about 1.24x, and slower than it most of the time. Native is tight:\nits minimum and median are 2% apart.\n\nThat explains every confusing observation. The median-ranked tuner sometimes drew\na favourable sample and switched away from native. An isolated verification then\ndrew its own favourable sample and appeared to confirm 1.18x. Both were sampling\nthe fast mode of a kernel that does not usually run in it. The earlier conclusion\nthat \"the measurement cannot rank candidates at these shapes\" was wrong: the\nmeasurement is fine, the estimator was asking the wrong question.\n\nmetile.tuning.pessimistic summarises samples at the 75th percentile instead of\nthe median, so a candidate is judged on how it behaves when conditions are\nordinary rather than ideal. Where candidates are equally consistent it agrees\nwith the median, so it only changes decisions in the case it exists to catch.\n\nTwelve tunings across four shapes, three of which previously produced losing\nselections:\n\n  27B down    was 0.79x cached      now 1.18x, native, native\n  27B up      was 0.94x, 0.87x      now 1.09x, 1.01x, 1.10x\n  1.5B up     was 0.95x             now 1.04x, 1.06x, 1.08x\n  Llama-1B    genuine 3x win        now 3.20x, 3.21x, 3.25x\n\nNo losses, and the win that matters is untouched, which was the risk: a guard\nthis blunt could have thrown away the 3.2x along with the noise.\n\n593 tests pass.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T19:00:43-04:00",
+          "tree_id": "5dcf8313281c33177d840365039bc3f87b25dcc4",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/d84518b33723c04db5115b6e278ba09bfd3b325e"
+        },
+        "date": 1785366237779,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 442.76,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3567.33,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 350.52,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1170.45,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 375.2,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1096.78,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 308.19,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 296.17,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 298.43,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 420.61,
             "unit": "us"
           }
         ]
