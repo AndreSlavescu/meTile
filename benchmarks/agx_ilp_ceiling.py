@@ -77,11 +77,7 @@ def main():
     arguments = _arguments()
     import metile
     from metile.runtime.metal_device import MetalDevice
-
-    try:
-        from benchmarks.agx_registers import Unavailable, inspect
-    except ImportError:  # pragma: no cover - registers are a nicety, not the measurement
-        Unavailable, inspect = RuntimeError, None
+    from metile.target.agx import Unavailable, inspect
 
     device = MetalDevice.get()
     rng = np.random.default_rng(0)
@@ -100,12 +96,10 @@ def main():
         entries = []
         for chains in CHAIN_COUNTS:
             source = kernel_source(chains, dtype)
-            registers = -1
-            if inspect is not None:
-                try:
-                    registers = inspect(source, "probe", ".metile-agx")["registers"]
-                except (Unavailable, RuntimeError):
-                    registers = -1
+            try:
+                registers = inspect(source, "probe", ".metile-agx")["registers"]
+            except (Unavailable, RuntimeError):
+                registers = -1
             entries.append((chains, device.compile_msl(source, "probe"), registers))
 
         def measure(pipeline, batch=4):

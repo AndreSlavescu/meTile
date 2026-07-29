@@ -43,6 +43,11 @@ MODELS = (
     "Llama-3.2-3B-Instruct-4bit",
     "Qwen3.5-4B-4bit",
     "Qwen3.5-9B-4bit",
+    "Qwen3.6-27B-4bit",
+    # Vision language models. Only the language tower is measured, which is where every
+    # shape this compares lives; the vision encoder runs once per image, not per token.
+    "Qwen3-VL-4B-Instruct-4bit",
+    "Qwen2.5-VL-7B-Instruct-4bit",
 )
 
 
@@ -197,9 +202,18 @@ def main():
             f"{prefill_up:>7.2f}x{prefill_down:>9.2f}x{batches}{marker}"
         )
 
-        # Rebinding at the top of the next iteration drops the previous model's arrays;
-        # releasing the cache here keeps the largest model from sitting on the smaller
-        # ones' buffers. Not deleting the names, because the timing closures capture them.
+        # Release this model's arrays before quantizing the next one. Relying on rebinding
+        # at the top of the next iteration is not enough: the old and new weights are both
+        # live across the transition, which at 27B scale is about a gigabyte of overlap.
+        # That was enough to corrupt single measurements, and the damage did not look like
+        # noise. It looked like a result: one of the two prefill numbers came out near
+        # 0.76x, and which projection it landed on changed between runs.
+        #
+        # Assigning None rather than `del` because the timing closures above still name
+        # these, and deleting the binding makes them unresolvable to static analysis.
+        gate = up = down = None
+        gate_w = up_w = down_w = None
+        narrow = wide = values = None
         gc.collect()
         mx.clear_cache()
 

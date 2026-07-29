@@ -313,13 +313,31 @@ def _tune_config(values, weight, configs):
     # the rotation, so the provisional order does not survive isolated measurement.
     native = next(candidate[0] for candidate in finalists if candidate[0].algorithm == "mlx")
     timings = confirm_pairwise(finalists, native, 21, measure)
-    return _choose_config(
+    selected = _choose_config(
         [
             (timings[config], description_bits, config)
             for config, _, description_bits in finalists
             if config in timings
         ]
     )
+    if selected.algorithm == "mlx":
+        return selected
+
+    # Require the two measurements to agree before switching away from native. At the
+    # widest prefill shapes they stop agreeing: measured at K=17408 the round-robin ranked
+    # a kernel fastest that the pairwise pass then put at 0.86x native, and a third
+    # isolated measurement put it at 1.18x. Three readings, three orderings. Selection is
+    # not trustworthy there, and because the answer is written to the persistent cache a
+    # single bad draw is replayed on every later run, which is how a config measuring 0.85x
+    # native ended up serving Qwen3.6-27B's down projection.
+    #
+    # Disagreement means the measurement cannot resolve the difference, and the honest
+    # response to that is to keep the kernel that is known not to lose. Both passes have to
+    # clear the same margin, not merely come out ahead: at these shapes the run-to-run
+    # spread is wider than the margin, so "faster by a little, twice" is still noise.
+    if medians[selected] >= medians[native] * (1.0 - _SWITCH_MARGIN):
+        return native
+    return selected
 
 
 def mlx_affine_matmul(values, weight, *, autotune=True):

@@ -134,9 +134,10 @@ def mlx_dense_swiglu_projected(values, gate_weight, up_weight):
 _NAX_MIN_ROWS = 32
 # Bounds rows * outputs_per_simdgroup as a proxy for live accumulator pairs. Raising it to
 # 32 was tried, on the grounds that outputs_per_simdgroup=2 at 16 rows compiles to 115
-# registers against G17's 140-register budget and so cannot be spilling. It made no
+# registers against the 140-register budget in metile.target.agx and so cannot spill. It made no
 # difference: the tuner already reaches the same speed with outputs_per_simdgroup=1 at a
-# larger simdgroup count, so the wider search bought nothing and 16 stands.
+# larger simdgroup count, so the wider search bought nothing and 16 stands. Audited by
+# benchmarks/agx_registers.py, which reports the worst admitted kernel at 99 of 140.
 _MAX_QMV_ACCUMULATOR_PAIRS = 16
 
 
