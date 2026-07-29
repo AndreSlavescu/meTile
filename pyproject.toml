@@ -74,3 +74,6 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: loads a real model from the Hugging Face cache; skipped when none is present",
+]
