@@ -44,24 +44,29 @@ is the range a speculative-decoding verification pass runs in.
 
 | rows per dispatch | 1 | 2 | 4 | 8 | 16 | 32 | 128 |
 |---|---|---|---|---|---|---|---|
-| **BF16** | 1.01x | **1.66x** | **1.79x** | **1.58x** | **1.57x** | 1.08x | 1.07x |
-| INT4 | 0.99x | 0.88x | 0.99x | 1.00x | 0.99x | 0.98x | 1.00x |
-| INT8 | 0.99x | 1.02x | 0.99x | 0.97x | 1.00x | 1.00x | 1.03x |
+| **BF16** | 1.02x | **1.69x** | **1.82x** | **1.65x** | **1.52x** | 1.06x | 1.11x |
+| **INT4** | 1.02x | 1.02x | 1.02x | **1.29x** | **1.31x** | **1.23x** | 1.00x |
+| INT8 | 0.98x | 0.99x | 1.00x | 1.00x | 1.00x | 1.00x | 1.00x |
 
 The BF16 results are **bit-identical** to running those rows through MLX one at a time, so
-batching changes the speed and nothing else. INT4 and INT8 sit at parity because meTile
-hands those shapes back to MLX rather than forcing its own kernel.
+batching changes the speed and nothing else.
+
+INT8 sits at parity because meTile has no kernel of its own there and calls MLX's, so that
+row describes both backends.
 
 ![Speedup by batch size](docs/_static/mlx-matched-speedup.png)
 
-Why that happens: the weights are read once no matter how many rows you feed in, so
-achieved bandwidth should stay flat as the batch grows. MLX's does not.
+Why it happens: every row in a batch reads the same weights, so feeding in more rows should
+not cost more weight traffic. MLX re-reads them per row tile and meTile does not, which is
+the gap between each pair of lines below. Both sides still slope down past eight rows, but
+that part is not waste: the same weights are serving eight to thirty-two times the
+arithmetic by then.
 
 ![Weight bandwidth by batch size](docs/_static/mlx-batch-efficiency.png)
 
-meTile holds BF16 at the ceiling across the whole range. **INT4 and INT8 fall off the same
-way and nothing picks them up yet**, which is the largest piece of unclaimed performance in
-the project right now: at 16 rows MLX moves 34 GB/s of INT4 weights out of a possible 121.
+Single-row decode is a different story and has no headroom at all. MLX runs it at 93 to 97%
+of what a bare streaming read can move, and a hand-written kernel matches it without beating
+it, so the 1.02x above is the whole of what is there.
 
 ### Whole models
 
@@ -79,7 +84,7 @@ try meTile on your own model:
 
 MLX switches kernel somewhere between output widths 2048 and 2560, and the one it uses below
 that is poor. A model wins if its layers are narrow enough to land in that band. Llama 3.2 1B
-has a 2048-wide down projection and gets 3.18x; Llama 3.2 3B has a 3072-wide one and gets
+has a 2048-wide down projection and gets 3.16x; Llama 3.2 3B has a 3072-wide one and gets
 1.06x. Depth is irrelevant, since it multiplies both sides equally.
 
 At the wider shapes we are already at **97% of the fastest matmul this machine can run**, so
@@ -101,11 +106,11 @@ there is nothing left to win there rather than something we have not got to yet.
 ### Where meTile is *not* faster
 
 - **Single-token decode: about the same as MLX.** Generating one token at a time is limited
-  by memory speed, not by the kernel. A bare streaming-read kernel tops out at 120 GB/s on
-  this machine and MLX already runs at 120 to 126 GB/s, so there is almost nothing left to win.
-  Batching is what moves this number, which is why the table above starts at 1 and climbs.
-- **INT4 and INT8: about the same as MLX.** Against MLX's own quantized kernels meTile has
-  no advantage and steps aside rather than forcing its own.
+  by memory speed, not by the kernel. A bare streaming-read kernel tops out at 121 GB/s on
+  this machine and MLX already runs at 93 to 97% of that, so there is almost nothing left to
+  win. Batching is what moves this number, which is why the table above starts at 1 and climbs.
+- **INT8: about the same as MLX.** meTile has no kernel of its own there and steps aside
+  rather than forcing one. INT4 used to say the same and no longer does above four rows.
 - **Softmax: 0.74x to 0.99x.** MLX's is already a single fused kernel.
 
 ### Trading accuracy for speed

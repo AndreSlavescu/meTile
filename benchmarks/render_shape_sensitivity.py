@@ -133,7 +133,7 @@ def render_batch(payload, output):
     )
 
     def tracks_mlx(format_name, tolerance=0.08):
-        """True when meTile's line would sit on MLX's, because it defers to it."""
+        """True when meTile calls MLX's kernel here, so one line describes both backends."""
         rows = [record for record in records if record["format"] == format_name]
         if any(record["metile_bandwidth"] is None for record in rows):
             return False
@@ -143,20 +143,22 @@ def render_batch(payload, output):
             for record in rows
         )
 
-    # For the quantized formats meTile has no kernel of its own and calls MLX's, so one
-    # line describes both backends. That is not two implementations tying, it is the same
-    # code measured twice, so the label says "both" rather than drawing a duplicate.
-    lines = [
-        ("bf16", "metile_bandwidth", style.DECODE, "BF16, meTile"),
-        ("bf16", "mlx_bandwidth", style.PREFILL, "BF16, MLX"),
-    ]
-    for format_name, colour in (("int8", style.ACCENT), ("int4", style.FOURTH)):
-        shared = tracks_mlx(format_name)
-        label = f"{format_name.upper()}, {'both' if shared else 'MLX'}"
-        lines.append((format_name, "mlx_bandwidth", colour, label))
-    lines = tuple(lines)
+    # Colour carries the weight format and dash carries the backend, so each pair sits in
+    # one hue and the comparison the chart exists to make reads without crossing colours.
+    # Where meTile has no kernel of its own the two lines would coincide, so that format
+    # draws once and says so rather than stacking a duplicate on top of itself.
+    formats = (("bf16", style.DECODE), ("int8", style.ACCENT), ("int4", style.PREFILL))
+    lines = []
+    for format_name, colour in formats:
+        label = format_name.upper()
+        if tracks_mlx(format_name):
+            lines.append((format_name, "mlx_bandwidth", colour, f"{label}, both", "solid"))
+            continue
+        lines.append((format_name, "metile_bandwidth", colour, f"{label}, meTile", "solid"))
+        lines.append((format_name, "mlx_bandwidth", colour, f"{label}, MLX", (0, (4, 3))))
+
     endpoints = []
-    for format_name, field, colour, label in lines:
+    for format_name, field, colour, label, dash in lines:
         rows, values = series(format_name, field)
         if not values:
             continue
@@ -165,7 +167,8 @@ def render_batch(payload, output):
             values,
             color=colour,
             linewidth=2.0,
-            marker="o",
+            linestyle=dash,
+            marker="o" if dash == "solid" else "s",
             markersize=5.5,
             markeredgecolor=style.SURFACE,
             markeredgewidth=1.1,
@@ -174,8 +177,8 @@ def render_batch(payload, output):
         )
         endpoints.append((rows[len(values) - 1], values[-1], label, colour))
 
-    # Direct labels: two palette slots sit under 3:1 on a light surface, so identity must
-    # not rest on colour alone.
+    # Direct labels. One palette slot sits under 3:1 on a light surface, and colour is
+    # shared within a format, so identity cannot rest on colour alone here.
     for x, y, label, _ in endpoints:
         axis.annotate(
             label,
@@ -201,12 +204,32 @@ def render_batch(payload, output):
     )
     axis.set_ylabel("weight bandwidth achieved, GB/s", fontsize=9.5, color=style.INK_SOFT)
     style.frame(axis, grid_axis="y")
-    axis.legend(loc="lower left", frameon=False, fontsize=9, labelcolor=style.INK_SOFT)
+
+    # Every line is already named at its right end, so a full legend would just repeat
+    # itself six times. What the reader cannot get from the direct labels is the encoding,
+    # which is what this states: colour is the weight format, dash is the backend.
+    lines2d = __import__("matplotlib").lines.Line2D
+    axis.legend(
+        handles=[
+            lines2d([], [], color=style.RULE, linewidth=1.3, linestyle=(0, (5, 4))),
+            lines2d([], [], color=style.INK_MUTED, linewidth=2.0),
+            lines2d([], [], color=style.INK_MUTED, linewidth=2.0, linestyle=(0, (4, 3))),
+        ],
+        labels=[
+            f"most this machine can move ({STREAMING_CEILING:.0f} GB/s)",
+            "meTile",
+            "MLX",
+        ],
+        loc="lower left",
+        frameon=False,
+        fontsize=9,
+        labelcolor=style.INK_SOFT,
+    )
 
     style.headings(
         figure,
-        "Batching should be free, and for quantized weights it is not",
-        "Weights are read once, so these should stay flat.",
+        "meTile keeps more weight bandwidth as the batch grows",
+        "Every row reads the same weights; the gap in each pair is MLX re-reading them.",
         _footer(payload),
     )
     figure.tight_layout(rect=style.layout_rect(figure))
