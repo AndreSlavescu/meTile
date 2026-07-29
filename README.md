@@ -82,13 +82,15 @@ it, so the 1.02x above is the whole of what is there.
 Those last two are worth reading carefully. A flat 1.00x looks like "nothing here", and it
 is not: it means nothing was available at the one shape this harness exercises. Measure the
 same models at their own layer shapes and both of them gain once you feed in more than one
-row:
+row. Nine models below, including two vision language models, where only the language tower
+is measured because the vision encoder runs once per image rather than per token:
 
 ![Speedup by model shape](docs/_static/mlx-model-shape-speedup.png)
 
 Every model is near parity at one row, because that is bandwidth bound and there is nothing
-to win. Every model gains at sixteen rows, because the weights get reused. Only prefill
-depends on the model, and it depends on exactly one thing:
+to win. Every model gains at sixteen rows, 1.24x to 1.81x, because the weights get reused.
+That holds all the way up to Qwen3.6 27B and both VLMs. Only prefill depends on the model,
+and it depends on exactly one thing:
 
 ![Speedup by projection width](docs/_static/mlx-width-cliff.png)
 

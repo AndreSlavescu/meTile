@@ -54,7 +54,11 @@ MODELS = (
 def _arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", action="append", dest="models")
-    parser.add_argument("--rounds", type=int, default=15)
+    # 15 rounds is not enough precision for a published cell. At that count Qwen2.5-1.5B's
+    # rows-16 figure came out 1.12x in one run while three independent measurements of the
+    # same shape gave 1.31x, 1.31x and 1.32x. A 15% error in a number people read off a
+    # table is worth the extra minutes.
+    parser.add_argument("--rounds", type=int, default=25)
     parser.add_argument("--output-json", type=Path)
     return parser.parse_args()
 
