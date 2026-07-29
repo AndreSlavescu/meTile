@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785318865514,
+  "lastUpdate": 1785350241444,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1109,6 +1109,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 349.02,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5dc233c11932be042380387a730aecdcf1ea9657",
+          "message": "Chart the newer models, whose 1.000x was hiding a real result (#13)\n\nQwen3.5-4B and Qwen3.5-9B were benchmarked but never plotted, and no chart\ncovered the per-shape data at all. Both models report exactly 1.000x end to end,\nwhich reads as \"meTile does nothing for these\" when the truth is narrower:\nnothing was available at the one shape the model harness exercises.\n\nThe new chart plots the three measurements that separate the cases. At one row\nevery model sits at parity, because that is bandwidth bound. At sixteen rows\nevery model gains, including both Qwen3.5 checkpoints, because the weights get\nreused. Only prefill varies by model, and it varies with exactly one property:\n\n  model            hidden   prefill down   1 row   16 rows\n  Qwen2.5 0.5B        896          2.27x   0.98x     1.52x\n  Qwen2.5 1.5B       1536          2.84x   1.01x     1.31x\n  Llama 3.2 1B       2048          3.11x   0.98x     1.79x\n  Qwen3.5 4B         2560          1.23x   1.02x     1.27x\n  Llama 3.2 3B       3072          1.07x   0.97x     1.78x\n  Qwen3.5 9B         4096          1.15x   0.98x     1.24x\n\nThe three below 2560 win prefill outright; the three at or above it do not. That\nis the whole spread, and depth has nothing to do with it.\n\nPalette checked with the validator rather than eyeballed: all checks pass, and\nthe one contrast warning on the green is relieved by the per-point value labels.\nFirst render put sub-parity labels to the left of their points, where they landed\non top of the model names, so every label now sits to the right.\n\n587 tests pass.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T14:33:30-04:00",
+          "tree_id": "ad5883580e9f3cf7daefd970a5af131c8e6353ba",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/5dc233c11932be042380387a730aecdcf1ea9657"
+        },
+        "date": 1785350239237,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 914.99,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4329.54,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 574.55,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1508.13,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 587.42,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1469.03,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 432.43,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 477.17,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 525.21,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 570.95,
             "unit": "us"
           }
         ]
