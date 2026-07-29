@@ -779,12 +779,53 @@ def test_mlx_generated_affine8_swiglu_matches_bfloat16_native(monkeypatch):
     )
 
 
-def test_dense_swiglu_confirms_finalists_two_at_a_time(monkeypatch):
-    """Each finalist must be timed against native alone, never in a crowded rotation.
+def test_confirm_pairwise_times_each_candidate_alone_against_the_baseline():
+    """Candidates must be timed two at a time, and ranked on the ratio to the baseline.
 
     How long a candidate measures depends on how many others share the round-robin, so
-    ranking finalists from one big rotation can prefer a kernel that loses head to head.
+    ranking from one crowded rotation can prefer a kernel that loses head to head. Ranking
+    on the ratio is what makes separate pairings comparable when the baseline drifts.
     """
+    from metile.tuning import confirm_pairwise
+
+    # The baseline reads 1.0 in one pairing and 2.0 in the other, so raw times would rank
+    # `fast` (0.5) and `slow` (1.6) by that drift rather than by merit.
+    timings = {"fast": {"base": 1.0, "fast": 0.5}, "slow": {"base": 2.0, "slow": 1.6}}
+    group_sizes = []
+
+    def measure(thunk):
+        return thunk()
+
+    def thunk_for(subject, key):
+        return lambda: timings[subject][key]
+
+    def spy_round_robin(candidates, rounds, measure_fn):
+        group_sizes.append(len(candidates))
+        return {key: [measure_fn(thunk)] for key, thunk in candidates}
+
+    import metile.tuning.tournament as tournament
+
+    original = tournament.round_robin
+    tournament.round_robin = spy_round_robin
+    try:
+        results = {}
+        for subject in ("fast", "slow"):
+            candidates = [
+                ("base", thunk_for(subject, "base")),
+                (subject, thunk_for(subject, subject)),
+            ]
+            results.update(confirm_pairwise(candidates, "base", 3, measure))
+    finally:
+        tournament.round_robin = original
+
+    assert group_sizes == [2, 2]
+    # fast is 0.5x its baseline, slow is 0.8x its own, so fast must win despite 0.5 < 1.6
+    # having been measured against different baseline readings.
+    assert results["fast"] / results["base"] < results["slow"] / results["base"]
+
+
+def test_dense_swiglu_selection_prefers_the_faster_ratio():
+    """The backend's selection must act on confirmed timings, native included."""
     pytest.importorskip("mlx.core")
     from metile.backends import mlx_dense_swiglu
 
@@ -795,29 +836,11 @@ def test_dense_swiglu_confirms_finalists_two_at_a_time(monkeypatch):
     slow = mlx_dense_swiglu.MLXDenseSwiGLUConfig(
         "metile", implementation="simdgroup_paired", outputs_per_simdgroup=1
     )
-    finalists = [(native, object(), 0), (fast, object(), 10), (slow, object(), 20)]
+    chosen = mlx_dense_swiglu._choose_config([(1.0, 0, native), (0.5, 10, fast), (0.9, 20, slow)])
+    assert chosen is fast
 
-    # Native drifts between pairings; ranking on the ratio to native has to cancel it.
-    timings = {
-        fast: {native: 1.0, fast: 0.5},
-        slow: {native: 2.0, slow: 1.6},
-    }
-    group_sizes = []
-
-    def fake_measure(dispatches, rounds, *, batch=None):
-        group_sizes.append(len(dispatches))
-        subject = next(config for config, _, _ in dispatches if config.algorithm != "mlx")
-        return {config: [timings[subject][config]] for config, _, _ in dispatches}
-
-    monkeypatch.setattr(mlx_dense_swiglu, "_measure_dispatches", fake_measure)
-    results = mlx_dense_swiglu._confirm_pairwise(finalists, rounds=3, batch=1)
-
-    assert group_sizes == [2, 2]
-    ranked = sorted(results)
-    # fast is 0.5x native, slow is 0.8x native, so fast must rank ahead despite its raw
-    # 0.5 and 1.6 having been measured against different native readings.
-    assert ranked[0][2] is fast
-    assert {result[2] for result in results} == {native, fast, slow}
+    # Nothing clears the switch margin, so native stays.
+    assert mlx_dense_swiglu._choose_config([(1.0, 0, native), (0.999, 10, fast)]) is native
 
 
 def test_mlx_affine_swiglu_offers_a_multi_row_candidate():

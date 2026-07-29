@@ -22,6 +22,7 @@ from metile.compiler.schedule_search import (
     optimize_tile_schedules,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.tuning import confirm_pairwise, round_robin, select_fastest
 
 _kernel_cache = {}
 _schedule_cache = {}
@@ -302,78 +303,57 @@ def _accuracy_compatible(actual, reference):
     return mean_error <= 0.003 and maximum_error <= 0.04 + 0.03 * reference_scale
 
 
+def _native_config(results):
+    return next(result for result in results if result[2].algorithm == "mlx")[2]
+
+
+def _margin_for(config):
+    # SIMDgroup candidates are held to per-row bit-exactness, so a win there is a real
+    # kernel win and a smaller margin is enough to act on.
+    return _EXACT_SWITCH_MARGIN if config.implementation.startswith("simdgroup") else _SWITCH_MARGIN
+
+
 def _choose_config(results):
-    native = next(result for result in results if result[2].algorithm == "mlx")
-    alternatives = [result for result in results if result[2].algorithm == "metile"]
-    if not alternatives:
-        return native[2]
-    fastest = min(alternatives, key=lambda result: result[0])
-    margin = (
-        _EXACT_SWITCH_MARGIN
-        if fastest[2].implementation.startswith("simdgroup")
-        else _SWITCH_MARGIN
+    return select_fastest(
+        results,
+        _native_config(results),
+        _margin_for,
+        tie_break=choose_mdl_tie,
     )
-    if fastest[0] >= native[0] * (1.0 - margin):
-        return native[2]
-    cutoff = fastest[0] * 1.0025
-    return choose_mdl_tie([result for result in alternatives if result[0] <= cutoff])
+
+
+def _batch_measure(batch):
+    """A timing function for one dispatch, averaged over `batch` queued copies.
+
+    One eval for the whole batch. Evaluating per dispatch would add the blocking round
+    trip to every candidate and compress the ratios between them toward 1.0, which lets
+    the switch margins admit a slower kernel.
+    """
+    import mlx.core as mx
+
+    def measure(dispatch):
+        start = time.perf_counter_ns()
+        mx.eval([dispatch() for _ in range(batch)])
+        return (time.perf_counter_ns() - start) * 1e-9 / batch
+
+    return measure
 
 
 def _measure_dispatches(dispatches, rounds, *, batch=None):
-    import mlx.core as mx
-
     if batch is None:
         batch = calibrate_tournament_batch(dispatches[0][1])
-    samples = {config: [] for config, _, _ in dispatches}
-    for round_index in range(rounds):
-        shift = round_index % len(dispatches)
-        ordered = dispatches[shift:] + dispatches[:shift]
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            # One eval for the whole batch. Evaluating per dispatch would add the
-            # blocking round trip to every candidate and compress the ratios between
-            # them toward 1.0, which lets the switch margins admit a slower kernel.
-            mx.eval([dispatch() for _ in range(batch)])
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
-    return samples
+    return round_robin(dispatches, rounds, _batch_measure(batch))
 
 
 def _confirm_pairwise(finalists, rounds, batch):
-    """Rank finalists by timing each one against native alone, not all of them together.
-
-    A single round-robin over N candidates does not rank them comparably. How long a
-    candidate measures depends on how many others share the rotation, so a kernel that is
-    faster head to head can read slower in a crowded tournament. Measured case: at rows 16
-    the dense SwiGLU tuner preferred a config that is 1.28x slower than another already in
-    its own finalist list.
-
-    Pairing every finalist against native puts each one in an identically sized context,
-    and ranking on the ratio to native rather than the raw time cancels any drift between
-    one pairing and the next.
-    """
+    """Time each finalist against native alone and return results ready for selection."""
     native = next(candidate for candidate in finalists if candidate[0].algorithm == "mlx")
-    alternatives = [candidate for candidate in finalists if candidate[0].algorithm != "mlx"]
-    if not alternatives:
-        samples = _measure_dispatches([native], rounds, batch=batch)
-        return [(statistics.median(samples[native[0]]), native[2], native[0])]
-
-    ratios = {}
-    native_times = []
-    for candidate in alternatives:
-        samples = _measure_dispatches([native, candidate], rounds, batch=batch)
-        native_time = statistics.median(samples[native[0]])
-        native_times.append(native_time)
-        ratios[candidate[0]] = statistics.median(samples[candidate[0]]) / native_time
-
-    # Rebuild absolute times against one native reading so the switch margins in
-    # _choose_config keep comparing like with like.
-    native_reference = statistics.median(native_times)
-    results = [(native_reference, native[2], native[0])]
-    for config, _, description_bits in alternatives:
-        results.append((ratios[config] * native_reference, description_bits, config))
-    return results
+    timings = confirm_pairwise(finalists, native[0], rounds, _batch_measure(batch))
+    return [
+        (timings[config], description_bits, config)
+        for config, _, description_bits in finalists
+        if config in timings
+    ]
 
 
 def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
