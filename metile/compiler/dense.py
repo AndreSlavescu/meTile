@@ -199,8 +199,13 @@ def lower_dense_swiglu_qmv(
     simdgroups_per_threadgroup: int = 4,
     interleaved: bool = False,
     k_unroll: int = 1,
+    rows: int = 1,
 ) -> mir.MFunction:
-    """Build an exact one-row SwiGLU from output-major SIMDgroup dot pairs."""
+    """Build an exact SwiGLU from output-major SIMDgroup dot pairs.
+
+    ``rows`` > 1 shares one pass over the gate/up weights across a small batch of
+    activation rows, which is the regime speculative decoding runs in.
+    """
     if outputs_per_simdgroup not in {1, 2, 4}:
         raise ValueError("dense SwiGLU QMV supports 1, 2, or 4 outputs per SIMDgroup")
     if simdgroups_per_threadgroup not in {1, 2, 4, 8}:
@@ -211,6 +216,8 @@ def lower_dense_swiglu_qmv(
         raise ValueError("dense SwiGLU QMV input features must align to 128")
     if k_unroll not in {1, 2}:
         raise ValueError("dense SwiGLU QMV K unroll must be 1 or 2")
+    if rows < 1:
+        raise ValueError("dense SwiGLU QMV requires at least one row")
 
     function = mir.MFunction(
         name=function_name,
@@ -241,7 +248,9 @@ def lower_dense_swiglu_qmv(
             simdgroups_per_threadgroup=simdgroups_per_threadgroup,
         )
     )
-    function.add_op(mir.MPairedDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup))
+    function.add_op(
+        mir.MPairedDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup, rows=rows)
+    )
     blocks = input_features // 128
     unrolled_blocks = blocks - blocks % k_unroll
 
@@ -254,6 +263,7 @@ def lower_dense_swiglu_qmv(
             input_features=input_features,
             outputs_per_simdgroup=outputs_per_simdgroup,
             k_offset=k_offset,
+            rows=rows,
         )
 
     if unrolled_blocks:
@@ -282,6 +292,8 @@ def lower_dense_swiglu_qmv(
             outputs_per_simdgroup=outputs_per_simdgroup,
             fast_math=False,
             round_intermediates="half",
+            rows=rows,
+            output_features=output_features,
         )
     )
     return function
@@ -294,8 +306,14 @@ def lower_dense_residual_qmv(
     *,
     outputs_per_simdgroup: int = 1,
     simdgroups_per_threadgroup: int = 1,
+    rows: int = 1,
 ) -> mir.MFunction:
-    """Build an exact output-major QMV with a fused residual epilogue."""
+    """Build an exact output-major QMV with a fused residual epilogue.
+
+    ``rows`` > 1 keeps the same weight-streaming schedule but carries one accumulator
+    per activation row, so a small batch of tokens shares a single pass over the
+    weights instead of re-reading them per token.
+    """
     if outputs_per_simdgroup not in {1, 2, 4}:
         raise ValueError("dense residual QMV supports 1, 2, or 4 outputs per SIMDgroup")
     if simdgroups_per_threadgroup not in {1, 2, 4, 8}:
@@ -304,6 +322,8 @@ def lower_dense_residual_qmv(
         raise ValueError("dense residual QMV outputs must align to the threadgroup tile")
     if input_features % 128:
         raise ValueError("dense residual QMV input features must align to 128")
+    if rows < 1:
+        raise ValueError("dense residual QMV requires at least one row")
 
     function = mir.MFunction(
         name=function_name,
@@ -330,7 +350,7 @@ def lower_dense_residual_qmv(
             simdgroups_per_threadgroup=simdgroups_per_threadgroup,
         )
     )
-    function.add_op(mir.MDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup))
+    function.add_op(mir.MDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup, rows=rows))
     function.add_op(
         mir.MForLoop(
             iv_name="k",
@@ -343,6 +363,7 @@ def lower_dense_residual_qmv(
                     ptr_weight=values["weight"],
                     input_features=input_features,
                     outputs_per_simdgroup=outputs_per_simdgroup,
+                    rows=rows,
                 )
             ],
         )
@@ -353,6 +374,8 @@ def lower_dense_residual_qmv(
             ptr_output=values["output"],
             outputs_per_simdgroup=outputs_per_simdgroup,
             round_intermediates="half",
+            rows=rows,
+            output_features=output_features,
         )
     )
     return function

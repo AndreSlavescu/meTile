@@ -384,6 +384,9 @@ class MVarDecl(MOp):
     var_name: str = ""
     init_value: MValue = None
     dtype: str = "f32"
+    # True when the variable stands in for a per-thread tile element, so a vectorized
+    # loop must declare it at the vector width and broadcast the initial value.
+    tile_valued: bool = False
 
     def result_type(self):
         return None
@@ -690,6 +693,7 @@ class MDotAccumulatorInit(MOp):
     """Initialize one output-major projection accumulator per result row."""
 
     outputs_per_simdgroup: int = 4
+    rows: int = 1
 
     def result_type(self):
         return None
@@ -697,13 +701,19 @@ class MDotAccumulatorInit(MOp):
 
 @dataclass
 class MDotAccumulate(MOp):
-    """Accumulate one output-major matrix-vector product over one K step."""
+    """Accumulate one output-major matrix-vector product over one K step.
+
+    With ``rows > 1`` each weight fragment is loaded once and reused across every
+    activation row, so weight traffic stays flat while the work scales. That is what
+    makes small-batch decode faster than issuing one matrix-vector product per row.
+    """
 
     ptr_input: MValue = None
     ptr_weight: MValue = None
     input_features: int = 0
     outputs_per_simdgroup: int = 4
     elements_per_lane: int = 4
+    rows: int = 1
 
     def result_type(self):
         return None
@@ -717,6 +727,8 @@ class MDotResidualStore(MOp):
     ptr_output: MValue = None
     outputs_per_simdgroup: int = 4
     round_intermediates: str = "half"
+    rows: int = 1
+    output_features: int = 0
 
     def result_type(self):
         return None
@@ -727,6 +739,7 @@ class MPairedDotAccumulatorInit(MOp):
     """Initialize paired projection accumulators for one SIMDgroup."""
 
     outputs_per_simdgroup: int = 4
+    rows: int = 1
 
     def result_type(self):
         return None
@@ -734,7 +747,11 @@ class MPairedDotAccumulatorInit(MOp):
 
 @dataclass
 class MPairedDotAccumulate(MOp):
-    """Accumulate two output-major matrix-vector products over one K step."""
+    """Accumulate two output-major matrix-vector products over one K step.
+
+    As with :class:`MDotAccumulate`, ``rows`` > 1 reuses each gate/up weight fragment
+    across every activation row so a batch of tokens shares one pass over the weights.
+    """
 
     ptr_input: MValue = None
     ptr_left: MValue = None
@@ -744,6 +761,7 @@ class MPairedDotAccumulate(MOp):
     outputs_per_simdgroup: int = 4
     elements_per_lane: int = 4
     k_offset: int = 0
+    rows: int = 1
 
     def result_type(self):
         return None
@@ -757,6 +775,8 @@ class MPairedDotSwiGLUStore(MOp):
     outputs_per_simdgroup: int = 4
     fast_math: bool = False
     round_intermediates: str = "half"
+    rows: int = 1
+    output_features: int = 0
 
     def result_type(self):
         return None

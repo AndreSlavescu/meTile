@@ -271,6 +271,159 @@ def test_mlx_dense_residual_qmv_matches_reference_exactly(dtype_name, monkeypatc
     )
 
 
+@pytest.mark.parametrize("rows", (2, 4, 8))
+def test_mlx_dense_residual_qmv_matches_per_row_reference_exactly(rows, monkeypatch):
+    """A batched step must equal decoding each row on its own, bit for bit."""
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_dense_residual
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_dense_residual._kernel_cache.clear()
+    mlx_dense_residual._schedule_cache.clear()
+    random = np.random.default_rng(4177)
+    values = mx.array(random.normal(size=(rows, 256)).astype(np.float32)).astype(mx.bfloat16)
+    weight = mx.array(random.normal(size=(128, 256)).astype(np.float32)).astype(mx.bfloat16)
+    residual = mx.array(random.normal(size=(rows, 128)).astype(np.float32)).astype(mx.bfloat16)
+
+    actual = mlx_dense_residual.mlx_dense_residual_qmv(
+        values,
+        weight,
+        residual,
+        autotune=False,
+    )
+    expected = mx.concatenate(
+        [values[row : row + 1] @ weight.T + residual[row : row + 1] for row in range(rows)],
+        axis=0,
+    )
+    mx.eval(actual, expected)
+
+    assert actual.shape == (rows, 128)
+    np.testing.assert_array_equal(
+        np.array(actual.astype(mx.float32)),
+        np.array(expected.astype(mx.float32)),
+    )
+
+
+@pytest.mark.parametrize("rows", (2, 4, 8))
+def test_mlx_dense_swiglu_qmv_matches_per_row_reference_exactly(rows, monkeypatch):
+    """The batched SwiGLU must equal MLX's own one-row SwiGLU for every row."""
+    mx = pytest.importorskip("mlx.core")
+    nn = pytest.importorskip("mlx.nn")
+    from metile.backends import mlx_dense_swiglu
+    from metile.backends.mlx_dense import MLXDenseWeight
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    mlx_dense_swiglu._kernel_cache.clear()
+    mlx_dense_swiglu._schedule_cache.clear()
+    random = np.random.default_rng(9311)
+    values = mx.array(random.normal(size=(rows, 256)).astype(np.float32)).astype(mx.bfloat16)
+    gate = mx.array(random.normal(size=(128, 256)).astype(np.float32)).astype(mx.bfloat16)
+    up = mx.array(random.normal(size=(128, 256)).astype(np.float32)).astype(mx.bfloat16)
+    paired = mx.stack((gate, up), axis=-1)
+    mx.eval(paired)
+
+    actual = mlx_dense_swiglu.mlx_dense_swiglu(
+        values,
+        MLXDenseWeight.from_mlx(gate),
+        MLXDenseWeight.from_mlx(up),
+        paired_weight=paired,
+        autotune=False,
+    )
+    expected = mx.concatenate(
+        [
+            nn.silu(values[row : row + 1] @ gate.T) * (values[row : row + 1] @ up.T)
+            for row in range(rows)
+        ],
+        axis=0,
+    )
+    mx.eval(actual, expected)
+
+    assert actual.shape == (rows, 128)
+    np.testing.assert_array_equal(
+        np.array(actual.astype(mx.float32)),
+        np.array(expected.astype(mx.float32)),
+    )
+
+
+@pytest.mark.parametrize("shape", ((1, 6, 256), (2, 3, 256), (1, 1, 256)))
+def test_multi_row_dense_tuning_handles_rank_three_activations(shape, monkeypatch):
+    """MLX-LM passes [batch, sequence, hidden], not [rows, hidden].
+
+    The per-row reference the tuner builds has to take rows from a flattened view.
+    Slicing axis 0 of a rank-3 tensor yields empty rows once batch is smaller than the
+    row count, and concatenating those crashes MLX inside eval.
+    """
+    mx = pytest.importorskip("mlx.core")
+    nn = pytest.importorskip("mlx.nn")
+    from metile.backends import mlx_dense_residual, mlx_dense_swiglu
+    from metile.backends.mlx_dense import MLXDenseWeight
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    for module in (mlx_dense_swiglu, mlx_dense_residual):
+        module._kernel_cache.clear()
+        module._schedule_cache.clear()
+
+    hidden, intermediate = shape[-1], 512
+    random = np.random.default_rng(5501)
+
+    def sample(*dims):
+        return mx.array(random.normal(size=dims).astype(np.float32)).astype(mx.bfloat16)
+
+    gate, up = sample(intermediate, hidden), sample(intermediate, hidden)
+    down = sample(hidden, intermediate)
+    paired = mx.stack((gate, up), axis=-1)
+    values, residual = sample(*shape), sample(*shape)
+    mx.eval(gate, up, down, paired, values, residual)
+
+    actual = mlx_dense_residual.mlx_dense_residual_qmv(
+        mlx_dense_swiglu.mlx_dense_swiglu(
+            values,
+            MLXDenseWeight.from_mlx(gate),
+            MLXDenseWeight.from_mlx(up),
+            paired_weight=paired,
+        ),
+        down,
+        residual,
+    )
+
+    rows = values.size // hidden
+    flat_values = values.reshape(rows, hidden)
+    flat_residual = residual.reshape(rows, hidden)
+    expected = mx.concatenate(
+        [
+            (nn.silu(flat_values[row : row + 1] @ gate.T) * (flat_values[row : row + 1] @ up.T))
+            @ down.T
+            + flat_residual[row : row + 1]
+            for row in range(rows)
+        ],
+        axis=0,
+    ).reshape(shape)
+    mx.eval(actual, expected)
+
+    assert actual.shape == shape
+    np.testing.assert_array_equal(
+        np.array(actual.astype(mx.float32)), np.array(expected.astype(mx.float32))
+    )
+
+
+def test_dense_qmv_candidates_bound_live_accumulators():
+    """Row batching must not push the SIMDgroup into register spills."""
+    from metile.backends import mlx_dense_residual, mlx_dense_swiglu
+
+    wide = mlx_dense_residual._candidate_configs(31, 256, 128)
+    assert all(
+        config.algorithm == "mlx" or 31 * config.outputs_per_simdgroup <= 32 for config in wide
+    )
+    assert any(config.algorithm == "metile" for config in wide)
+    # Above the NAX threshold the tile kernels take over from the QMV schedules.
+    at_nax = mlx_dense_swiglu._candidate_configs(32, 256, 128, paired_available=True)
+    assert all(
+        not config.implementation.startswith("simdgroup")
+        for config in at_nax
+        if config.algorithm == "metile"
+    )
+
+
 def test_mlx_dense_residual_requires_exact_speedup_margin():
     from metile.backends import mlx_dense_residual
 
@@ -626,6 +779,138 @@ def test_mlx_generated_affine8_swiglu_matches_bfloat16_native(monkeypatch):
     )
 
 
+def test_confirm_pairwise_times_each_candidate_alone_against_the_baseline():
+    """Candidates must be timed two at a time, and ranked on the ratio to the baseline.
+
+    How long a candidate measures depends on how many others share the round-robin, so
+    ranking from one crowded rotation can prefer a kernel that loses head to head. Ranking
+    on the ratio is what makes separate pairings comparable when the baseline drifts.
+    """
+    from metile.tuning import confirm_pairwise
+
+    # The baseline reads 1.0 in one pairing and 2.0 in the other, so raw times would rank
+    # `fast` (0.5) and `slow` (1.6) by that drift rather than by merit.
+    timings = {"fast": {"base": 1.0, "fast": 0.5}, "slow": {"base": 2.0, "slow": 1.6}}
+    group_sizes = []
+
+    def measure(thunk):
+        return thunk()
+
+    def thunk_for(subject, key):
+        return lambda: timings[subject][key]
+
+    def spy_round_robin(candidates, rounds, measure_fn):
+        group_sizes.append(len(candidates))
+        return {key: [measure_fn(thunk)] for key, thunk in candidates}
+
+    import metile.tuning.tournament as tournament
+
+    original = tournament.round_robin
+    tournament.round_robin = spy_round_robin
+    try:
+        results = {}
+        for subject in ("fast", "slow"):
+            candidates = [
+                ("base", thunk_for(subject, "base")),
+                (subject, thunk_for(subject, subject)),
+            ]
+            results.update(confirm_pairwise(candidates, "base", 3, measure))
+    finally:
+        tournament.round_robin = original
+
+    assert group_sizes == [2, 2]
+    # fast is 0.5x its baseline, slow is 0.8x its own, so fast must win despite 0.5 < 1.6
+    # having been measured against different baseline readings.
+    assert results["fast"] / results["base"] < results["slow"] / results["base"]
+
+
+def test_dense_swiglu_selection_prefers_the_faster_ratio():
+    """The backend's selection must act on confirmed timings, native included."""
+    pytest.importorskip("mlx.core")
+    from metile.backends import mlx_dense_swiglu
+
+    native = mlx_dense_swiglu.MLXDenseSwiGLUConfig("mlx")
+    fast = mlx_dense_swiglu.MLXDenseSwiGLUConfig(
+        "metile", implementation="simdgroup_paired", outputs_per_simdgroup=2
+    )
+    slow = mlx_dense_swiglu.MLXDenseSwiGLUConfig(
+        "metile", implementation="simdgroup_paired", outputs_per_simdgroup=1
+    )
+    chosen = mlx_dense_swiglu._choose_config([(1.0, 0, native), (0.5, 10, fast), (0.9, 20, slow)])
+    assert chosen is fast
+
+    # Nothing clears the switch margin, so native stays.
+    assert mlx_dense_swiglu._choose_config([(1.0, 0, native), (0.999, 10, fast)]) is native
+
+
+def test_mlx_affine_swiglu_offers_a_multi_row_candidate():
+    """Above one row the fused SwiGLU kernels do not apply, so one candidate must survive.
+
+    Without this the tournament has only scalar kernels and native MLX to choose between
+    for rows 2 to 31, and native wins the whole batched band by default.
+    """
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    four_bit = mlx_quantized._affine_swiglu_configs(mx.float16, 4)
+    assert any(config.implementation == "matmul" for config in four_bit)
+
+    # from_mlx only accepts 4-bit group-64 weights, so the candidate must not be offered
+    # at 8 bits where it could only fail to build.
+    eight_bit = mlx_quantized._affine_swiglu_configs(mx.float16, 8)
+    assert all(config.implementation != "matmul" for config in eight_bit)
+
+    assert any(
+        config.algorithm == "metile_matmul" for config in mlx_quantized._AFFINE_RESIDUAL_CONFIGS
+    )
+
+
+@pytest.mark.parametrize("rows", (2, 8))
+def test_mlx_affine_matmul_swiglu_candidate_matches_native(rows, monkeypatch):
+    """The multi-row candidate has to agree with native MLX before it may be selected."""
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    random = np.random.default_rng(71)
+    input_features = 256
+    output_features = 128
+    values = mx.array(random.normal(size=(rows, input_features)).astype(np.float16))
+    gate = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    up = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    gate_weight, gate_scales, gate_biases = mx.quantize(gate, group_size=64, bits=4)
+    up_weight, up_scales, up_biases = mx.quantize(up, group_size=64, bits=4)
+
+    executor, _ = mlx_quantized._make_affine_swiglu_executor(
+        mlx_quantized.MLXAffineSwiGLUConfig("metile", "matmul"),
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    actual = executor(values)
+    expected = mlx_quantized._native_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    mx.eval(actual, expected)
+
+    assert actual.shape == expected.shape
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
+
+
 def test_mlx_affine8_swiglu_configs_exclude_nax_and_bfloat16_half_decode():
     mx = pytest.importorskip("mlx.core")
     from metile.backends import mlx_quantized
@@ -786,7 +1071,9 @@ def test_mlx_nax_affine_swiglu_matches_quantized_matmul(lifetime_schedule, monke
 @pytest.mark.parametrize(
     ("compiled_latency", "generated_latency", "expected_algorithm"),
     (
-        (0.99, 1.0, "mlx_compiled"),
+        (0.96, 1.0, "mlx_compiled"),
+        # A 1% compiled win is inside the run-to-run noise floor, so it must not switch.
+        (0.99, 1.0, "mlx"),
         (0.998, 1.0, "mlx"),
         (1.0, 0.975, "mlx"),
         (1.0, 0.96, "metile"),
@@ -817,7 +1104,9 @@ def test_mlx_affine_swiglu_uses_separate_exact_and_generated_margins(
 @pytest.mark.parametrize(
     ("compiled_latency", "generated_latency", "expected_algorithm"),
     (
-        (0.99, 1.0, "mlx_compiled"),
+        (0.96, 1.0, "mlx_compiled"),
+        # A 1% compiled win is inside the run-to-run noise floor, so it must not switch.
+        (0.99, 1.0, "mlx"),
         (0.998, 1.0, "mlx"),
         (1.0, 0.995, "mlx"),
         (1.0, 0.985, "metile"),

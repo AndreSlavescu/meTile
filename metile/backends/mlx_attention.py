@@ -15,6 +15,7 @@ from metile.backends.mlx import (
     _mlx_dtype_to_numpy,
     _mlx_kernel_body,
     _replace_identifier,
+    calibrate_tournament_batch,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 
@@ -108,7 +109,12 @@ def _native_attention(query, key, value, scale, causal):
 
     arguments = {"scale": scale}
     if causal:
-        arguments["mask"] = _causal_attention_bias(query, key)
+        # MLX masks causally without materializing anything. Building the bias tensor
+        # instead costs a full [queries, keys] allocation on every call, which made the
+        # native reference look slower than it is and biased the tournament toward the
+        # generated kernel. The two agree bitwise, including when queries < keys, where
+        # both align the mask to the bottom right.
+        arguments["mask"] = "causal"
     return mx.fast.scaled_dot_product_attention(query, key, value, **arguments)
 
 
@@ -156,6 +162,8 @@ def _tune_flash_attention(query, key, value, scale, causal):
         if candidate[0].algorithm == "mlx"
         or bool(mx.allclose(candidate[3], reference, rtol=tolerance, atol=tolerance).item())
     ]
+    # One eval per batch; see calibrate_tournament_batch.
+    batch = calibrate_tournament_batch(compatible[0][1])
     samples = {config: [] for config, _, _, _ in compatible}
     for round_index in range(11):
         ordered = (
@@ -166,8 +174,8 @@ def _tune_flash_attention(query, key, value, scale, causal):
             ordered.reverse()
         for config, dispatch, _, _ in ordered:
             start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+            mx.eval([dispatch() for _ in range(batch)])
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     provisional = {
         config: statistics.median(config_samples) for config, config_samples in samples.items()
     }
@@ -193,8 +201,8 @@ def _tune_flash_attention(query, key, value, scale, causal):
             ordered.reverse()
         for config, dispatch, _, _ in ordered:
             start = time.perf_counter_ns()
-            mx.eval(dispatch())
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+            mx.eval([dispatch() for _ in range(batch)])
+            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     return _choose_framework_config(
         [
             (statistics.median(samples[config]), description_bits, config)
@@ -214,6 +222,10 @@ def _persistent_key(query, key, scale, causal):
             "dtype": str(query.dtype),
             "key_shape": tuple(key.shape),
             "mlx": mx.__version__,
+            # The tournament compares against _native_attention and times candidates with
+            # _tune_flash_attention, so a change to either invalidates the stored pick.
+            "native": inspect.getsource(_native_attention),
+            "measure": inspect.getsource(_tune_flash_attention),
             "query_shape": tuple(query.shape),
             "scale": float(scale),
             "source": inspect.getsource(attention_flash_kernel.fn),

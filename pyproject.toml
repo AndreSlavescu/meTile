@@ -60,7 +60,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"benchmarks/*.py" = ["E402"]
+# B023: the timing helpers take the work as a closure and call it before returning, so a
+# closure built in a sweep loop never outlives the iteration that built it. Binding each
+# captured tensor as a default argument would only obscure what is being measured.
+"benchmarks/*.py" = ["E402", "B023"]
 "examples/*.py" = ["E402"]
 
 [tool.ruff.lint.isort]

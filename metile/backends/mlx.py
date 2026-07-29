@@ -327,6 +327,7 @@ def _persistent_key(query, key, scale, configs):
             "configs": [vars(config) for config in configs],
             "dtype": str(query.dtype),
             "key_value_heads": key.shape[1],
+            "measure": inspect.getsource(_tune_framework_kernels),
             "mlx": mx.__version__,
             "query_heads": query.shape[1],
             "scale": scale,
@@ -376,6 +377,7 @@ def _rms_persistent_key(values, eps, configs):
             "mlx": mx.__version__,
             "rows": _token_bucket(values.size // values.shape[-1]),
             "source": inspect.getsource(rmsnorm.fn),
+            "measure": inspect.getsource(_tune_framework_kernels),
             "switch_margin": _FRAMEWORK_SWITCH_MARGIN,
             "tuner": 2,
         }
@@ -420,6 +422,7 @@ def _add_rms_persistent_key(values, eps, configs):
             "mlx": mx.__version__,
             "rows": _token_bucket(values.size // values.shape[-1]),
             "source": inspect.getsource(add_rmsnorm.fn),
+            "measure": inspect.getsource(_tune_framework_kernels),
             "switch_margin": _GRAPH_FUSION_SWITCH_MARGIN,
             "tuner": 2,
         }
@@ -471,7 +474,7 @@ def _tune_mlx_attention(query, key, value, scale, configs):
             kernels.append(
                 (config, lambda kernel=kernel: kernel(query, key, value), kernel.description_bits)
             )
-    return _tune_framework_kernels(kernels, lambda dispatch: mx.eval(dispatch()))
+    return _tune_framework_kernels(kernels, _batched_evaluator())
 
 
 def _tune_mlx_rms_norm(values, weight, eps, configs):
@@ -491,7 +494,7 @@ def _tune_mlx_rms_norm(values, weight, eps, configs):
             kernels.append(
                 (config, lambda kernel=kernel: kernel(values, weight), kernel.description_bits)
             )
-    return _tune_framework_kernels(kernels, lambda dispatch: mx.eval(dispatch()))
+    return _tune_framework_kernels(kernels, _batched_evaluator())
 
 
 def _tune_mlx_add_rms_norm(values, residual, weight, eps, configs):
@@ -516,14 +519,59 @@ def _tune_mlx_add_rms_norm(values, residual, weight, eps, configs):
             )
     return _tune_framework_kernels(
         kernels,
-        lambda dispatch: mx.eval(*dispatch()),
+        _batched_evaluator(unpack=True),
         margin=_GRAPH_FUSION_SWITCH_MARGIN,
     )
+
+
+_TOURNAMENT_SAMPLE_TARGET_NS = 10_000_000
+_TOURNAMENT_MAX_BATCH = 32
+
+
+def calibrate_tournament_batch(dispatch, evaluate=None):
+    """Choose how many dispatches to queue per timed tournament sample.
+
+    A blocking ``mx.eval`` round trip costs roughly 200 us on Apple silicon regardless
+    of kernel size. Timing a single dispatch per sample therefore adds that constant to
+    every candidate and compresses the ratios between them toward 1.0, so a switch
+    margin can admit a kernel that is actually slower (or reject one that is faster).
+    Queue enough work per sample that the round trip is a small part of it.
+    """
+    mx = _require_mlx()
+    if evaluate is None:
+
+        def evaluate(dispatch):
+            mx.eval(dispatch())
+
+    evaluate(dispatch)
+    start = time.perf_counter_ns()
+    evaluate(dispatch)
+    span = max(time.perf_counter_ns() - start, 1)
+    return max(1, min(_TOURNAMENT_MAX_BATCH, _TOURNAMENT_SAMPLE_TARGET_NS // span))
+
+
+def _batched_evaluator(unpack=False):
+    """Build an ``evaluate(dispatch, count)`` that queues count dispatches per eval."""
+    mx = _require_mlx()
+
+    def evaluate(dispatch, count=1):
+        outputs = []
+        for _ in range(count):
+            result = dispatch()
+            if unpack:
+                outputs.extend(result)
+            else:
+                outputs.append(result)
+        mx.eval(outputs)
+
+    return evaluate
 
 
 def _tune_framework_kernels(kernels, evaluate, *, margin=_FRAMEWORK_SWITCH_MARGIN):
     for _, dispatch, _ in kernels:
         evaluate(dispatch)
+
+    batch = calibrate_tournament_batch(kernels[0][1], evaluate)
 
     def measure(active, rounds):
         samples = {config: [] for config, _, _ in active}
@@ -534,8 +582,8 @@ def _tune_framework_kernels(kernels, evaluate, *, margin=_FRAMEWORK_SWITCH_MARGI
                 ordered.reverse()
             for config, dispatch, _ in ordered:
                 start = time.perf_counter_ns()
-                evaluate(dispatch)
-                samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+                evaluate(dispatch, batch)
+                samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
         return samples
 
     provisional_samples = measure(kernels, 11)

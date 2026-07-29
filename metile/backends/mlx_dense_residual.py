@@ -7,7 +7,11 @@ import threading
 import time
 from dataclasses import dataclass
 
-from metile.backends.mlx import _mlx_kernel_body, _specialize_mlx_source
+from metile.backends.mlx import (
+    _mlx_kernel_body,
+    _specialize_mlx_source,
+    calibrate_tournament_batch,
+)
 from metile.codegen import msl_emitter
 from metile.codegen.msl_emitter import emit
 from metile.compiler.dense import lower_dense_residual_qmv
@@ -62,13 +66,20 @@ def _native_dense_residual(values, weight, residual):
     return values @ weight.T + residual
 
 
+_MAX_QMV_ROWS = 31
+_MAX_QMV_ACCUMULATORS = 32
+
+
 def _candidate_configs(rows, reduction, output_features):
     return tuple(
         config
         for config in _CONFIGS
         if config.algorithm == "mlx"
         or (
-            rows == 1
+            # One accumulator per (row, output) lives in registers for the whole K loop,
+            # so bound the product to keep the SIMDgroup off the spill path.
+            1 <= rows <= _MAX_QMV_ROWS
+            and rows * config.outputs_per_simdgroup <= _MAX_QMV_ACCUMULATORS
             and reduction % 128 == 0
             and output_features % (config.outputs_per_simdgroup * config.simdgroups_per_threadgroup)
             == 0
@@ -76,12 +87,12 @@ def _candidate_configs(rows, reduction, output_features):
     )
 
 
-def _compile_mlx_dense_residual(reduction, output_features, dtype, config):
+def _compile_mlx_dense_residual(reduction, output_features, dtype, config, rows=1):
     import mlx.core as mx
 
     if config.algorithm != "metile":
         raise ValueError("only meTile dense residual configs compile a Metal kernel")
-    key = (reduction, output_features, str(dtype), config)
+    key = (reduction, output_features, str(dtype), config, rows)
     cached = _kernel_cache.get(key)
     if cached is not None:
         return cached
@@ -95,6 +106,7 @@ def _compile_mlx_dense_residual(reduction, output_features, dtype, config):
                 reduction,
                 outputs_per_simdgroup=config.outputs_per_simdgroup,
                 simdgroups_per_threadgroup=config.simdgroups_per_threadgroup,
+                rows=rows,
             )
         ),
         dtype,
@@ -129,6 +141,7 @@ def mlx_dense_residual_backend_signature():
             "dispatch": inspect.getsource(mlx_dense_residual_qmv),
             "init_emitter": inspect.getsource(msl_emitter._emit_dot_accumulator_init),
             "lowering": inspect.getsource(lower_dense_residual_qmv),
+            "measure": inspect.getsource(_measure_dispatches),
             "selection": inspect.getsource(_choose_config),
             "store_emitter": inspect.getsource(msl_emitter._emit_dot_residual_store),
             "switch_margin": _SWITCH_MARGIN,
@@ -186,9 +199,11 @@ def _choose_config(results):
     return choose_mdl_tie([result for result in generated if result[0] <= cutoff])
 
 
-def _measure_dispatches(dispatches, rounds, *, batch=4):
+def _measure_dispatches(dispatches, rounds, *, batch=None):
     import mlx.core as mx
 
+    if batch is None:
+        batch = calibrate_tournament_batch(dispatches[0][1])
     samples = {config: [] for config, _, _ in dispatches}
     for round_index in range(rounds):
         shift = round_index % len(dispatches)
@@ -197,17 +212,38 @@ def _measure_dispatches(dispatches, rounds, *, batch=4):
             ordered.reverse()
         for config, dispatch, _ in ordered:
             start = time.perf_counter_ns()
-            for _ in range(batch):
-                mx.eval(dispatch())
+            # One eval per batch; see calibrate_tournament_batch for why per-dispatch
+            # evaluation distorts the comparison between candidates.
+            mx.eval([dispatch() for _ in range(batch)])
             samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
     return samples
 
 
-def _tune_config(values, weight, residual, configs):
+def _tune_config(values, weight, residual, configs, rows=1):
     import mlx.core as mx
 
     reference = _native_dense_residual(values, weight, residual)
     mx.eval(reference)
+    # MLX switches to a tile kernel above one row, so its result is not bit-comparable.
+    # Require instead that every row match MLX's own single-row projection exactly, which
+    # is what a batched decode step must reproduce to stay equivalent to decoding those
+    # tokens one at a time. Rows come from a flattened view because callers pass rank-3
+    # [batch, sequence, hidden] as well as rank-2, and slicing axis 0 on the former
+    # yields empty rows.
+    if 1 < rows <= _MAX_QMV_ROWS:
+        flat_values = values.reshape(rows, values.shape[-1])
+        flat_residual = residual.reshape(rows, residual.shape[-1])
+        per_row = mx.concatenate(
+            [
+                _native_dense_residual(
+                    flat_values[row : row + 1], weight, flat_residual[row : row + 1]
+                )
+                for row in range(rows)
+            ],
+            axis=0,
+        ).reshape(reference.shape)
+        mx.eval(per_row)
+        reference = per_row
     dispatches = []
     for config in configs:
         if config.algorithm == "mlx":
@@ -225,6 +261,7 @@ def _tune_config(values, weight, residual, configs):
                 weight.shape[0],
                 values.dtype,
                 config,
+                rows,
             )
             actual = kernel(values, weight, residual)
             mx.eval(actual)
@@ -266,14 +303,16 @@ def mlx_dense_residual_qmv(values, weight, residual, *, autotune=True):
         raise ValueError("dense residual QMV residual shape must match the projected output")
     if values.dtype != weight.dtype or values.dtype != residual.dtype:
         raise TypeError("dense residual QMV requires matching input dtypes")
-    if str(values.dtype) not in ("mlx.core.bfloat16", "mlx.core.float16"):
+    dtype_name = str(values.dtype)
+    if dtype_name not in ("mlx.core.bfloat16", "mlx.core.float16"):
         raise TypeError("dense residual QMV requires bfloat16 or float16")
 
     rows = values.size // values.shape[-1]
-    configs = _candidate_configs(rows, weight.shape[1], weight.shape[0])
-    schedule_key = (rows, weight.shape[1], weight.shape[0], str(values.dtype))
+    schedule_key = (rows, weight.shape[1], weight.shape[0], dtype_name)
     selected = _schedule_cache.get(schedule_key)
     if selected is None:
+        # Only needed on a cache miss; keep it off the steady-state decode path.
+        configs = _candidate_configs(rows, weight.shape[1], weight.shape[0])
         with _cache_lock:
             selected = _schedule_cache.get(schedule_key)
             if selected is None:
@@ -281,7 +320,7 @@ def mlx_dense_residual_qmv(values, weight, residual, *, autotune=True):
                 selected = _read_config(key, configs)
                 if selected is None:
                     selected = (
-                        _tune_config(values, weight, residual, configs)
+                        _tune_config(values, weight, residual, configs, rows)
                         if autotune
                         else next(config for config in configs if config.algorithm == "metile")
                     )
@@ -295,6 +334,7 @@ def mlx_dense_residual_qmv(values, weight, residual, *, autotune=True):
         weight.shape[0],
         values.dtype,
         selected,
+        rows,
     )
     return kernel(values, weight, residual)
 

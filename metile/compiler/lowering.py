@@ -2159,9 +2159,17 @@ class _ElementwiseLoweringContext:
                         compare_idx = i
                         break
                 if compare_idx is not None:
-                    pre_ops = body_metal_ops[: compare_idx + 1]
-                    if_body = body_metal_ops[compare_idx + 1 :]
-                    body_metal_ops = [*pre_ops, mir.IfBlock(condition=mask_mv, body=if_body)]
+                    if op.masked_identity is None:
+                        pre_ops = body_metal_ops[: compare_idx + 1]
+                        if_body = body_metal_ops[compare_idx + 1 :]
+                        body_metal_ops = [
+                            *pre_ops,
+                            mir.IfBlock(condition=mask_mv, body=if_body),
+                        ]
+                    else:
+                        body_metal_ops = self._predicate_masked_load(
+                            body_metal_ops, compare_idx, mask_mv, op.masked_identity
+                        )
 
         loop = mir.MForLoop(
             iv_name=op.iv.name,
@@ -2174,6 +2182,50 @@ class _ElementwiseLoweringContext:
             loop._num_stages = op.num_stages
         result_ops.append(loop)
         return result_ops
+
+    def _predicate_masked_load(self, body_metal_ops, compare_idx, mask_mv, identity):
+        """Guard only the load, and give masked lanes a reduction identity.
+
+        A threadgroup reduction inside a mask branch deadlocks or reads garbage, because
+        threads whose lane is masked off never reach the barrier. So instead of wrapping
+        the whole body, hoist the loaded value to a variable seeded with the identity,
+        assign it under the branch, and leave everything downstream unguarded. Every
+        thread then reaches the reduction, and masked lanes contribute a value the law
+        says cannot change the result.
+        """
+        load_idx = None
+        for index in range(compare_idx + 1, len(body_metal_ops)):
+            if isinstance(body_metal_ops[index], mir.DeviceLoad):
+                load_idx = index
+                break
+        if load_idx is None:
+            pre_ops = body_metal_ops[: compare_idx + 1]
+            return [
+                *pre_ops,
+                mir.IfBlock(condition=mask_mv, body=body_metal_ops[compare_idx + 1 :]),
+            ]
+
+        loaded = body_metal_ops[load_idx].result
+        dtype = loaded.type.dtype if hasattr(loaded.type, "dtype") else "f32"
+        var_name = f"_masked_{loaded.name}"
+
+        seed_op = mir.MConstant(value=identity, dtype=dtype)
+        seed_mv = mir.MValue(f"{var_name}_identity", ScalarType(dtype))
+        seed_op.result = seed_mv
+        seed_mv.defining_op = seed_op
+
+        guarded = body_metal_ops[compare_idx + 1 : load_idx + 1]
+        guarded.append(mir.MVarAssign(var_name=var_name, value=loaded))
+        trailing = body_metal_ops[load_idx + 1 :]
+        self._replace_mvalue_refs(trailing, loaded, mir.MValue(var_name, loaded.type))
+
+        return [
+            *body_metal_ops[: compare_idx + 1],
+            seed_op,
+            mir.MVarDecl(var_name=var_name, init_value=seed_mv, dtype=dtype, tile_valued=True),
+            mir.IfBlock(condition=mask_mv, body=guarded),
+            *trailing,
+        ]
 
     def _detect_accumulation(self, for_range_op: tir.ForRange):
         """Detect accumulation patterns in a ForRange body.

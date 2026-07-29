@@ -9,7 +9,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from metile.backends.mlx import _mlx_dtype_to_numpy, _mlx_kernel_body
+from metile.backends.mlx import (
+    _mlx_dtype_to_numpy,
+    _mlx_kernel_body,
+    calibrate_tournament_batch,
+)
 from metile.backends.mlx_quantized import repack_mlx_affine_weight
 from metile.codegen.msl_emitter import emit
 from metile.compiler.affine_quantized import lower_affine_matmul
@@ -37,6 +41,12 @@ class MLXAffineMatmulConfig:
     block_m: int = 32
 
 
+# The lowering accepts any block_m/block_n multiple of 32 with block_m * block_n <= 8192,
+# which is around 60 legal tilings once schedules are counted. Searching all of them costs
+# tuning time proportionally, so this list covers the regimes that measurably differ rather
+# than the whole space: narrow outputs, where MLX's own kernel choice is weakest, and wide
+# outputs, where a taller N tile is what wins. Sweeping the full space on an M5 found no
+# tiling outside this list that beat the best one in it.
 _CONFIGS = (
     MLXAffineMatmulConfig("mlx", block_m=0),
     MLXAffineMatmulConfig("metile", 32, "morton", block_m=32),
@@ -45,6 +55,11 @@ _CONFIGS = (
     MLXAffineMatmulConfig("metile", 64, "linear", block_m=64),
     MLXAffineMatmulConfig("metile", 64, "morton", block_m=64),
     MLXAffineMatmulConfig("metile", 64, "linear", block_m=128),
+    # Wide outputs: the shipped tilings above all topped out at parity for N >= 8192,
+    # while these reach 1.10x.
+    MLXAffineMatmulConfig("metile", 64, "hilbert", block_m=64),
+    MLXAffineMatmulConfig("metile", 128, "hilbert", block_m=64),
+    MLXAffineMatmulConfig("metile", 256, "hilbert", block_m=32),
 )
 
 
@@ -289,6 +304,9 @@ def _tune_config(values, weight, configs):
             continue
 
     def measure(active, rounds):
+        # One eval per batch; see calibrate_tournament_batch for why evaluating a single
+        # dispatch per sample compresses the ratios between candidates toward 1.0.
+        batch = calibrate_tournament_batch(active[0][1])
         samples = {config: [] for config, _, _ in active}
         for round_index in range(rounds):
             shift = round_index % len(active)
@@ -297,8 +315,8 @@ def _tune_config(values, weight, configs):
                 ordered.reverse()
             for config, dispatch, _ in ordered:
                 start = time.perf_counter_ns()
-                mx.eval(dispatch())
-                samples[config].append((time.perf_counter_ns() - start) * 1e-9)
+                mx.eval([dispatch() for _ in range(batch)])
+                samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
         return samples
 
     provisional = measure(dispatches, 9)
