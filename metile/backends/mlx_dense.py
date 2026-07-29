@@ -4,7 +4,6 @@ import inspect
 import os
 import statistics
 import threading
-import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -15,6 +14,7 @@ from metile.backends.mlx import (
     _mlx_compiler_dtype,
     _mlx_kernel_body,
     _specialize_mlx_source,
+    batched_measure,
     calibrate_tournament_batch,
 )
 from metile.compiler.lowering import _lower_tensor_ops_gemm
@@ -22,6 +22,7 @@ from metile.compiler.passes import decompose_nax_fragments
 from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 from metile.runtime.metal_device import MetalDevice
+from metile.tuning import round_robin, select_fastest
 
 _kernel_cache = {}
 _schedule_cache = {}
@@ -246,35 +247,14 @@ def _accuracy_compatible(actual, reference):
 
 
 def _choose_config(results):
-    native = next(result for result in results if result[2].algorithm == "mlx")
-    alternatives = [result for result in results if result[2].algorithm == "metile"]
-    if not alternatives:
-        return native[2]
-    fastest = min(alternatives, key=lambda result: result[0])
-    if fastest[0] >= native[0] * (1.0 - _SWITCH_MARGIN):
-        return native[2]
-    cutoff = fastest[0] * 1.0025
-    return choose_mdl_tie([result for result in alternatives if result[0] <= cutoff])
+    native = next(result for result in results if result[2].algorithm == "mlx")[2]
+    return select_fastest(results, native, lambda _config: _SWITCH_MARGIN, tie_break=choose_mdl_tie)
 
 
 def _measure_dispatches(dispatches, rounds, *, batch=None):
-    import mlx.core as mx
-
     if batch is None:
         batch = calibrate_tournament_batch(dispatches[0][1])
-    samples = {config: [] for config, _, _ in dispatches}
-    for round_index in range(rounds):
-        shift = round_index % len(dispatches)
-        ordered = dispatches[shift:] + dispatches[:shift]
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            # One eval per batch; see calibrate_tournament_batch for why per-dispatch
-            # evaluation distorts the comparison between candidates.
-            mx.eval([dispatch() for _ in range(batch)])
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
-    return samples
+    return round_robin(dispatches, rounds, batched_measure(batch))
 
 
 def _tune_config(values, weight, configs):

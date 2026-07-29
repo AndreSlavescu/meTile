@@ -550,6 +550,23 @@ def calibrate_tournament_batch(dispatch, evaluate=None):
     return max(1, min(_TOURNAMENT_MAX_BATCH, _TOURNAMENT_SAMPLE_TARGET_NS // span))
 
 
+def batched_measure(batch):
+    """Return ``measure(dispatch) -> seconds`` averaged over ``batch`` queued dispatches.
+
+    One eval for the whole batch. Evaluating per dispatch adds the blocking round trip to
+    every candidate, which compresses the ratios between them toward 1.0 and lets a switch
+    margin admit a kernel that is actually slower. See calibrate_tournament_batch.
+    """
+    mx = _require_mlx()
+
+    def measure(dispatch):
+        start = time.perf_counter_ns()
+        mx.eval([dispatch() for _ in range(batch)])
+        return (time.perf_counter_ns() - start) * 1e-9 / batch
+
+    return measure
+
+
 def _batched_evaluator(unpack=False):
     """Build an ``evaluate(dispatch, count)`` that queues count dispatches per eval."""
     mx = _require_mlx()
