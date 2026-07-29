@@ -107,6 +107,11 @@ _AFFINE_SWIGLU_CONFIGS = tuple(
     ]
     + [MLXAffineSwiGLUConfig("metile", "nax", block) for block in (32, 64, 128)]
     + [MLXAffineSwiGLUConfig("metile", "nax_scratch", block) for block in (32, 64, 128)]
+    # The fused SwiGLU kernels above are single-row, so from two rows up the only
+    # candidates left were the scalar ones, which lose, and the tournament settled on
+    # native MLX for the whole batched band. This one builds the block from two multi-row
+    # affine matmuls, which keep weight traffic flat as rows grow.
+    + [MLXAffineSwiGLUConfig("metile", "matmul")]
     + [
         MLXAffineSwiGLUConfig("metile", "scratch", block, outputs_per_simdgroup, decode_dtype)
         for block, outputs_per_simdgroup, decode_dtype in (
@@ -122,7 +127,11 @@ _AFFINE_SWIGLU_CONFIGS = tuple(
 )
 
 _AFFINE_RESIDUAL_CONFIGS = tuple(
-    [MLXAffineResidualConfig("mlx"), MLXAffineResidualConfig("mlx_compiled")]
+    [
+        MLXAffineResidualConfig("mlx"),
+        MLXAffineResidualConfig("mlx_compiled"),
+        MLXAffineResidualConfig("metile_matmul"),
+    ]
     + [
         MLXAffineResidualConfig("metile", block, outputs_per_simdgroup, decode_dtype)
         for block, outputs_per_simdgroup, decode_dtype in (
@@ -1041,6 +1050,22 @@ def _make_affine_swiglu_executor(
             ),
             kernel.description_bits,
         )
+    if config.implementation == "matmul":
+        # Imported here because mlx_affine imports this module for weight repacking.
+        import mlx.nn as nn
+
+        from metile.backends.mlx_affine import MLXAffineWeight, mlx_affine_matmul
+
+        gate = MLXAffineWeight.from_mlx(
+            gate_weight, gate_scales, gate_biases, group_size=group_size, bits=bits
+        )
+        up = MLXAffineWeight.from_mlx(
+            up_weight, up_scales, up_biases, group_size=group_size, bits=bits
+        )
+        return (
+            lambda values: nn.silu(mlx_affine_matmul(values, gate)) * mlx_affine_matmul(values, up),
+            compressed_description_bits(inspect.getsource(mlx_affine_matmul)),
+        )
     if config.implementation in {"nax", "nax_scratch"}:
         if sample_values.size != sample_values.shape[-1]:
             raise ValueError("native affine SwiGLU schedules require one decode row")
@@ -1129,6 +1154,20 @@ def _make_affine_residual_executor(
                 bits,
             ),
             compressed_description_bits(inspect.getsource(_native_affine_residual_qmv)),
+        )
+    if config.algorithm == "metile_matmul":
+        # Same reasoning as the SwiGLU matmul candidate: the generated residual QMV below
+        # is single-row, so the down projection had nothing to offer above one row.
+        # from_mlx rejects anything but 4-bit group-64, and the tuner drops candidates it
+        # cannot build, so this simply does not compete at other formats.
+        from metile.backends.mlx_affine import MLXAffineWeight, mlx_affine_matmul
+
+        projection = MLXAffineWeight.from_mlx(
+            weight, scales, biases, group_size=group_size, bits=bits
+        )
+        return (
+            lambda values, residual: mlx_affine_matmul(values, projection) + residual,
+            compressed_description_bits(inspect.getsource(mlx_affine_matmul)),
         )
     if sample_values.size != sample_values.shape[-1]:
         raise ValueError("generated affine residual QMV requires one decode row")

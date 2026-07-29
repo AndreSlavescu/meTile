@@ -779,6 +779,74 @@ def test_mlx_generated_affine8_swiglu_matches_bfloat16_native(monkeypatch):
     )
 
 
+def test_mlx_affine_swiglu_offers_a_multi_row_candidate():
+    """Above one row the fused SwiGLU kernels do not apply, so one candidate must survive.
+
+    Without this the tournament has only scalar kernels and native MLX to choose between
+    for rows 2 to 31, and native wins the whole batched band by default.
+    """
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    four_bit = mlx_quantized._affine_swiglu_configs(mx.float16, 4)
+    assert any(config.implementation == "matmul" for config in four_bit)
+
+    # from_mlx only accepts 4-bit group-64 weights, so the candidate must not be offered
+    # at 8 bits where it could only fail to build.
+    eight_bit = mlx_quantized._affine_swiglu_configs(mx.float16, 8)
+    assert all(config.implementation != "matmul" for config in eight_bit)
+
+    assert any(
+        config.algorithm == "metile_matmul" for config in mlx_quantized._AFFINE_RESIDUAL_CONFIGS
+    )
+
+
+@pytest.mark.parametrize("rows", (2, 8))
+def test_mlx_affine_matmul_swiglu_candidate_matches_native(rows, monkeypatch):
+    """The multi-row candidate has to agree with native MLX before it may be selected."""
+    mx = pytest.importorskip("mlx.core")
+    from metile.backends import mlx_quantized
+
+    monkeypatch.setenv("METILE_DISABLE_DISK_CACHE", "1")
+    random = np.random.default_rng(71)
+    input_features = 256
+    output_features = 128
+    values = mx.array(random.normal(size=(rows, input_features)).astype(np.float16))
+    gate = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    up = mx.array(random.normal(size=(output_features, input_features)).astype(np.float16))
+    gate_weight, gate_scales, gate_biases = mx.quantize(gate, group_size=64, bits=4)
+    up_weight, up_scales, up_biases = mx.quantize(up, group_size=64, bits=4)
+
+    executor, _ = mlx_quantized._make_affine_swiglu_executor(
+        mlx_quantized.MLXAffineSwiGLUConfig("metile", "matmul"),
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    actual = executor(values)
+    expected = mlx_quantized._native_affine_swiglu(
+        values,
+        gate_weight,
+        gate_scales,
+        gate_biases,
+        up_weight,
+        up_scales,
+        up_biases,
+        64,
+        4,
+    )
+    mx.eval(actual, expected)
+
+    assert actual.shape == expected.shape
+    np.testing.assert_allclose(np.array(actual), np.array(expected), rtol=3e-2, atol=3e-2)
+
+
 def test_mlx_affine8_swiglu_configs_exclude_nax_and_bfloat16_half_decode():
     mx = pytest.importorskip("mlx.core")
     from metile.backends import mlx_quantized
