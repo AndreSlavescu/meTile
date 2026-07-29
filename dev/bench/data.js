@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785313787223,
+  "lastUpdate": 1785318865514,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1035,6 +1035,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 549.61,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "886b758408f339c3f61681d6a028ef4c4a1d8ac4",
+          "message": "INT4 is no longer parity above four rows, and the published numbers now say so (#12)\n\n* Stop selecting mx.compile for affine SwiGLU, and share the tuning machinery\n\nTwo problems, one cause. The int4 decode block measured 0.919x against native\nMLX at one row, and the tuner was choosing the mx.compile variant to get there.\n\nMeasured directly, interleaved and batched, mx.compile of the affine SwiGLU is\n0.938x eager at one row, 0.946x at two, 1.014x at four and 1.005x at eight. It\nis never faster than noise and clearly slower exactly where it kept being\nselected. _COMPILED_SWITCH_MARGIN had already been raised twice to stop this and\ndid not, so the candidate is withdrawn rather than margined against again.\n\nThe reason it kept winning is the same one fixed for dense SwiGLU: a candidate's\nmeasured time depends on how many others share the round-robin, so ranking from\none crowded rotation does not survive head-to-head measurement. The affine tuner\nnow confirms finalists pairwise against native through metile/tuning.\n\nint4 decode block, 1536 -> 8960 -> 1536, paired against native MLX:\n\n  rows       1     2     4     8    16    32\n  before  0.93  0.97  1.00  1.22  1.30  1.25\n  after   1.04  1.01  1.00  1.24  1.32  1.24\n\nNothing is now slower than native at any row count.\n\nAlso ports mlx_dense and mlx_dense_residual onto metile/tuning. Both carried\nbyte-identical copies of the round-robin and the switch-margin logic, and the\nshared batched_measure now lives beside calibrate_tournament_batch where the\nreasoning about the eval round trip already was. Four of eight backends are on\nthe shared layer; mlx.py, mlx_affine, mlx_attention and mlx_block_scaled still\nhold their own copies.\n\n587 tests pass.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Put the affine and block-scaled tuners on the shared confirmation path\n\nBoth carried their own copy of the round-robin, and both decided from a single\ncrowded rotation. That is the ranking that does not survive isolated\nmeasurement: how long a candidate reads depends on how many others share the\nrotation with it.\n\nAffine now confirms finalists pairwise against native, the same shape the dense\nand quantized tuners use. Block-scaled has no native candidate to pair against,\nso the provisional fastest serves as the reference; what matters there is not\nwhich kernel is the baseline but that every finalist is measured in an\nidentically sized context.\n\nSix of eight MLX backends now share metile/tuning. mlx.py and mlx_attention\nstill hold their own copies.\n\nBoth tuners key their persistent caches on the tuner source, so existing\nselections invalidate on their own rather than surviving the change.\n\n587 tests pass.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Finish moving every MLX backend onto the shared tuning layer\n\nmlx.py's framework tuner and mlx_attention were the last two carrying their own\nround-robin, and mlx_dense_swiglu still had a private copy of the batched timing\nhelper. All eight backends now measure through metile/tuning and time through a\nsingle batched_measure that sits beside calibrate_tournament_batch, where the\nreasoning about the eval round trip already lived.\n\nBoth tuners also gain pairwise confirmation, so finalists are decided head to\nhead rather than from a rotation whose size changes what each candidate measures.\n\nSelection policy is deliberately left alone in these two. _choose_framework_config\nruns choose_mdl_tie over every generated candidate rather than over a cutoff\ncluster, which is not what select_fastest does, so porting the measurement without\nthe selection keeps behaviour identical where it was not the thing being fixed.\n\nmlx_attention carries four-element candidates rather than three; round_robin and\nconfirm_pairwise only read the identity and the thunk, so they take either.\n\n587 tests pass, vulture clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Refresh the published matrix: int4 is no longer parity above four rows\n\nThe matched-representation table predated the multi-row int4 candidates and the\nselection fix, so it reported the project as slower than it is. Re-measured on\nthe same machine, 25 interleaved rounds:\n\n  rows          1     2     4     8    16    32   128\n  BF16       1.02  1.69  1.82  1.65  1.52  1.06  1.11\n  INT4       1.02  1.02  1.02  1.29  1.31  1.23  1.00\n  INT8       0.98  0.99  1.00  1.00  1.00  1.00  1.00\n\nint4 was published as 0.99 / 0.88 / 0.99 / 1.00 / 0.99 / 0.98 across those row\ncounts. The 0.88 at two rows is gone with the mx.compile candidate, and rows 8\nto 32 now win outright at 100% of rounds rather than tying.\n\nThe batch-efficiency chart carried the same staleness in a worse form: int4 drew\none line labelled \"both\" on the assumption meTile defers to MLX there, which is\nno longer true, and the renderer had no path to draw two lines for a format that\nstops tracking. It now encodes format as colour and backend as dash, so each\npair sits in one hue and int4's gap is visible (70.9 against 52.4 GB/s at eight\nrows, 44.5 against 33.8 at sixteen). Palette checked with the validator: all\nchecks pass, and the one contrast warning is relieved by the direct labels that\nwere already there. The legend no longer repeats those labels six times and\nstates the encoding instead.\n\nTwo framing corrections while the numbers were being redone. \"Weights are read\nonce, so these should stay flat\" is wrong past eight rows, where both backends\nslope down because the same weights are serving eight to thirty-two times the\narithmetic; that part is not waste and the chart no longer implies it is. And\nsingle-token decode was described as MLX running at 120 to 126 GB/s against a\n120 GB/s ceiling, which cannot be right. Measured with batched dispatches it is\n93 to 97% of the ceiling, and a hand-written kernel matches without beating it.\n\n587 tests pass.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T05:51:38-04:00",
+          "tree_id": "597c75c13d216090b322ce0b95adfa6725d7c257",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/886b758408f339c3f61681d6a028ef4c4a1d8ac4"
+        },
+        "date": 1785318863742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 445.22,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3837.34,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 341.6,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1182.24,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 343.47,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1214.8,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 260.39,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 272.27,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 288.9,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 349.02,
             "unit": "us"
           }
         ]
