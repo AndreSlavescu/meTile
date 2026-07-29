@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785350241444,
+  "lastUpdate": 1785365947350,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1183,6 +1183,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 570.95,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36272c1c06409603424c45ff59e86df899465163",
+          "message": "Move the measured hardware model into the compiler (#14)\n\n* Do not switch away from native unless two measurements agree\n\nQwen3.6-27B's down projection was running at 0.79x native in the shape matrix.\nThe cause was not the kernel and not the tuner picking badly once. At the widest\nprefill shapes the measurement itself stops being able to rank candidates.\n\nMeasured at K=17408, the same three kernels, three ways:\n\n                    native   bn=128   bn=256\n  round-robin        2109     2701     1865    bn=256 fastest\n  pairwise           2090     3279     2433    bn=256 loses at 0.86x\n  isolated           2122     2486     1791    bn=256 wins at 1.18x\n\nThree readings, three orderings. Selection cannot be trusted there, and because\nthe answer is written to the persistent cache, one bad draw is replayed on every\nlater run. That is how a config measuring 0.85x native ended up serving the 27B.\nWith the cache disabled the same shape measures 1.00x; with it, 0.79x.\n\nThe tuner now requires the round-robin and the pairwise pass to agree, both\nclearing the switch margin, before it will leave native. Disagreement means the\nmeasurement cannot resolve the difference, and the honest response is to keep the\nkernel known not to lose. The gate only ever rejects candidates, so it cannot\nadmit anything new.\n\nThis is a mitigation, not a fix, and it should not be recorded as one. Across\nrepeated tunings it moved the 27B down projection from a cached 0.85x to native\nin four of five draws, but selections measuring 0.94x and 0.87x still get through\nat other shapes, and a small shape (K=1536) produced a 0.95x as well. The\nunderlying problem is that the verification measurement is itself noisy at these\nsizes, so no amount of agreement between two noisy passes guarantees a win.\n\nAlso releases each model's arrays in the shape matrix before quantizing the next.\nThat was investigated as the cause of the above and was not it, but holding two\nmodels' weights live across the transition is about a gigabyte of overlap at 27B\nscale and is worth not doing regardless.\n\n587 tests pass, vulture clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Move the measured hardware model into the compiler\n\nThe AGX work lived in benchmarks/, which is the wrong home for it. A register\nbudget and an ILP ceiling are properties of the target, and a pass that wants to\nknow whether a schedule can spill, or whether reordering could possibly pay,\nshould be able to ask the compiler rather than read a comment quoting a number\nsomebody once measured.\n\nmetile/target/agx.py now holds the machine model and the binary inspection that\nproduces it, each value recorded with how it was obtained and what it settled:\n\n  REGISTER_BUDGET        140, found by growing live values until the count stopped\n                         rising, then confirming kernels reaching it spill\n  ILP_CEILING            1.09x fp32, 1.41x fp16, from dependent fma chains against\n                         independent ones. A single dependent chain already hits\n                         92% of fp32 peak, which is why scheduling is not where\n                         effort belongs on this target\n  SCALAR/MATRIX peak     4.1 and 6.5 against 15.33 TFLOP/s, the gap that makes\n                         functional-unit selection outrank scheduling\n  STREAMING_READ_GBPS    120.6, measured, not the 153 on the spec sheet\n\nbenchmarks/agx_registers.py and agx_ilp_ceiling.py become consumers: the first is\nnow purely the command line over the reader plus the audit of what the dense\nSwiGLU bound admits, which is the reason the tool exists.\n\nOne thing deliberately not done. The dense SwiGLU bound's comment cites the\nbudget, and importing REGISTER_BUDGET there to make the link look structural\nwould be dishonest: the bound is rows * outputs_per_simdgroup <= 16, and the\nregister count is measurably not a function of that product, so the constant\nwould be decorative. Lint caught the unused import and it is gone. The comment\nnames the module instead.\n\ntests/test_target.py guards what depends on the model's shape, including that an\nunknown element type reports no ILP headroom rather than inheriting the largest\nknown value, and that the matrix-to-scalar ratio still exceeds the ILP ceiling.\nIf that ordering inverts on new hardware, the guidance built on it needs\nrevisiting rather than silently carrying over.\n\n591 tests pass, vulture clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T18:55:56-04:00",
+          "tree_id": "42ec3dca31233efb87043405c1b7ac029413d7f6",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/36272c1c06409603424c45ff59e86df899465163"
+        },
+        "date": 1785365946081,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 498.5,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4047.81,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 435.42,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1263.64,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 403.11,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1171.26,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 295.63,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 296.85,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 385.28,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 407.42,
             "unit": "us"
           }
         ]
