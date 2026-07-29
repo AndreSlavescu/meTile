@@ -76,9 +76,19 @@ it, so the 1.02x above is the whole of what is there.
 | Qwen 2.5 0.5B 4-bit | 0.99x | **1.27x** |
 | Qwen 2.5 1.5B 4-bit | 1.00x | **1.33x** |
 | Qwen 2.5 1.5B BF16 | 1.00x | 1.06x |
+| Qwen 3.5 4B 4-bit | 1.00x | 1.00x |
+| Qwen 3.5 9B 4-bit | 1.00x | 1.00x |
 
-Notice Llama 3.2 3B is missing. It gets nothing, and the reason is worth knowing before you
-try meTile on your own model:
+Those last two are worth reading carefully. A flat 1.00x looks like "nothing here", and it
+is not: it means nothing was available at the one shape this harness exercises. Measure the
+same models at their own layer shapes and both of them gain once you feed in more than one
+row:
+
+![Speedup by model shape](docs/_static/mlx-model-shape-speedup.png)
+
+Every model is near parity at one row, because that is bandwidth bound and there is nothing
+to win. Every model gains at sixteen rows, because the weights get reused. Only prefill
+depends on the model, and it depends on exactly one thing:
 
 ![Speedup by projection width](docs/_static/mlx-width-cliff.png)
 
@@ -174,6 +184,7 @@ python -m pytest tests/test_gemm.py -v         # one file
 
 make bench                                     # everything
 python benchmarks/matched_representation_matrix.py   # the batch-size table above
+python benchmarks/model_shape_matrix.py              # each model at its own layer shapes
 python benchmarks/shape_sensitivity.py               # the two shape charts above
 python benchmarks/graph_fusion_speedup.py            # the kernel table above
 python benchmarks/compile_comparison.py              # meTile vs mx.compile
