@@ -22,7 +22,7 @@ _root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _root)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from benchmarks.mlx_lm_backend import (  # noqa: E402
+from benchmarks.mlx_lm_backend import (
     _git_revision,
     _hardware_metadata,
     _package_version,
@@ -179,9 +179,15 @@ def main():
             if bits == 4:
                 execute = mlx_affine_mlp_executor(
                     values,
-                    gate_q, gate_s, gate_b,
-                    up_q, up_s, up_b,
-                    down_q, down_s, down_b,
+                    gate_q,
+                    gate_s,
+                    gate_b,
+                    up_q,
+                    up_s,
+                    up_b,
+                    down_q,
+                    down_s,
+                    down_b,
                     residual,
                     group_size=group_size,
                     bits=bits,
@@ -190,28 +196,34 @@ def main():
             else:
                 swiglu = mlx_affine_swiglu_executor(
                     values,
-                    gate_q, gate_s, gate_b,
-                    up_q, up_s, up_b,
+                    gate_q,
+                    gate_s,
+                    gate_b,
+                    up_q,
+                    up_s,
+                    up_b,
                     group_size=group_size,
                     bits=bits,
                 )
 
                 def execute(activations, residual_values, _swiglu=swiglu):
-                    projected = quantized_matmul(
-                        _swiglu(activations), down_q, down_s, down_b
-                    )
+                    projected = quantized_matmul(_swiglu(activations), down_q, down_s, down_b)
                     return projected + residual_values
 
                 note = "down projection stays native: no meTile int8 path"
 
             native, generated, ratio, wins = _paired(
                 mx,
-                lambda: quantized_matmul(
-                    nn.silu(quantized_matmul(values, gate_q, gate_s, gate_b))
-                    * quantized_matmul(values, up_q, up_s, up_b),
-                    down_q, down_s, down_b,
-                )
-                + residual,
+                lambda: (
+                    quantized_matmul(
+                        nn.silu(quantized_matmul(values, gate_q, gate_s, gate_b))
+                        * quantized_matmul(values, up_q, up_s, up_b),
+                        down_q,
+                        down_s,
+                        down_b,
+                    )
+                    + residual
+                ),
                 lambda: execute(values, residual),
                 arguments.rounds,
                 inner,

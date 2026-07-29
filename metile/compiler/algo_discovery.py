@@ -522,9 +522,7 @@ def _apply_online_softmax(func: tir.Function, pattern: _SoftmaxPattern) -> tir.F
         tir.Constant(value=0.0, dtype="f32", explicit_scalar=True), name("sprev"), scalar
     )
     online.append(previous_sum.defining_op)
-    rescaled = emit(
-        tir.BinOp(op="mul", lhs=previous_sum, rhs=correction), name("srescale"), scalar
-    )
+    rescaled = emit(tir.BinOp(op="mul", lhs=previous_sum, rhs=correction), name("srescale"), scalar)
     emit(tir.BinOp(op="add", lhs=rescaled, rhs=chunk_sum), sum_reduce.result.name, scalar)
 
     fused_body.extend(online)

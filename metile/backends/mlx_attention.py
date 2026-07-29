@@ -10,11 +10,11 @@ from dataclasses import dataclass
 import metile
 from kernels.attention import ATTENTION_FLASH_CONFIGS, attention_flash_kernel
 from metile.backends.mlx import (
+    MLXAttentionConfig,
     _choose_framework_config,
     _mlx_dtype_to_numpy,
     _mlx_kernel_body,
     _replace_identifier,
-    MLXAttentionConfig,
     calibrate_tournament_batch,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest

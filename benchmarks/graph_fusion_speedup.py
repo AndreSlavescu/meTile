@@ -22,12 +22,12 @@ from pathlib import Path
 _root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _root)
 
-import mlx.core as mx  # noqa: E402
-import numpy as np  # noqa: E402
+import mlx.core as mx
+import numpy as np
 
-from metile.backends.mlx import mlx_add_rms_norm  # noqa: E402
-from metile.backends.mlx_graph import compile_mlx_graph  # noqa: E402
-from metile.ir.graph_ir import GraphBuilder, TensorSpec  # noqa: E402
+from metile.backends.mlx import mlx_add_rms_norm
+from metile.backends.mlx_graph import compile_mlx_graph
+from metile.ir.graph_ir import GraphBuilder, TensorSpec
 
 
 def _arguments():

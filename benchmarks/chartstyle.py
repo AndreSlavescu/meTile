@@ -72,18 +72,34 @@ def headings(figure, title, subtitle, footer, left=0.045):
     """
     height = figure.get_size_inches()[1]
     figure.text(
-        left, 1 - 0.24 / height, title, fontsize=15, color=INK,
-        fontweight="bold", ha="left", va="top",
+        left,
+        1 - 0.24 / height,
+        title,
+        fontsize=15,
+        color=INK,
+        fontweight="bold",
+        ha="left",
+        va="top",
     )
     if subtitle:
         figure.text(
-            left, 1 - 0.60 / height, subtitle, fontsize=9.5, color=INK_SOFT,
-            ha="left", va="top",
+            left,
+            1 - 0.60 / height,
+            subtitle,
+            fontsize=9.5,
+            color=INK_SOFT,
+            ha="left",
+            va="top",
         )
     if footer:
         figure.text(
-            0.985, 0.14 / height, footer, fontsize=7.5, color=INK_MUTED,
-            ha="right", va="bottom",
+            0.985,
+            0.14 / height,
+            footer,
+            fontsize=7.5,
+            color=INK_MUTED,
+            ha="right",
+            va="bottom",
         )
 
 
@@ -108,7 +124,5 @@ def parity_rule(axis, orientation="vertical"):
 
 def save(figure, output):
     output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(
-        output, facecolor=SURFACE, metadata={"Software": "meTile benchmark renderer"}
-    )
+    figure.savefig(output, facecolor=SURFACE, metadata={"Software": "meTile benchmark renderer"})
     print(f"Wrote {output}")

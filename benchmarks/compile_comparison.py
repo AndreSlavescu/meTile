@@ -180,10 +180,22 @@ def _measure(arguments):
 
 def _run(arguments, workload, variant, rows, cache_dir):
     command = [
-        sys.executable, __file__,
-        "--variant", variant, "--workload", workload, "--row", str(rows),
-        "--hidden", str(arguments.hidden), "--intermediate", str(arguments.intermediate),
-        "--rounds", str(arguments.rounds), "--inner", str(arguments.inner),
+        sys.executable,
+        __file__,
+        "--variant",
+        variant,
+        "--workload",
+        workload,
+        "--row",
+        str(rows),
+        "--hidden",
+        str(arguments.hidden),
+        "--intermediate",
+        str(arguments.intermediate),
+        "--rounds",
+        str(arguments.rounds),
+        "--inner",
+        str(arguments.inner),
     ]
     environment = dict(os.environ)
     environment["METILE_CACHE_DIR"] = cache_dir
@@ -220,7 +232,7 @@ def _interleaved_steady(arguments, workload, rows):
     samples = {variant: [] for variant in builds}
     order = list(builds)
     for index in range(arguments.rounds):
-        rotated = order[index % len(order):] + order[: index % len(order)]
+        rotated = order[index % len(order) :] + order[: index % len(order)]
         if index & 1:
             rotated.reverse()
         for variant in rotated:
@@ -238,8 +250,10 @@ def main():
 
     print("Compilation cost, measured in a fresh process per variant.")
     print("Steady-state speed, measured in one process with the variants interleaved.")
-    print(f"MLP {arguments.hidden} -> {arguments.intermediate} -> {arguments.hidden} BF16 · "
-          "add+RMSNorm BF16 · decode attention 8 heads over 1024 keys FP32\n")
+    print(
+        f"MLP {arguments.hidden} -> {arguments.intermediate} -> {arguments.hidden} BF16 · "
+        "add+RMSNorm BF16 · decode attention 8 heads over 1024 keys FP32\n"
+    )
 
     for workload in arguments.workloads:
         for rows in arguments.rows:
@@ -259,8 +273,10 @@ def main():
 
             steady = _interleaved_steady(arguments, workload, rows)
             print(f"{workload}, rows={rows}")
-            print(f"{'':>2}{'variant':<20}{'cold ms':>10}{'warm ms':>10}"
-                  f"{'steady us':>11}{'vs eager':>10}{'vs compile':>12}")
+            print(
+                f"{'':>2}{'variant':<20}{'cold ms':>10}{'warm ms':>10}"
+                f"{'steady us':>11}{'vs eager':>10}{'vs compile':>12}"
+            )
             for variant, (cold_ms, warm_ms) in compile_cost.items():
                 seconds = steady[variant]
                 print(

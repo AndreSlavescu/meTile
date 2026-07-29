@@ -13,7 +13,7 @@ _root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _root)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from benchmarks import chartstyle as style  # noqa: E402
+from benchmarks import chartstyle as style
 
 FORMATS = (
     ("bf16", style.DECODE, "BF16"),
@@ -30,9 +30,7 @@ def _arguments():
         type=Path,
         default=Path("benchmarks/results/m5-matched-representation-matrix.json"),
     )
-    parser.add_argument(
-        "--output", type=Path, default=Path("docs/_static/mlx-matched-speedup.png")
-    )
+    parser.add_argument("--output", type=Path, default=Path("docs/_static/mlx-matched-speedup.png"))
     return parser.parse_args()
 
 
@@ -87,9 +85,7 @@ def render(payload, output):
     ticker = __import__("matplotlib").ticker
     axis.set_xscale("log", base=2)
     axis.set_xticks(rows)
-    axis.get_xaxis().set_major_formatter(
-        ticker.FuncFormatter(lambda value, _: f"{int(value)}")
-    )
+    axis.get_xaxis().set_major_formatter(ticker.FuncFormatter(lambda value, _: f"{int(value)}"))
     axis.get_yaxis().set_major_formatter(
         ticker.FuncFormatter(lambda value, _: style.multiplier(value))
     )
@@ -101,9 +97,7 @@ def render(payload, output):
     axis.set_ylabel("speedup vs native MLX", fontsize=9.5, color=style.INK_SOFT)
     style.frame(axis, grid_axis="y")
 
-    legend = axis.legend(
-        loc="upper right", frameon=False, fontsize=9.5, labelcolor=style.INK_SOFT
-    )
+    legend = axis.legend(loc="upper right", frameon=False, fontsize=9.5, labelcolor=style.INK_SOFT)
     legend.set_zorder(5)
 
     hardware = payload.get("hardware", {})

@@ -14,6 +14,7 @@ from metile.backends.mlx import (
     _mlx_compiler_dtype,
     _mlx_kernel_body,
     _tune_framework_kernels,
+    calibrate_tournament_batch,
 )
 from metile.codegen import msl_emitter
 from metile.codegen.msl_emitter import emit

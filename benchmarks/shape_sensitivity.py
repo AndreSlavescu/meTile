@@ -26,7 +26,7 @@ _root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _root)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from benchmarks.mlx_lm_backend import (  # noqa: E402
+from benchmarks.mlx_lm_backend import (
     _git_revision,
     _hardware_metadata,
     _package_version,
@@ -203,8 +203,14 @@ def _batch_sweep(arguments, mx, nn):
 
             def quantized_matmul(tensor, weight, scales, biases, _bits=bits):
                 return mx.quantized_matmul(
-                    tensor, weight, scales=scales, biases=biases, transpose=True,
-                    group_size=64, bits=_bits, mode="affine",
+                    tensor,
+                    weight,
+                    scales=scales,
+                    biases=biases,
+                    transpose=True,
+                    group_size=64,
+                    bits=_bits,
+                    mode="affine",
                 )
 
             quantized_bytes = dense_bytes * bits // 16
@@ -217,20 +223,36 @@ def _batch_sweep(arguments, mx, nn):
             )
             if bits == 4:
                 execute = mlx_affine_mlp_executor(
-                    activations, gq, gs, gb, uq, us, ub, dq, ds, db, residual16,
-                    group_size=64, bits=bits,
+                    activations,
+                    gq,
+                    gs,
+                    gb,
+                    uq,
+                    us,
+                    ub,
+                    dq,
+                    ds,
+                    db,
+                    residual16,
+                    group_size=64,
+                    bits=bits,
                 )
             else:
+
                 def execute(values_, residual_, _swiglu=swiglu):
                     return quantized_matmul(_swiglu(values_), dq, ds, db) + residual_
 
             native, generated = _paired(
-                lambda: quantized_matmul(
-                    nn.silu(quantized_matmul(activations, gq, gs, gb))
-                    * quantized_matmul(activations, uq, us, ub),
-                    dq, ds, db,
-                )
-                + residual16,
+                lambda: (
+                    quantized_matmul(
+                        nn.silu(quantized_matmul(activations, gq, gs, gb))
+                        * quantized_matmul(activations, uq, us, ub),
+                        dq,
+                        ds,
+                        db,
+                    )
+                    + residual16
+                ),
                 lambda: execute(activations, residual16),
                 mx,
                 inner,

@@ -2597,9 +2597,7 @@ def _emit_threadgroup_reduce(
 
     vector_type = (vec4_vals or {}).get(operand)
     if vector_type is not None:
-        operand = _fold_vector_lanes(
-            operand, vector_type, op.reduce_op, msl_type, name, lines, pad
-        )
+        operand = _fold_vector_lanes(operand, vector_type, op.reduce_op, msl_type, name, lines, pad)
 
     _SIMD_REDUCE = {"sum": "simd_sum", "max": "simd_max", "min": "simd_min"}
     simd_fn = _SIMD_REDUCE.get(op.reduce_op, "simd_sum")

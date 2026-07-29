@@ -2200,7 +2200,10 @@ class _ElementwiseLoweringContext:
                 break
         if load_idx is None:
             pre_ops = body_metal_ops[: compare_idx + 1]
-            return [*pre_ops, mir.IfBlock(condition=mask_mv, body=body_metal_ops[compare_idx + 1 :])]
+            return [
+                *pre_ops,
+                mir.IfBlock(condition=mask_mv, body=body_metal_ops[compare_idx + 1 :]),
+            ]
 
         loaded = body_metal_ops[load_idx].result
         dtype = loaded.type.dtype if hasattr(loaded.type, "dtype") else "f32"
@@ -2219,9 +2222,7 @@ class _ElementwiseLoweringContext:
         return [
             *body_metal_ops[: compare_idx + 1],
             seed_op,
-            mir.MVarDecl(
-                var_name=var_name, init_value=seed_mv, dtype=dtype, tile_valued=True
-            ),
+            mir.MVarDecl(var_name=var_name, init_value=seed_mv, dtype=dtype, tile_valued=True),
             mir.IfBlock(condition=mask_mv, body=guarded),
             *trailing,
         ]

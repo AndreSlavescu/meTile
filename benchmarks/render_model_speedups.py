@@ -17,7 +17,7 @@ _root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _root)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from benchmarks import chartstyle as style  # noqa: E402
+from benchmarks import chartstyle as style
 
 _MATCHED = "matched representation  ·  identical weights and format on both sides"
 _MIXED = "mixed precision  ·  meTile affine-INT8 decode vs MLX BF16"
@@ -179,9 +179,7 @@ def _render(rows, context, output, title, subtitle, series):
 
     # Upper right: the matched-representation rows all sit near parity, so the top of
     # the fast side is the one region no marker occupies.
-    legend = axis.legend(
-        loc="upper right", frameon=False, fontsize=9, labelcolor=style.INK_SOFT
-    )
+    legend = axis.legend(loc="upper right", frameon=False, fontsize=9, labelcolor=style.INK_SOFT)
     legend.set_zorder(5)
 
     style.headings(
@@ -213,8 +211,10 @@ def main():
         arguments.latency_output,
         "Time-to-first-token and end-to-end speedup by model",
         "Same runs, latency side.",
-        (("ttft", style.DECODE, "time to first token"),
-         ("end_to_end", style.PREFILL, "end to end")),
+        (
+            ("ttft", style.DECODE, "time to first token"),
+            ("end_to_end", style.PREFILL, "end to end"),
+        ),
     )
 
 

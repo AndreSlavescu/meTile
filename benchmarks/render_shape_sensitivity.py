@@ -1,7 +1,7 @@
 """Render the two shape-sensitivity charts.
 
-  width   where the 4-bit prefill win comes from, and why it depends on the model
-  batch   where weight-once bandwidth is being lost, and which formats still lose it
+width   where the 4-bit prefill win comes from, and why it depends on the model
+batch   where weight-once bandwidth is being lost, and which formats still lose it
 """
 
 import argparse
@@ -13,7 +13,7 @@ _root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _root)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from benchmarks import chartstyle as style  # noqa: E402
+from benchmarks import chartstyle as style
 
 # Measured with a hand-written streaming-read kernel on the same machine: the most any
 # kernel can move, so a line below it is bandwidth left unused.
@@ -57,8 +57,16 @@ def render_width(payload, output):
     figure.patch.set_facecolor(style.SURFACE)
     style.parity_rule(axis, "horizontal")
     axis.plot(
-        widths, speedups, color=style.DECODE, linewidth=2.0, marker="o", markersize=6,
-        markeredgecolor=style.SURFACE, markeredgewidth=1.2, zorder=3, label="meTile INT4",
+        widths,
+        speedups,
+        color=style.DECODE,
+        linewidth=2.0,
+        marker="o",
+        markersize=6,
+        markeredgecolor=style.SURFACE,
+        markeredgewidth=1.2,
+        zorder=3,
+        label="meTile INT4",
     )
 
     for record in records:
@@ -82,9 +90,7 @@ def render_width(payload, output):
         ticker.FuncFormatter(lambda value, _: style.multiplier(value))
     )
     axis.set_ylim(0.85, max(speedups) + 0.55)
-    axis.set_xlabel(
-        "output width of the projection", fontsize=9.5, color=style.INK_SOFT
-    )
+    axis.set_xlabel("output width of the projection", fontsize=9.5, color=style.INK_SOFT)
     axis.set_ylabel("speedup vs native MLX", fontsize=9.5, color=style.INK_SOFT)
     style.frame(axis, grid_axis="y")
     axis.legend(loc="upper right", frameon=False, fontsize=9.5, labelcolor=style.INK_SOFT)
@@ -118,7 +124,11 @@ def render_batch(payload, output):
     figure.patch.set_facecolor(style.SURFACE)
 
     axis.axhline(
-        STREAMING_CEILING, color=style.RULE, linewidth=1.3, linestyle=(0, (5, 4)), zorder=1,
+        STREAMING_CEILING,
+        color=style.RULE,
+        linewidth=1.3,
+        linestyle=(0, (5, 4)),
+        zorder=1,
         label=f"most this machine can move ({STREAMING_CEILING:.0f} GB/s)",
     )
 
@@ -136,8 +146,10 @@ def render_batch(payload, output):
     # For the quantized formats meTile has no kernel of its own and calls MLX's, so one
     # line describes both backends. That is not two implementations tying, it is the same
     # code measured twice, so the label says "both" rather than drawing a duplicate.
-    lines = [("bf16", "metile_bandwidth", style.DECODE, "BF16, meTile"),
-             ("bf16", "mlx_bandwidth", style.PREFILL, "BF16, MLX")]
+    lines = [
+        ("bf16", "metile_bandwidth", style.DECODE, "BF16, meTile"),
+        ("bf16", "mlx_bandwidth", style.PREFILL, "BF16, MLX"),
+    ]
     for format_name, colour in (("int8", style.ACCENT), ("int4", style.FOURTH)):
         shared = tracks_mlx(format_name)
         label = f"{format_name.upper()}, {'both' if shared else 'MLX'}"
@@ -149,9 +161,16 @@ def render_batch(payload, output):
         if not values:
             continue
         axis.plot(
-            rows[: len(values)], values, color=colour, linewidth=2.0, marker="o",
-            markersize=5.5, markeredgecolor=style.SURFACE, markeredgewidth=1.1,
-            zorder=3, label=label,
+            rows[: len(values)],
+            values,
+            color=colour,
+            linewidth=2.0,
+            marker="o",
+            markersize=5.5,
+            markeredgecolor=style.SURFACE,
+            markeredgewidth=1.1,
+            zorder=3,
+            label=label,
         )
         endpoints.append((rows[len(values) - 1], values[-1], label, colour))
 
@@ -159,8 +178,14 @@ def render_batch(payload, output):
     # not rest on colour alone.
     for x, y, label, _ in endpoints:
         axis.annotate(
-            label, (x, y), textcoords="offset points", xytext=(9, 0), va="center",
-            fontsize=8.5, color=style.INK_SOFT, annotation_clip=False,
+            label,
+            (x, y),
+            textcoords="offset points",
+            xytext=(9, 0),
+            va="center",
+            fontsize=8.5,
+            color=style.INK_SOFT,
+            annotation_clip=False,
         )
 
     ticker = __import__("matplotlib").ticker
@@ -171,7 +196,8 @@ def render_batch(payload, output):
     axis.set_ylim(0, STREAMING_CEILING * 1.18)
     axis.set_xlabel(
         "rows per dispatch  (1 = one token, 2 to 32 = speculative decoding and batching)",
-        fontsize=9.5, color=style.INK_SOFT,
+        fontsize=9.5,
+        color=style.INK_SOFT,
     )
     axis.set_ylabel("weight bandwidth achieved, GB/s", fontsize=9.5, color=style.INK_SOFT)
     style.frame(axis, grid_axis="y")

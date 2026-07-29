@@ -350,9 +350,7 @@ def lower_dense_residual_qmv(
             simdgroups_per_threadgroup=simdgroups_per_threadgroup,
         )
     )
-    function.add_op(
-        mir.MDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup, rows=rows)
-    )
+    function.add_op(mir.MDotAccumulatorInit(outputs_per_simdgroup=outputs_per_simdgroup, rows=rows))
     function.add_op(
         mir.MForLoop(
             iv_name="k",
