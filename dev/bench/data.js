@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785312271128,
+  "lastUpdate": 1785312453590,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -887,6 +887,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 446.96,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76d18327b829c28599c107f2ed05655dabe1301e",
+          "message": "Measure each model at its own layer shapes (#10)\n\nQwen3.5-4B and Qwen3.5-9B both benchmark at exactly 1.000x end to end, and that\nnumber on its own is misleading. It says nothing gained, when what is true is\nthat nothing was available at the one shape the model-level harness exercises.\n\nA transformer is one shape repeated, so measuring that shape separates the two\neffects an end-to-end figure conflates. Width decides prefill: MLX's int4 kernel\nis weak below an output width of about 2560, and only the down projection can\nland there, because gate and up always output `intermediate`, which is wide in\nevery model measured. Batch decides decode: MLX re-reads weights per row tile\nabove one row, whatever the width.\n\nMeasured on M5, int4 group 64, identical weights on both sides:\n\n  model             hidden  inter   pre up  pre down  rows 1  rows 8  rows 16\n  Qwen2.5 0.5B         896   4864    0.99x     2.27x   0.98x   1.23x    1.52x\n  Qwen2.5 1.5B        1536   8960    1.07x     2.84x   1.01x   1.26x    1.31x\n  Llama 3.2 1B        2048   8192    1.05x     3.11x   0.98x   1.26x    1.79x\n  Llama 3.2 3B        3072   8192    1.07x     1.07x   0.97x   1.23x    1.78x\n  Qwen3.5 4B          2560   9216    1.11x     1.23x   1.02x   1.21x    1.27x\n  Qwen3.5 9B          4096  12288    1.07x     1.15x   0.98x   1.21x    1.24x\n\nSo the newer models gain nothing at prefill because they have no layer below the\ncliff, and nothing at single-token decode because that is bandwidth bound. They\ndo gain 1.21x to 1.27x once more than one row is in flight, which the end-to-end\nfigure never reaches.\n\nShapes are read from the local Hugging Face cache rather than hardcoded, and\nmultimodal checkpoints have their language model under text_config, which both\nQwen3.5 models are.\n\nAn earlier version of this measured prefill on the gate projection only and\nreported 1.02x to 1.10x across the board, hiding the cliff entirely: gate\noutputs `intermediate`, which is above the cliff in every model here. Both\ndirections are now reported so the comparison cannot be read the wrong way.\n\n587 tests pass.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T04:04:22-04:00",
+          "tree_id": "1428f9284315d142a23fe0957623e81279d20beb",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/76d18327b829c28599c107f2ed05655dabe1301e"
+        },
+        "date": 1785312452050,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 542.06,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4255.71,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 473.61,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1346.36,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 492.18,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1393.51,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 365.27,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 407.06,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 456.55,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 463.05,
             "unit": "us"
           }
         ]
