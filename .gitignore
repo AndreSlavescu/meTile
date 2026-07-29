@@ -7,3 +7,6 @@ build/
 .pytest_cache/
 debug_output/
 docs/_build/
+
+# Working directory for the AGX register oracle (compiled harness + Metal intermediates)
+.metile-agx/
