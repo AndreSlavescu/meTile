@@ -131,6 +131,11 @@ def mlx_dense_swiglu_projected(values, gate_weight, up_weight):
 
 
 _NAX_MIN_ROWS = 32
+# Bounds rows * outputs_per_simdgroup as a proxy for live accumulator pairs. Raising it to
+# 32 was tried, on the grounds that outputs_per_simdgroup=2 at 16 rows compiles to 115
+# registers against G17's 140-register budget and so cannot be spilling. It made no
+# difference: the tuner already reaches the same speed with outputs_per_simdgroup=1 at a
+# larger simdgroup count, so the wider search bought nothing and 16 stands.
 _MAX_QMV_ACCUMULATOR_PAIRS = 16
 
 
@@ -241,6 +246,7 @@ def mlx_dense_swiglu_backend_signature():
             "exact_switch_margin": _EXACT_SWITCH_MARGIN,
             "lowering": inspect.getsource(lower_dense_swiglu),
             "qmv_lowering": inspect.getsource(lower_dense_swiglu_qmv),
+            "confirm": inspect.getsource(_confirm_pairwise),
             "measure": inspect.getsource(_measure_dispatches),
             "selection": inspect.getsource(_choose_config),
             "switch_margin": _SWITCH_MARGIN,
@@ -334,6 +340,42 @@ def _measure_dispatches(dispatches, rounds, *, batch=None):
     return samples
 
 
+def _confirm_pairwise(finalists, rounds, batch):
+    """Rank finalists by timing each one against native alone, not all of them together.
+
+    A single round-robin over N candidates does not rank them comparably. How long a
+    candidate measures depends on how many others share the rotation, so a kernel that is
+    faster head to head can read slower in a crowded tournament. Measured case: at rows 16
+    the dense SwiGLU tuner preferred a config that is 1.28x slower than another already in
+    its own finalist list.
+
+    Pairing every finalist against native puts each one in an identically sized context,
+    and ranking on the ratio to native rather than the raw time cancels any drift between
+    one pairing and the next.
+    """
+    native = next(candidate for candidate in finalists if candidate[0].algorithm == "mlx")
+    alternatives = [candidate for candidate in finalists if candidate[0].algorithm != "mlx"]
+    if not alternatives:
+        samples = _measure_dispatches([native], rounds, batch=batch)
+        return [(statistics.median(samples[native[0]]), native[2], native[0])]
+
+    ratios = {}
+    native_times = []
+    for candidate in alternatives:
+        samples = _measure_dispatches([native, candidate], rounds, batch=batch)
+        native_time = statistics.median(samples[native[0]])
+        native_times.append(native_time)
+        ratios[candidate[0]] = statistics.median(samples[candidate[0]]) / native_time
+
+    # Rebuild absolute times against one native reading so the switch margins in
+    # _choose_config keep comparing like with like.
+    native_reference = statistics.median(native_times)
+    results = [(native_reference, native[2], native[0])]
+    for config, _, description_bits in alternatives:
+        results.append((ratios[config] * native_reference, description_bits, config))
+    return results
+
+
 def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
     import mlx.core as mx
 
@@ -409,27 +451,10 @@ def _tune_config(values, gate_weight, up_weight, paired_weight, configs):
         for candidate in dispatches
         if candidate[0].algorithm == "mlx" or medians[candidate[0]] <= best * 1.08
     ]
-    final = _measure_dispatches(finalists, 63 if qmv else 31, batch=batch)
-    selected = _choose_config(
-        [
-            (statistics.median(final[config]), description_bits, config)
-            for config, _, description_bits in finalists
-        ]
-    )
-    if not qmv or selected.algorithm == "mlx":
-        return selected
-    holdout_candidates = [
-        candidate
-        for candidate in finalists
-        if candidate[0].algorithm == "mlx" or candidate[0] == selected
-    ]
-    holdout = _measure_dispatches(holdout_candidates, 127, batch=batch)
-    return _choose_config(
-        [
-            (statistics.median(holdout[config]), description_bits, config)
-            for config, _, description_bits in holdout_candidates
-        ]
-    )
+    # Confirm head to head rather than trusting the crowded rotation. This used to run
+    # only for one-row decode, which left every multi-row shape picking its kernel from a
+    # ranking that does not survive isolated measurement.
+    return _choose_config(_confirm_pairwise(finalists, 63 if qmv else 31, batch))
 
 
 def mlx_dense_swiglu(values, gate_weight, up_weight, *, paired_weight=None, autotune=True):

@@ -779,6 +779,47 @@ def test_mlx_generated_affine8_swiglu_matches_bfloat16_native(monkeypatch):
     )
 
 
+def test_dense_swiglu_confirms_finalists_two_at_a_time(monkeypatch):
+    """Each finalist must be timed against native alone, never in a crowded rotation.
+
+    How long a candidate measures depends on how many others share the round-robin, so
+    ranking finalists from one big rotation can prefer a kernel that loses head to head.
+    """
+    pytest.importorskip("mlx.core")
+    from metile.backends import mlx_dense_swiglu
+
+    native = mlx_dense_swiglu.MLXDenseSwiGLUConfig("mlx")
+    fast = mlx_dense_swiglu.MLXDenseSwiGLUConfig(
+        "metile", implementation="simdgroup_paired", outputs_per_simdgroup=2
+    )
+    slow = mlx_dense_swiglu.MLXDenseSwiGLUConfig(
+        "metile", implementation="simdgroup_paired", outputs_per_simdgroup=1
+    )
+    finalists = [(native, object(), 0), (fast, object(), 10), (slow, object(), 20)]
+
+    # Native drifts between pairings; ranking on the ratio to native has to cancel it.
+    timings = {
+        fast: {native: 1.0, fast: 0.5},
+        slow: {native: 2.0, slow: 1.6},
+    }
+    group_sizes = []
+
+    def fake_measure(dispatches, rounds, *, batch=None):
+        group_sizes.append(len(dispatches))
+        subject = next(config for config, _, _ in dispatches if config.algorithm != "mlx")
+        return {config: [timings[subject][config]] for config, _, _ in dispatches}
+
+    monkeypatch.setattr(mlx_dense_swiglu, "_measure_dispatches", fake_measure)
+    results = mlx_dense_swiglu._confirm_pairwise(finalists, rounds=3, batch=1)
+
+    assert group_sizes == [2, 2]
+    ranked = sorted(results)
+    # fast is 0.5x native, slow is 0.8x native, so fast must rank ahead despite its raw
+    # 0.5 and 1.6 having been measured against different native readings.
+    assert ranked[0][2] is fast
+    assert {result[2] for result in results} == {native, fast, slow}
+
+
 def test_mlx_affine_swiglu_offers_a_multi_row_candidate():
     """Above one row the fused SwiGLU kernels do not apply, so one candidate must survive.
 
