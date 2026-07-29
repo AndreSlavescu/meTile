@@ -1,0 +1,96 @@
+{
+  "cliff": 2560,
+  "models": [
+    {
+      "below_cliff": true,
+      "block_speedup": {
+        "1": 0.978099506266616,
+        "16": 1.5176215540862337,
+        "8": 1.2349115789473684
+      },
+      "hidden": 896,
+      "intermediate": 4864,
+      "layers": 24,
+      "model": "Qwen2.5-0.5B-Instruct-4bit",
+      "prefill_down_speedup": 2.2723329155176737,
+      "prefill_up_speedup": 0.9945032846226035
+    },
+    {
+      "below_cliff": true,
+      "block_speedup": {
+        "1": 1.0113058437097715,
+        "16": 1.3087424440379758,
+        "8": 1.2552111071555714
+      },
+      "hidden": 1536,
+      "intermediate": 8960,
+      "layers": 28,
+      "model": "Qwen2.5-1.5B-Instruct-4bit",
+      "prefill_down_speedup": 2.8379819979997776,
+      "prefill_up_speedup": 1.074909789587141
+    },
+    {
+      "below_cliff": true,
+      "block_speedup": {
+        "1": 0.97973671768808,
+        "16": 1.7872067404729584,
+        "8": 1.2602994321115126
+      },
+      "hidden": 2048,
+      "intermediate": 8192,
+      "layers": 16,
+      "model": "Llama-3.2-1B-Instruct-4bit",
+      "prefill_down_speedup": 3.1089499119496233,
+      "prefill_up_speedup": 1.0486213113727019
+    },
+    {
+      "below_cliff": false,
+      "block_speedup": {
+        "1": 0.97418878348696,
+        "16": 1.7789472147496623,
+        "8": 1.2282944189057692
+      },
+      "hidden": 3072,
+      "intermediate": 8192,
+      "layers": 28,
+      "model": "Llama-3.2-3B-Instruct-4bit",
+      "prefill_down_speedup": 1.069669090369491,
+      "prefill_up_speedup": 1.0695305622812543
+    },
+    {
+      "below_cliff": false,
+      "block_speedup": {
+        "1": 1.0157058385417328,
+        "16": 1.265172395860419,
+        "8": 1.214823790830309
+      },
+      "hidden": 2560,
+      "intermediate": 9216,
+      "layers": 32,
+      "model": "Qwen3.5-4B-4bit",
+      "prefill_down_speedup": 1.226512114345477,
+      "prefill_up_speedup": 1.1140536424401386
+    },
+    {
+      "below_cliff": false,
+      "block_speedup": {
+        "1": 0.9833425857551111,
+        "16": 1.2439217307356856,
+        "8": 1.2085390641733713
+      },
+      "hidden": 4096,
+      "intermediate": 12288,
+      "layers": 32,
+      "model": "Qwen3.5-9B-4bit",
+      "prefill_down_speedup": 1.1526313991786281,
+      "prefill_up_speedup": 1.0727520912476984
+    }
+  ],
+  "precision_comparison": {
+    "class": "same_representation",
+    "same_weight_representation": true
+  },
+  "prompt_rows": 127,
+  "rounds": 15,
+  "scope": "model_shape_matrix"
+}
