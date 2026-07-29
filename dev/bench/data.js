@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785366239138,
+  "lastUpdate": 1785366540084,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1331,6 +1331,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 420.61,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5a9beea831aacfd9dd62fb21e0391bb7fb6a94a",
+          "message": "Publish nine models, Qwen3.6 27B and two VLMs included (#16)\n\nThe shape matrix now covers everything downloaded, and the numbers are finally\ntrustworthy enough to publish. int4 group 64, identical weights both sides:\n\n  model             hidden   inter   pre up  pre down   1 row  8 rows  16 rows\n  Qwen2.5 0.5B         896    4864    1.01x     2.32x   1.02x   1.30x    1.47x\n  Qwen2.5 1.5B        1536    8960    1.03x     2.79x   1.02x   1.23x    1.32x\n  Llama 3.2 1B        2048    8192    1.06x     3.09x   0.98x   1.27x    1.81x\n  Llama 3.2 3B        3072    8192    1.07x     1.06x   0.97x   1.23x    1.72x\n  Qwen3.5 4B          2560    9216    1.09x     1.22x   0.97x   1.24x    1.29x\n  Qwen3.5 9B          4096   12288    1.00x     1.15x   1.00x   1.21x    1.27x\n  Qwen3.6 27B         5120   17408    1.09x     1.01x   0.99x   1.21x    1.24x\n  Qwen3-VL 4B         2560    9728    1.10x     1.22x   1.00x   1.22x    1.27x\n  Qwen2.5-VL 7B       3584   18944    1.07x     1.00x   1.01x   1.20x    1.25x\n\nNothing is below parity anywhere. Every model gains 1.20x to 1.30x at eight rows\nand 1.24x to 1.81x at sixteen, and that holds up to 27B and through both vision\nlanguage models. Only prefill varies, and only with width: the three models under\n2560 win it outright, the six at or above it do not.\n\nFor the VLMs only the language tower is measured. The vision encoder runs once\nper image rather than per token, so it is not in the shapes this compares. Note\nqwen2_5_vl exists in mlx_vlm but not mlx_lm, so Qwen2.5-VL-7B has no end-to-end\nfigure, only per-shape.\n\nRounds raised from 15 to 25. At 15, Qwen2.5-1.5B's rows-16 cell came out 1.12x in\none run while three independent measurements of that shape gave 1.31x, 1.31x and\n1.32x. A 15% error in a number someone reads off a table is worth the extra\nminutes, and the earlier 0.75x and 0.79x entries that turned out to be a real\nselection bug were only distinguishable from noise because they were chased.\n\n593 tests pass.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T19:06:11-04:00",
+          "tree_id": "fbd02c1a62a87abb552a5207a21edbe1848e08cc",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/c5a9beea831aacfd9dd62fb21e0391bb7fb6a94a"
+        },
+        "date": 1785366537737,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 531.72,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4972.37,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 428.84,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1288.17,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 440.83,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1367.33,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 435.23,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 405.78,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 436.68,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 463.53,
             "unit": "us"
           }
         ]
