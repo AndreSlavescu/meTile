@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785366540084,
+  "lastUpdate": 1785368645599,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1405,6 +1405,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 463.53,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "19d8c11b70d6a8499a2df64817223bb1a07bc3ef",
+          "message": "Test that whole models generate the same tokens as MLX (#17)\n\nThe kernel tests check numerics one kernel at a time, and the model plan gate\nchecks logits for a single next-token step. Neither answers the question a user\nactually has, and both can pass while generation diverges.\n\nTwo reasons they can. The quantized compatibility gates are tolerance based at\nrtol 3e-2, which is invisible per layer and compounds across 32 to 64 of them.\nAnd greedy decoding takes an argmax, which is discontinuous: two logit vectors\n1e-3 apart agree almost always and disagree when the top two candidates are\nclose, after which the sequences never reconverge. A single-step logit check\ncannot see either.\n\nSo this generates 48 tokens greedily at temperature 0 and compares token ids\nposition by position, across every small model in the local cache. On divergence\nit reports the index, both tokens and both decoded tails, because diverging at\ntoken 2 and at token 37 are different bugs.\n\nResult: Qwen2.5-0.5B, Qwen2.5-1.5B and Llama-3.2-1B all match MLX token for\ntoken over 48 steps.\n\nTwo things the tests do beyond the comparison, because a green correctness test\nthat has stopped measuring is worse than no test:\n\n_assert_patched checks that the patch context really swaps a layer's bound\nimplementations and restores them on exit. Without it, an API change that made\napply_metile_to_mlx_lm a no-op would leave this suite passing while exercising no\nmeTile kernel at all. Verified by handing it a deliberately empty context\nmanager, which it rejects. On Qwen2.5-0.5B the swap covers mlp and\ninput_layernorm; self_attn is not swapped at layer level, so this test does not\ncover the attention path and does not claim to.\n\nThe second test generates twice under meTile and requires the same output.\nKernel selection is decided by measurement, so a second run can select\ndifferently; if that changed the tokens, comparing against MLX would be measuring\nthe tuner rather than the kernels, and this says which of the two failed.\n\nMarked slow and registered in pyproject, so `-m \"not slow\"` skips them and CI\nstays green without models cached. They skip rather than fail when the cache is\nempty.\n\n597 tests pass; 593 with the slow ones deselected.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T16:41:16-07:00",
+          "tree_id": "398a0f07b8fce722561eb64d9f7ee9c63c3332c3",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/19d8c11b70d6a8499a2df64817223bb1a07bc3ef"
+        },
+        "date": 1785368644029,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 454.04,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3811.84,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 389.21,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1142.52,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 338.65,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1198.77,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 329.13,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 285.24,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 339.06,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 385.36,
             "unit": "us"
           }
         ]
