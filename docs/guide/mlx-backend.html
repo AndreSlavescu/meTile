@@ -503,10 +503,16 @@ selected plan is native MLX, both labels share each native sample instead of gra
 noise.</p>
 <p>The committed M5 32 GB suite uses a 128-token prompt, 256 generated tokens, five
 end-to-end confirmation pairs, and nine continuous measurement pairs:</p>
-<a class="reference internal image-reference" href="../_images/mlx-model-throughput.png"><img alt="Native MLX and MLX with meTile median prefill and decode throughput across four 4-bit language models" src="../_images/mlx-model-throughput.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/mlx-model-speedup.png"><img alt="Decode and prefill speedup against native MLX for every benchmarked model, grouped by precision class" src="../_images/mlx-model-speedup.png" style="width: 100%;" />
 </a>
-<a class="reference internal image-reference" href="../_images/mlx-model-latency.png"><img alt="Native MLX and MLX with meTile TTFT and end-to-end latency across four 4-bit language models" src="../_images/mlx-model-latency.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/mlx-model-latency-speedup.png"><img alt="Time-to-first-token and end-to-end speedup against native MLX for every benchmarked model" src="../_images/mlx-model-latency-speedup.png" style="width: 100%;" />
 </a>
+<p>Both charts report results the same way: a multiplier against native MLX, where 1.00x is
+parity. Only matched-representation runs are graphed, meaning both sides execute identical
+weights in identical formats, so every point is a kernel comparison. The BF16 capacity
+suite below is deliberately not graphed: there meTile runs affine-INT8 decode projections
+while MLX runs BF16, so its gains are a change of weight representation rather than a
+faster kernel, and plotting the two side by side would invite exactly that misreading.</p>
 <div class="table-wrapper docutils container" id="id1">
 <table class="docutils align-default" id="id1">
 <caption><span class="caption-text">M5 model-level medians</span><a class="headerlink" href="#id1" title="Link to this table">¶</a></caption>
@@ -576,8 +582,7 @@ python<span class="w"> </span>benchmarks/mlx_lm_suite.py<span class="w"> </span>
 <span class="w">  </span>--confirmation-trials<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--output<span class="w"> </span>benchmarks/results/m5-mlx-lm-models.json
 
-python<span class="w"> </span>benchmarks/render_mlx_lm_results.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>benchmarks/results/m5-mlx-lm-models.json
+python<span class="w"> </span>benchmarks/render_model_speedups.py
 </pre></div>
 </div>
 <section id="benchmark-precision-classes">
@@ -646,10 +651,19 @@ pairs. Confirmation medians were 1.028x prefill, 1.022x TTFT, 1.012x total, and 
 The following nine alternating measurement pairs recorded a 1.060x prefill-throughput gain
 (1493.93 to 1555.80 tok/s); decode, TTFT, and total latency remained effectively neutral.
 Verification reported the same token and zero KL, mean-logit error, and max-logit error.</p>
-<a class="reference internal image-reference" href="../_images/mlx-bf16-dense-throughput.png"><img alt="Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 throughput" src="../_images/mlx-bf16-dense-throughput.png" style="width: 100%;" />
+<p>This run appears as <code class="docutils literal notranslate"><span class="pre">Qwen2.5</span> <span class="pre">1.5B</span> <span class="pre">BF16</span></code> in the matched-representation group of the
+per-model charts above.</p>
+<p>Model-level decode is a single token per step, where MLX already runs at the memory
+roofline. The kernel-level headroom lives at small batch sizes, which is what a
+speculative-decode verification pass runs at. Sweeping rows per dispatch at matched
+representation shows where it is:</p>
+<a class="reference internal image-reference" href="../_images/mlx-matched-speedup.png"><img alt="Speedup against native MLX by batch size for BF16, INT4 and INT8 at matched weight representation" src="../_images/mlx-matched-speedup.png" style="width: 100%;" />
 </a>
-<a class="reference internal image-reference" href="../_images/mlx-bf16-dense-latency.png"><img alt="Native MLX and exact fused meTile Qwen 2.5 1.5B BF16 latency" src="../_images/mlx-bf16-dense-latency.png" style="width: 100%;" />
-</a>
+<p>Every point runs identical weights in an identical format on both sides. BF16 peaks in
+the 2-16 row band and is per-row bit-exact against MLX’s own single-row result; INT4 and
+INT8 track parity, because meTile has no kernel advantage over MLX’s quantized kernels
+and defers to them. Regenerate with <code class="docutils literal notranslate"><span class="pre">benchmarks/matched_representation_matrix.py</span></code>
+followed by <code class="docutils literal notranslate"><span class="pre">benchmarks/render_matched_matrix.py</span></code>.</p>
 <p>The focused structured result is committed at
 <code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-mlx-lm-bf16-dense-qwen15.json</span></code>.</p>
 </section>
@@ -661,10 +675,10 @@ The runtime composes guarded affine-INT8 gate/up, down, attention, and vocabular
 confirmation pairs, seven measurement pairs, a one-second paired cooldown, and a 30-second
 cooldown between model subprocesses. Peak memory is the MLX allocator peak reported by
 <code class="docutils literal notranslate"><span class="pre">mx.get_peak_memory()</span></code>, not whole-system usage.</p>
-<a class="reference internal image-reference" href="../_images/mlx-bf16-model-throughput.png"><img alt="Native MLX BF16-source and meTile affine-INT8-decode throughput across seven language models" src="../_images/mlx-bf16-model-throughput.png" style="width: 100%;" />
-</a>
-<a class="reference internal image-reference" href="../_images/mlx-bf16-model-latency.png"><img alt="Native MLX BF16-source and meTile affine-INT8-decode latency across seven language models" src="../_images/mlx-bf16-model-latency.png" style="width: 100%;" />
-</a>
+<p>These seven models are not plotted with the matched-representation charts above, and the
+numbers below are not kernel speedups: meTile reads fewer weight bytes than MLX here, so
+the gain comes from the representation change. Read them as a capacity/throughput
+trade-off with a bounded fidelity cost, not as evidence that a meTile kernel is faster.</p>
 <div class="table-wrapper docutils container" id="id3">
 <table class="docutils align-default" id="id3">
 <caption><span class="caption-text">M5 BF16-source mixed-precision medians and allocator peaks</span><a class="headerlink" href="#id3" title="Link to this table">¶</a></caption>
@@ -779,10 +793,7 @@ this 32 GiB machine. The structured result is committed at
 <span class="w">  </span>--compressed-attention-group-size<span class="w"> </span>auto<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--output<span class="w"> </span>benchmarks/results/m5-mlx-lm-bf16-models.json
 
-python<span class="w"> </span>benchmarks/render_mlx_lm_results.py<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>benchmarks/results/m5-mlx-lm-bf16-models.json<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--throughput-output<span class="w"> </span>docs/_static/mlx-bf16-model-throughput.png<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--latency-output<span class="w"> </span>docs/_static/mlx-bf16-model-latency.png
+python<span class="w"> </span>benchmarks/render_model_speedups.py
 </pre></div>
 </div>
 <p>Use <code class="docutils literal notranslate"><span class="pre">--disable-attention</span></code>, <code class="docutils literal notranslate"><span class="pre">--disable-rmsnorm</span></code>, <code class="docutils literal notranslate"><span class="pre">--disable-graph-fusion</span></code>,
