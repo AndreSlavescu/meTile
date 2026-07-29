@@ -11,6 +11,7 @@ backend is one consumer; the native Metal runtime in metile.runtime is another.
 
 from metile.tuning.tournament import (
     confirm_pairwise,
+    pessimistic,
     round_robin,
     select_fastest,
     token_bucket,
@@ -18,6 +19,7 @@ from metile.tuning.tournament import (
 
 __all__ = [
     "confirm_pairwise",
+    "pessimistic",
     "round_robin",
     "select_fastest",
     "token_bucket",

@@ -18,6 +18,30 @@ def token_bucket(tokens):
     return 1 << max(tokens - 1, 0).bit_length()
 
 
+def pessimistic(samples, quantile=0.75):
+    """Summarise samples by a slower-than-typical one rather than the middle one.
+
+    The median assumes the candidates being compared are equally consistent. Some are not.
+    Measured on a 17408-wide affine matmul, a generated kernel ran 1643 us at its fastest
+    and 2874 us typically, while native MLX ran 2047 and 2073: the generated kernel is
+    genuinely quicker when everything lines up and slower most of the time. Ranking on the
+    median understates that, and ranking on the minimum inverts the answer entirely, which
+    is how a kernel measuring 0.85x in steady state came to be selected and cached.
+
+    A high quantile asks the question a caller actually cares about, which is how the kernel
+    behaves when conditions are ordinary rather than ideal. Where candidates are equally
+    consistent it agrees with the median, so this only changes decisions in the case it
+    exists to catch.
+    """
+    ordered = sorted(samples)
+    if not ordered:
+        raise ValueError("no samples to summarise")
+    position = quantile * (len(ordered) - 1)
+    low = int(position)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
+
+
 def round_robin(candidates, rounds, measure):
     """Time every candidate in each round, rotating and reversing the order between rounds.
 

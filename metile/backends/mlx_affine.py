@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import os
-import statistics
 import threading
 from dataclasses import dataclass
 
@@ -24,7 +23,7 @@ from metile.compiler.schedule_search import (
     optimize_tile_schedules,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
-from metile.tuning import confirm_pairwise, round_robin, select_fastest
+from metile.tuning import confirm_pairwise, pessimistic, round_robin, select_fastest
 
 _kernel_cache = {}
 _schedule_cache = {}
@@ -302,7 +301,10 @@ def _tune_config(values, weight, configs):
     measure = batched_measure(calibrate_tournament_batch(dispatches[0][1]))
 
     provisional = round_robin(dispatches, 9, measure)
-    medians = {config: statistics.median(samples) for config, samples in provisional.items()}
+    # Ranked on a pessimistic quantile, not the median: the generated kernels at wide shapes
+    # are bimodal, quicker than native at their best and slower most of the time, and the
+    # median understates that. See metile.tuning.pessimistic.
+    medians = {config: pessimistic(samples) for config, samples in provisional.items()}
     best = min(medians.values())
     finalists = [
         candidate

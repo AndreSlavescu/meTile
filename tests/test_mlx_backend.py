@@ -4933,3 +4933,31 @@ def test_mlx_lm_graph_fusion_deoptimizes_to_original_block(monkeypatch):
     assert result == "native"
     assert calls == [(fake_block, "values", "mask", "cache")]
     patch.restore()
+
+
+def test_pessimistic_penalises_an_inconsistent_candidate():
+    """Ranking must prefer dependable over occasionally-brilliant.
+
+    Measured on a 17408-wide affine matmul, a generated kernel ran 1643us at its fastest and
+    2874us typically while native ran 2047 and 2073. The median understates that gap and the
+    minimum inverts it, which is how a kernel measuring 0.85x in steady state got selected
+    and then cached. A high quantile asks how the kernel behaves when conditions are ordinary.
+    """
+    from metile.tuning import pessimistic
+
+    steady = [2.05, 2.06, 2.07, 2.07, 2.08, 2.09]
+    spiky = [1.64, 1.65, 2.60, 2.80, 2.87, 3.30]
+
+    # The minimum would pick the spiky kernel, and the median is much closer than it should be.
+    assert min(spiky) < min(steady)
+    # The pessimistic summary puts the steady kernel ahead, which is the decision we want.
+    assert pessimistic(steady) < pessimistic(spiky)
+
+
+def test_pessimistic_agrees_with_the_median_when_spread_is_equal():
+    """It must only change decisions in the case it exists to catch."""
+    from metile.tuning import pessimistic
+
+    tight = [1.00, 1.01, 1.02, 1.03]
+    assert pessimistic(tight) == pytest.approx(1.025, abs=0.01)
+    assert pessimistic([2.0]) == 2.0
