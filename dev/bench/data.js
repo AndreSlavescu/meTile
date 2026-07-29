@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785312453590,
+  "lastUpdate": 1785313787223,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -961,6 +961,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 463.05,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d3d885c93c0782311660061cafb08e8a92ca7e2",
+          "message": "Measure how much instruction scheduling can buy on this GPU (#11)\n\nReordering instructions only pays if the hardware stalls without independent\nwork nearby, and that is a property of the machine, not of a kernel. This asks\nit directly: dependent fma chains, no memory traffic, replicated into N\nindependent chains. The ratio between one chain and saturation is the most any\nscheduler could ever win here.\n\nOn M5 (G17):\n\n  chains   fp32 GFLOP/s   vs 1     fp16 GFLOP/s   vs 1\n       1           3740   1.00x            4596   1.00x\n       2           4072   1.09x            5964   1.30x\n       4           4086   1.09x            6337   1.38x\n      12           4082   1.09x            6485   1.41x\n\nA single dependent chain already reaches 92% of fp32 peak. The GPU covers\nlatency with thread-level parallelism rather than instruction-level parallelism\ninside a thread, so fp32 saturates at two chains and never improves again.\n\nThe whole payoff available to instruction scheduling on this hardware is\ntherefore 1.09x on fp32 and 1.41x on fp16, and only for compute-bound code. That\nexplains why five scheduling experiments on the int4 QMV all came back flat:\nunroll factors of 1, 2, 3 and 6 measured 50.2 to 50.9 GB/s, indistinguishable.\nMemory-bound kernels get none of it.\n\nThe same run gives the number that does matter. Scalar peak is 4.1 TFLOP/s fp32\nand 6.5 fp16, against a matrix-unit peak of 15.3. Choosing the right functional\nunit is worth 2.4x where scheduling is worth 1.09x, so compiler effort belongs in\nmatrix-unit tiling.\n\nInterleaved rather than swept, because these kernels run for milliseconds and a\nsequential sweep measures thermal drift as much as it measures the kernels.\n\n587 tests pass.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T04:26:20-04:00",
+          "tree_id": "c9ecc088599fd54ce3d73fc024fc9b0a798679f6",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/0d3d885c93c0782311660061cafb08e8a92ca7e2"
+        },
+        "date": 1785313785102,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 586.12,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4337.08,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 414.86,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1342.64,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 380.34,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1321.32,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 344.21,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 383.58,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 418.29,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 549.61,
             "unit": "us"
           }
         ]
