@@ -4,12 +4,12 @@ import inspect
 import os
 import statistics
 import threading
-import time
 from dataclasses import dataclass
 
 from metile.backends.mlx import (
     _mlx_kernel_body,
     _specialize_mlx_source,
+    batched_measure,
     calibrate_tournament_batch,
 )
 from metile.backends.mlx_dense import MLXDenseWeight, mlx_dense_matmul
@@ -322,33 +322,16 @@ def _choose_config(results):
     )
 
 
-def _batch_measure(batch):
-    """A timing function for one dispatch, averaged over `batch` queued copies.
-
-    One eval for the whole batch. Evaluating per dispatch would add the blocking round
-    trip to every candidate and compress the ratios between them toward 1.0, which lets
-    the switch margins admit a slower kernel.
-    """
-    import mlx.core as mx
-
-    def measure(dispatch):
-        start = time.perf_counter_ns()
-        mx.eval([dispatch() for _ in range(batch)])
-        return (time.perf_counter_ns() - start) * 1e-9 / batch
-
-    return measure
-
-
 def _measure_dispatches(dispatches, rounds, *, batch=None):
     if batch is None:
         batch = calibrate_tournament_batch(dispatches[0][1])
-    return round_robin(dispatches, rounds, _batch_measure(batch))
+    return round_robin(dispatches, rounds, batched_measure(batch))
 
 
 def _confirm_pairwise(finalists, rounds, batch):
     """Time each finalist against native alone and return results ready for selection."""
     native = next(candidate for candidate in finalists if candidate[0].algorithm == "mlx")
-    timings = confirm_pairwise(finalists, native[0], rounds, _batch_measure(batch))
+    timings = confirm_pairwise(finalists, native[0], rounds, batched_measure(batch))
     return [
         (timings[config], description_bits, config)
         for config, _, description_bits in finalists
