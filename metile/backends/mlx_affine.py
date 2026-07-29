@@ -4,7 +4,6 @@ import inspect
 import os
 import statistics
 import threading
-import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -12,6 +11,7 @@ import numpy as np
 from metile.backends.mlx import (
     _mlx_dtype_to_numpy,
     _mlx_kernel_body,
+    batched_measure,
     calibrate_tournament_batch,
 )
 from metile.backends.mlx_quantized import repack_mlx_affine_weight
@@ -24,6 +24,7 @@ from metile.compiler.schedule_search import (
     optimize_tile_schedules,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.tuning import confirm_pairwise, round_robin, select_fastest
 
 _kernel_cache = {}
 _schedule_cache = {}
@@ -265,15 +266,8 @@ def _accuracy_compatible(actual, reference):
 
 
 def _choose_config(results):
-    native = next(result for result in results if result[2].algorithm == "mlx")
-    alternatives = [result for result in results if result[2].algorithm == "metile"]
-    if not alternatives:
-        return native[2]
-    fastest = min(alternatives, key=lambda result: result[0])
-    if fastest[0] >= native[0] * (1.0 - _SWITCH_MARGIN):
-        return native[2]
-    cutoff = fastest[0] * 1.0025
-    return choose_mdl_tie([result for result in alternatives if result[0] <= cutoff])
+    native = next(result for result in results if result[2].algorithm == "mlx")[2]
+    return select_fastest(results, native, lambda _config: _SWITCH_MARGIN, tie_break=choose_mdl_tie)
 
 
 def _tune_config(values, weight, configs):
@@ -303,23 +297,11 @@ def _tune_config(values, weight, configs):
         except (RuntimeError, TypeError, ValueError):
             continue
 
-    def measure(active, rounds):
-        # One eval per batch; see calibrate_tournament_batch for why evaluating a single
-        # dispatch per sample compresses the ratios between candidates toward 1.0.
-        batch = calibrate_tournament_batch(active[0][1])
-        samples = {config: [] for config, _, _ in active}
-        for round_index in range(rounds):
-            shift = round_index % len(active)
-            ordered = active[shift:] + active[:shift]
-            if round_index & 1:
-                ordered.reverse()
-            for config, dispatch, _ in ordered:
-                start = time.perf_counter_ns()
-                mx.eval([dispatch() for _ in range(batch)])
-                samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
-        return samples
+    # One eval per batch; see calibrate_tournament_batch for why evaluating a single
+    # dispatch per sample compresses the ratios between candidates toward 1.0.
+    measure = batched_measure(calibrate_tournament_batch(dispatches[0][1]))
 
-    provisional = measure(dispatches, 9)
+    provisional = round_robin(dispatches, 9, measure)
     medians = {config: statistics.median(samples) for config, samples in provisional.items()}
     best = min(medians.values())
     finalists = [
@@ -327,11 +309,15 @@ def _tune_config(values, weight, configs):
         for candidate in dispatches
         if candidate[0].algorithm == "mlx" or medians[candidate[0]] <= best * 1.08
     ]
-    final = measure(finalists, 21)
+    # Confirm head to head: a candidate's measured time depends on how many others share
+    # the rotation, so the provisional order does not survive isolated measurement.
+    native = next(candidate[0] for candidate in finalists if candidate[0].algorithm == "mlx")
+    timings = confirm_pairwise(finalists, native, 21, measure)
     return _choose_config(
         [
-            (statistics.median(final[config]), description_bits, config)
+            (timings[config], description_bits, config)
             for config, _, description_bits in finalists
+            if config in timings
         ]
     )
 

@@ -4,7 +4,6 @@ import inspect
 import os
 import statistics
 import threading
-import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -14,6 +13,7 @@ from metile.backends.mlx import (
     _mlx_compiler_dtype,
     _mlx_kernel_body,
     _tune_framework_kernels,
+    batched_measure,
     calibrate_tournament_batch,
 )
 from metile.codegen import msl_emitter
@@ -28,6 +28,7 @@ from metile.compiler.schedule_search import (
 )
 from metile.runtime.block_scaled import _quantize_block_scaled_arrays
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.tuning import confirm_pairwise, round_robin
 
 _kernel_cache = {}
 _schedule_cache = {}
@@ -310,31 +311,24 @@ def _tune_config(activations, weight, configs):
             margin=_SWITCH_MARGIN,
         )
 
-    def measure(active, rounds):
-        # One eval per batch; see calibrate_tournament_batch for why evaluating a single
-        # dispatch per sample compresses the ratios between candidates toward 1.0.
-        batch = calibrate_tournament_batch(active[0][1])
-        samples = {config: [] for config, _, _ in active}
-        for round_index in range(rounds):
-            shift = round_index % len(active)
-            ordered = active[shift:] + active[:shift]
-            if round_index & 1:
-                ordered.reverse()
-            for config, dispatch, _ in ordered:
-                start = time.perf_counter_ns()
-                mx.eval([dispatch() for _ in range(batch)])
-                samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
-        return samples
+    # One eval per batch; see calibrate_tournament_batch for why evaluating a single
+    # dispatch per sample compresses the ratios between candidates toward 1.0.
+    measure = batched_measure(calibrate_tournament_batch(kernels[0][1]))
 
-    provisional = measure(kernels, 9)
+    provisional = round_robin(kernels, 9, measure)
     medians = {config: statistics.median(samples) for config, samples in provisional.items()}
     best = min(medians.values())
     finalists = [candidate for candidate in kernels if medians[candidate[0]] <= best * 1.08]
-    final = measure(finalists, 21)
+    # Confirm head to head. There is no native candidate to pair against here, so the
+    # provisional fastest serves as the reference; what matters is that every finalist is
+    # measured in an identically sized context rather than in one crowded rotation.
+    reference = min(medians, key=medians.__getitem__)
+    timings = confirm_pairwise(finalists, reference, 21, measure)
     return choose_mdl_tie(
         [
-            (statistics.median(final[config]), description_bits, config)
+            (timings[config], description_bits, config)
             for config, _, description_bits in finalists
+            if config in timings
         ]
     )
 

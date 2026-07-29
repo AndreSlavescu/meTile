@@ -16,6 +16,7 @@ from kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
 from kernels.rmsnorm import rmsnorm
 from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.tuning import confirm_pairwise, round_robin
 
 _mlx_kernel_cache = {}
 _mlx_schedule_cache = {}
@@ -550,6 +551,23 @@ def calibrate_tournament_batch(dispatch, evaluate=None):
     return max(1, min(_TOURNAMENT_MAX_BATCH, _TOURNAMENT_SAMPLE_TARGET_NS // span))
 
 
+def batched_measure(batch):
+    """Return ``measure(dispatch) -> seconds`` averaged over ``batch`` queued dispatches.
+
+    One eval for the whole batch. Evaluating per dispatch adds the blocking round trip to
+    every candidate, which compresses the ratios between them toward 1.0 and lets a switch
+    margin admit a kernel that is actually slower. See calibrate_tournament_batch.
+    """
+    mx = _require_mlx()
+
+    def measure(dispatch):
+        start = time.perf_counter_ns()
+        mx.eval([dispatch() for _ in range(batch)])
+        return (time.perf_counter_ns() - start) * 1e-9 / batch
+
+    return measure
+
+
 def _batched_evaluator(unpack=False):
     """Build an ``evaluate(dispatch, count)`` that queues count dispatches per eval."""
     mx = _require_mlx()
@@ -573,20 +591,12 @@ def _tune_framework_kernels(kernels, evaluate, *, margin=_FRAMEWORK_SWITCH_MARGI
 
     batch = calibrate_tournament_batch(kernels[0][1], evaluate)
 
-    def measure(active, rounds):
-        samples = {config: [] for config, _, _ in active}
-        for round_index in range(rounds):
-            shift = round_index % len(active)
-            ordered = active[shift:] + active[:shift]
-            if round_index & 1:
-                ordered.reverse()
-            for config, dispatch, _ in ordered:
-                start = time.perf_counter_ns()
-                evaluate(dispatch, batch)
-                samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
-        return samples
+    def measure(dispatch):
+        start = time.perf_counter_ns()
+        evaluate(dispatch, batch)
+        return (time.perf_counter_ns() - start) * 1e-9 / batch
 
-    provisional_samples = measure(kernels, 11)
+    provisional_samples = round_robin(kernels, 11, measure)
     provisional = {
         config: statistics.median(samples) for config, samples in provisional_samples.items()
     }
@@ -602,11 +612,14 @@ def _tune_framework_kernels(kernels, evaluate, *, margin=_FRAMEWORK_SWITCH_MARGI
         if latency <= best * 1.10 or config in {native, fastest_generated}
     }
     finalist_kernels = [candidate for candidate in kernels if candidate[0] in finalists]
-    finalist_samples = measure(finalist_kernels, 31)
+    # Confirm head to head rather than from the crowded rotation: a candidate's measured
+    # time moves with how many others share the round-robin.
+    timings = confirm_pairwise(finalist_kernels, native, 31, measure)
     return _choose_framework_config(
         [
-            (statistics.median(finalist_samples[config]), description_bits, config)
+            (timings[config], description_bits, config)
             for config, _, description_bits in finalist_kernels
+            if config in timings
         ],
         margin=margin,
     )

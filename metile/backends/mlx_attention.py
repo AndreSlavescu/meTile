@@ -4,7 +4,6 @@ import inspect
 import os
 import statistics
 import threading
-import time
 from dataclasses import dataclass
 
 import metile
@@ -15,9 +14,11 @@ from metile.backends.mlx import (
     _mlx_dtype_to_numpy,
     _mlx_kernel_body,
     _replace_identifier,
+    batched_measure,
     calibrate_tournament_batch,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.tuning import confirm_pairwise, round_robin
 
 _flash_kernel_cache = {}
 _flash_schedule_cache = {}
@@ -163,19 +164,8 @@ def _tune_flash_attention(query, key, value, scale, causal):
         or bool(mx.allclose(candidate[3], reference, rtol=tolerance, atol=tolerance).item())
     ]
     # One eval per batch; see calibrate_tournament_batch.
-    batch = calibrate_tournament_batch(compatible[0][1])
-    samples = {config: [] for config, _, _, _ in compatible}
-    for round_index in range(11):
-        ordered = (
-            compatible[round_index % len(compatible) :]
-            + compatible[: round_index % len(compatible)]
-        )
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval([dispatch() for _ in range(batch)])
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
+    measure = batched_measure(calibrate_tournament_batch(compatible[0][1]))
+    samples = round_robin(compatible, 11, measure)
     provisional = {
         config: statistics.median(config_samples) for config, config_samples in samples.items()
     }
@@ -191,22 +181,14 @@ def _tune_flash_attention(query, key, value, scale, causal):
         if latency <= best * 1.10 or config in {native, fastest_generated}
     }
     finalist_kernels = [candidate for candidate in compatible if candidate[0] in finalists]
-    samples = {config: [] for config in finalists}
-    for round_index in range(31):
-        ordered = (
-            finalist_kernels[round_index % len(finalist_kernels) :]
-            + finalist_kernels[: round_index % len(finalist_kernels)]
-        )
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval([dispatch() for _ in range(batch)])
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
+    # Confirm head to head rather than from the crowded rotation: a candidate's measured
+    # time moves with how many others share the round-robin.
+    timings = confirm_pairwise(finalist_kernels, native, 31, measure)
     return _choose_framework_config(
         [
-            (statistics.median(samples[config]), description_bits, config)
+            (timings[config], description_bits, config)
             for config, _, description_bits, _ in finalist_kernels
+            if config in timings
         ]
     )
 

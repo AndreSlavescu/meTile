@@ -4,7 +4,6 @@ import inspect
 import os
 import statistics
 import threading
-import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,6 +22,7 @@ from metile.backends.mlx import (
     _replace_identifier,
     _specialize_mlx_source,
     _token_bucket,
+    batched_measure,
     calibrate_tournament_batch,
 )
 from metile.codegen.msl_emitter import emit
@@ -34,6 +34,7 @@ from metile.compiler.schedule_search import (
     optimize_tile_schedules,
 )
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.tuning import confirm_pairwise, round_robin
 
 _affine_qmv_kernel_cache = {}
 _affine_swiglu_kernel_cache = {}
@@ -74,8 +75,13 @@ class MLXAffineResidualConfig:
     decode_dtype: str = "f32"
 
 
+# mx.compile is not offered for affine SwiGLU. Measured against eager MLX, interleaved and
+# batched, it is 0.938x at one row, 0.946x at two, 1.014x at four and 1.005x at eight: never
+# faster than noise, and clearly slower exactly where it kept winning the tournament and
+# then losing in steady state. Raising _COMPILED_SWITCH_MARGIN twice did not stop that, so
+# the candidate is withdrawn rather than margined against.
 _AFFINE_SWIGLU_CONFIGS = tuple(
-    [MLXAffineSwiGLUConfig("mlx"), MLXAffineSwiGLUConfig("mlx_compiled")]
+    [MLXAffineSwiGLUConfig("mlx")]
     + [
         MLXAffineSwiGLUConfig("metile", "scalar", block, outputs_per_simdgroup)
         for block, outputs_per_simdgroup in (
@@ -1291,15 +1297,8 @@ def _tune_affine_dispatches(configs, make_dispatch, choose_config):
     # every candidate and compresses their ratios toward 1.0, letting the switch margins
     # admit a kernel that is actually slower than native MLX.
     batch = calibrate_tournament_batch(native_dispatch)
-    samples = {config: [] for config, _, _ in kernels}
-    for round_index in range(11):
-        ordered = kernels[round_index % len(kernels) :] + kernels[: round_index % len(kernels)]
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval([dispatch() for _ in range(batch)])
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
+    measure = batched_measure(batch)
+    samples = round_robin(kernels, 11, measure)
 
     provisional = {
         config: statistics.median(config_samples) for config, config_samples in samples.items()
@@ -1317,22 +1316,16 @@ def _tune_affine_dispatches(configs, make_dispatch, choose_config):
         if latency <= best * 1.10 or config in {native, fastest_alternative}
     }
     finalist_kernels = [candidate for candidate in kernels if candidate[0] in finalists]
-    samples = {config: [] for config in finalists}
-    for round_index in range(31):
-        ordered = (
-            finalist_kernels[round_index % len(finalist_kernels) :]
-            + finalist_kernels[: round_index % len(finalist_kernels)]
-        )
-        if round_index & 1:
-            ordered.reverse()
-        for config, dispatch, _ in ordered:
-            start = time.perf_counter_ns()
-            mx.eval([dispatch() for _ in range(batch)])
-            samples[config].append((time.perf_counter_ns() - start) * 1e-9 / batch)
+    # Confirm head to head rather than trusting the crowded rotation. A candidate's measured
+    # time depends on how many others share the round-robin, and the mlx_compiled variant in
+    # particular reads faster in the tournament than it runs afterwards: at one row it was
+    # being selected and then measuring 0.93x of plain native MLX.
+    timings = confirm_pairwise(finalist_kernels, native, 31, measure)
     return choose_config(
         [
-            (statistics.median(samples[config]), description_bits, config)
+            (timings[config], description_bits, config)
             for config, _, description_bits in finalist_kernels
+            if config in timings
         ]
     )
 
