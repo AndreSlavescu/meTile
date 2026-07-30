@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785373856969,
+  "lastUpdate": 1785375227577,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1627,6 +1627,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 413.26,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11d3cba4808f774ca9d070708078330f83c1f60b",
+          "message": "Schedule instructions natively, and measure that it does nothing (#20)\n\n* Accumulate attention in f32, and assert logit equality instead of token equality\n\nThe attention decode kernel multiplied two storage-dtype loads together. In MSL\nbfloat * bfloat yields bfloat, so every one of the D dot-product terms rounded to\nan 8-bit significand before it ever reached the f32 accumulator, and the same\nhappened to probability * value. Casting the Q, K and V loads to f32 first fixes\nit.\n\nMeasured against a float32 reference on Qwen3-VL-4B, 36 real decode-step calls:\n\n                       before      after\n  median MLX error     0.003403   0.003403\n  median meTile error  0.013213   0.003403\n  meTile worse than    33/36      0/36\n  max |meTile - MLX|   0.062500   0.000000\n\nAll 36 calls are now bit-exact, and the accuracy is MLX's exactly rather than 4x\nworse. No speed cost: bf16 attention still measures 1.30x at 1024 keys and 1.18x\nat 256, f16 stays at parity.\n\nFinding it took discarding three wrong measurements, each worth naming because\neach looked conclusive. Comparing at prefill reported everything bit-exact, which\nwas true and meaningless: meTile attention only engages when the query length is\n1, so prefill never runs the kernel. Expressing the error in ulps of the tensor's\nmaximum said \"rounding-level\"; per-element ulps said 160000, because a 1e-6 floor\nmakes near-zero elements meaningless. What settled it was comparing both\nimplementations against a float32 reference, where meTile was plainly 4x further\nfrom the truth.\n\nThe tests now assert bit-exact logits rather than identical tokens. Tokens are the\nweaker property: two logit vectors can differ and argmax the same way for many\nsteps, so a token test passes over a real numeric regression and then fails later\non something unrelated. Switching contract immediately surfaced two more\ndivergences the token tests had missed.\n\nBoth turned out to be reduction order where meTile is the more accurate side, so\nthey are bounded and documented rather than eliminated. Measured against float32\nat kernel level: MLX's f16 SwiGLU errs 18.05 from truth against meTile's 4.10 at\nhidden 2048 and inter 8192, and its f16 RMSNorm errs 0.00293 against 0.00185 at\nhidden 3072. Matching bit-for-bit there means adopting a measurably worse\nsummation order. Every pair not listed must be exactly equal, which is what\ncaught this kernel.\n\nThe Qwen3-VL xfail is retired. It reported XPASS(strict) once the cast landed,\nwhich is how that mechanism is meant to announce a fix.\n\n66 pass in the model matrix, 16 skipped; 596 with slow deselected. Vulture clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Schedule instructions natively, and measure that it does nothing\n\nA native scheduling pass over Metal IR: a dependence-correct list scheduler whose objective is\nregister pressure rather than latency, plus an opt-in reassociation pass for\ninstruction-level parallelism. Both are off by default, and the reason is the measurement.\n\nPressure first is the right objective for this target and comes straight from our own numbers.\nReaching the register budget measured 1.3x to 6.7x slower; perfect ILP is worth at most 1.09x\non fp32 and 1.41x on fp16. The spill cliff is between one and six times the entire ILP prize,\nso the scheduler chases latency only while pressure is comfortable and switches to relieving\nit past 80% of the budget, which is the standard integrated-prepass shape.\n\nIt does not work, and that is the finding. Across six kernels from 14 to 126 allocated\nregisters, reordering changed the register count in none of them, and no timing difference\nsurvived the benchmark's own control. The control is the part worth keeping: cases where the\npass emits byte-identical MSL are timed too, and identical source cannot beat itself, so their\nspread is the noise floor. It read 0.6% to 7.6% between runs. An early version of the\nbenchmark would have reported a 1.28x win on softmax while the control row beside it read\n0.75x on identical source at the same moment; three repeats gave 1.050x, 0.985x, 0.893x.\n\nThe cause is structural rather than a shortcoming of the pass. Apple's backend schedules and\nallocates from the MSL it is handed, so statement order is a suggestion, and on this evidence\nit is declined. This is the same conclusion the ILP ceiling reached, from a second direction:\nthere is no scheduling win available above MSL. The passes stay because they are correct,\ntested against the hazards that would make them miscompile, and they operate at the level a\nscheduler has to operate at if meTile emits machine code directly, which the binary-archive\ninjection work established is possible.\n\nGetting the dependences right took two fixes, both of which produced kernels Metal rejected\nwith \"use of undeclared identifier\":\n\n  Object identity is the wrong key for a value. The lowering hands out several distinct MValue\n  objects carrying one name, so keying on id() splits one variable into many and loses edges.\n\n  The raw name is also wrong. CSE forwards a redundant value to its equivalent without\n  renaming it, so two names can mean one variable. The emitter already resolved this before\n  printing; the rule now lives in mir.resolve, which both the emitter and the scheduler use,\n  because a pass that disagrees with it silently loses dependence edges.\n\nReassociation is separate and stays off for a reason beyond speed: it reorders\nfloating-point addition, and the model tests now assert bit-exact logits against MLX. Trading\nthat for at most 9% is a bad trade. It also had to be taught to delete the additions it\nabsorbs, since a rebuilt chain that leaves them behind emits a tree and a chain, spending more\ninstructions to shorten a dependence, and to find the maximal chain rather than the first\nqualifying one, since rebuilding four terms of an eight-term chain barely shortens anything.\n\n16 scheduling tests, built around hazards rather than outcomes: what must not move across a\nbarrier, across an operation whose effects the pass does not model, past a variable\nreassignment, or past a store through an aliased pointer. The end-to-end test compares output\nbits with the pass on and off and additionally requires the two runs to have compiled\n*different* MSL, because otherwise agreeing outputs would prove nothing.\n\n610 pass with the pass off, 610 with it forced on. Lint and vulture clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T18:31:12-07:00",
+          "tree_id": "8a9b76c36b29d48281ed5f1b18081d5cd330d740",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/11d3cba4808f774ca9d070708078330f83c1f60b"
+        },
+        "date": 1785375226295,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 372.08,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3199.59,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 317.35,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 961.02,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 326.74,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1015.1,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 250.2,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 251.03,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 281.4,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 318.84,
             "unit": "us"
           }
         ]
