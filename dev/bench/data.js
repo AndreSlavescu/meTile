@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785368645599,
+  "lastUpdate": 1785370461583,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1479,6 +1479,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 385.36,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4babc544694b4c3706c4d74a247504bdb88b6466",
+          "message": "Registry-driven model patch tests, and stop attention crashing on head_dim 256 (#18)\n\nRestructured after the Liger pattern: MODEL_CASES lists checkpoints, FEATURE_SETS\nlists patch surfaces, and the test runs the product. Adding a model or a subsystem\nis one line. The previous version had a bare tuple of three names and no notion of\nwhich subsystem was under test, so a failure said \"this model broke\" and nothing\nmore.\n\nPer-subsystem runs are the point. Each feature set disables everything but one, so\na red cell names a suspect, and the all-on case still catches interactions. What\neach set actually reaches, verified rather than assumed:\n\n  attention      -> mlx_lm.models.*.scaled_dot_product_attention\n  graph_fusion   -> the decoder block's own __call__\n  quantized_mlp  -> block + mlp\n  rms_norm       -> both layernorms\n\nFinding the blocks needed to stop assuming model.model.layers. That path raises\nAttributeError on Qwen3.5, which nests differently, and the block list has to be\nlocated structurally. Recognising linear_attn alongside self_attn is what makes a\nhybrid model visible at all: Qwen3.5 and Qwen3.6 alternate GatedDeltaNet layers\nwith standard attention and use Qwen3NextMLP, and meTile patches neither the MLP\nnor the block there. Since the MLP is where the decode speedup comes from, that,\nnot the width cliff, is the better explanation for those models reporting 1.000x.\n\nTwo bugs the tests found:\n\nAttention crashed instead of falling back. head_dim 256, which Qwen3.5, Qwen3.6\nand Qwen3-VL all use, satisfies every condition the shape gate checks and then\nneeds 40960 bytes of threadgroup memory against a 32768-byte limit, so the kernel\nraised into the caller's generate loop. Shapes that fail to build are now recorded\nand served from MLX. Deriving a head-dimension bound arithmetically was the\nalternative and is worse: it hardcodes the current kernel's allocation formula\ninto the gate and drifts the first time the tiling changes.\n\n_implementation replaces getattr(cls, \"__call__\"). For a class that does not define\n__call__, getattr resolves through the metaclass and returns a fresh method-wrapper\nper access, so the identity check reported a swap that never happened. A false\npositive in that guard is worse than no guard: it claims coverage that is absent.\nCaught by the no-op detector test, which is itself the thing that keeps this suite\nfrom silently measuring nothing.\n\nOne divergence recorded, not hidden. Qwen3-VL-4B with attention diverges from MLX\nat token 7 of 48, and its decode logits differ by 0.43 against a maximum magnitude\nof 27.4. Strict xfail, so it cannot pass quietly and a fix shows up as an\nunexpected pass. Ruled out by measurement: the kernel is clean in isolation across\nfloat16 and bfloat16, head dimensions 64 and 128, grouped-query ratios 4 and 7, and\nevery key count from 1 to 128; the other three subsystems are bit-exact on this\nsame model; both models use the same KVCache class and step. What differs between\nthe real invocation and every synthetic reproduction is still open.\n\nAlso measured, per subsystem at a real decode step rather than prefill (meTile\nattention only engages when the query length is 1, so a prefill comparison never\nruns the kernel): Qwen2.5-0.5B is bit-exact on all four subsystems, and Qwen3-VL\nis bit-exact on three.\n\n610 tests pass, 25 skipped, 2 xfailed; 594 with slow deselected. Vulture clean.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T17:10:58-07:00",
+          "tree_id": "38cf694c5dcf66118e5cb0cabdb557dab931c2d2",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/4babc544694b4c3706c4d74a247504bdb88b6466"
+        },
+        "date": 1785370459914,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 493.33,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4454.37,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 390.15,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1493.15,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 419.25,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1479.06,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 354.97,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 347.68,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 359.09,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 468.93,
             "unit": "us"
           }
         ]
