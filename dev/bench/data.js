@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785377294971,
+  "lastUpdate": 1785380240195,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1849,6 +1849,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 432.42,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91ed1411aa313128f23c03585f1445026cbac22d",
+          "message": "Correct the addend flag: it picks immediate or register, not present or absent (#25)\n\nA flag landed under the wrong name, and the wrong name came from a reading that had already\nsurvived a prediction, which is the interesting part. It was ADDEND_ENABLE, described as\nincluding the addend or not, because clearing it turned a*m+d into a*m on four inputs.\n\nClearing it actually switches the addend slot from an immediate to a register. The synthesised\ninstruction that verified \"a*m\" had an ordinary encoded constant left in the slot, 0xb0, and with\nthe immediate bit clear that byte names register 88 -- above the sixteen the field reaches, so it\nreads zero. The addend was never absent. It was zero, by accident, and the prediction passed\nbecause zero and absent are indistinguishable in a sum.\n\nThe slot uses the same shape as the register field elsewhere, `r << 1` with the low bit ignored.\nVerified by rewriting instructions to `rd = rd * m + rs` for every ordered pair of three live\nregisters at two multipliers, predicting all four threads each: eighteen rewrites, seventy-two\nexact values.\n\nThat gives the register-plus-register add, as `rd * 1 + rs`, which no immediate form can express.\n`encode_fma` now takes either an immediate addend or an `addend_register` and refuses both at\nonce, and a zero addend is stated for what it is: a register index chosen because it cannot be\nreached, with a test asserting that property so a future part with more registers cannot silently\nturn it into whatever that register holds.\n\nOne more prediction miss worth recording, because the encoding was right and my model was wrong.\nThe register-addend rewrites first matched on thread 0 and failed on the other three: thread gid\nreads x[gid], x[gid+1] and x[gid+2], and the prediction used thread 0's inputs throughout. 18 of\n18 once the shift was applied. When a hypothesis matches exactly on one thread and misses on the\nrest, the harness is the suspect, not the field map.\n\n29 ISA tests. Lint clean.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T19:53:55-07:00",
+          "tree_id": "118948839a110b1d47e3a1de65949804022196fe",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/91ed1411aa313128f23c03585f1445026cbac22d"
+        },
+        "date": 1785380238126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 484.96,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4050.42,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 376,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1214.59,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 381.78,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1203.03,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 382.85,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 341.86,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 359.14,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 424.58,
             "unit": "us"
           }
         ]
