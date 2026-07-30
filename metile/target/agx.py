@@ -38,39 +38,43 @@ MATRIX_PEAK_TFLOPS = 15.33
 STREAMING_READ_GBPS = 120.6
 
 # Read bandwidth as a function of working-set size, measured by benchmarks/agx_memory_hierarchy.py.
-# One number for bandwidth is badly wrong here: a working set that stays resident is served sixteen to
-# twenty times faster than one that streams, and that ratio is larger than every other factor in this
-# file. A tiling that fits and a tiling that misses are not the same kernel.
+# One number for bandwidth is badly wrong here: a working set the fast level holds is served twenty times
+# faster than one that streams, and that ratio is larger than every other factor in this file.
 #
-# Coalesced streaming reads, 16384 threads, six gigabytes of traffic per dispatch, sizes interleaved
-# across rounds. The pass loop re-reads the same addresses, so the obvious worry is that the backend
-# collapses it into a multiply and the fast numbers are fiction; tripling the traffic triples the
-# elapsed time at every size, which it could not if the loop were collapsed.
+# Each size is measured at several threadgroup counts and the best is kept, which is not a refinement but
+# the difference between measuring the hierarchy and measuring the thread count. An earlier version used
+# 64 threadgroups for every size and recorded a knee at 2 MB. There is no knee at 2 MB. At 64 groups an
+# 8 MB working set reads 196 GB/s and at 512 it reads 2431, so what that table described was starvation:
+# the thread count alone moves 16 MB by 19.7x. The fast level holds at least 16 MB.
 #
-# The resident regime is one entry, not four, because the probe cannot resolve it. Measured 1545, 2006,
-# 2138 and 2386 GB/s at 256 KB, 512 KB, 1 MB and 2 MB -- bandwidth *rising* with working set, which
-# cannot be a property of a cache. It is the pass loop: a smaller working set means fewer inner
-# iterations per pass, so loop bookkeeping takes a larger share, and the effect shrinks as the set
-# grows. Only the 2 MB figure is close to uncontaminated, and it is a floor.
-#
-# So what this establishes is that a resident working set runs at 2386 GB/s or better, and nothing about
-# how that varies below 2 MB. Reporting four numbers would claim a resolution the measurement does not
-# have; a monotonicity test on the table is what caught the attempt.
+# Sizes below about 1 MB are floors rather than levels. Enough threads to saturate and enough work per
+# thread to amortise the pass loop are conflicting demands once the set is only a few times the thread
+# count, so the resident regime is recorded as one figure.
 BANDWIDTH_BY_WORKING_SET_GBPS = {
-    2 * 1024 * 1024: 2386.0,
-    4 * 1024 * 1024: 555.0,
-    8 * 1024 * 1024: 192.0,
-    16 * 1024 * 1024: 161.0,
-    32 * 1024 * 1024: 134.0,
-    64 * 1024 * 1024: 128.0,
-    128 * 1024 * 1024: 124.0,
+    16 * 1024 * 1024: 2453.0,
+    32 * 1024 * 1024: 1795.0,
+    64 * 1024 * 1024: 448.0,
+    128 * 1024 * 1024: 175.0,
+    256 * 1024 * 1024: 156.0,
 }
 
-# Largest working set still served by the fast level, and what it delivers. The knee is sharp: 2 MB
-# reads 2386 GB/s and 4 MB reads 555, so this is the number a tiling pass should be trying to stay
-# under. The rate is a floor for the reason above.
-RESIDENT_WORKING_SET_BYTES = 2 * 1024 * 1024
-RESIDENT_READ_GBPS = 2386.0
+# Largest working set the fast level still serves, and what it delivers there.
+RESIDENT_WORKING_SET_BYTES = 16 * 1024 * 1024
+RESIDENT_READ_GBPS = 2453.0
+
+# Threadgroups needed before a resident working set reaches its bandwidth, by size. Below these the data
+# is resident and the kernel still reads at streaming speed, which is the failure the corrected table
+# above was hiding.
+#
+# Not yet shown to be actionable for real kernels, and worth saying so. The affine decode matmul launches
+# `output_features / block_n` groups, which spans 35 to 280 at N=8960 -- an eightfold range straddling
+# these thresholds -- and its configs measure within 3% of each other. Whatever binds that kernel, it is
+# not this. The numbers describe streaming reads, where the effect is real and large.
+GROUPS_FOR_RESIDENT_BANDWIDTH = {
+    4 * 1024 * 1024: 256,
+    8 * 1024 * 1024: 512,
+    16 * 1024 * 1024: 1024,
+}
 
 # Threadgroup memory, measured by benchmarks/agx_threadgroup_bandwidth.py against a resident device read
 # over the same 32 KB, so this compares staging with a cache hit rather than with DRAM.
@@ -170,8 +174,9 @@ def tiling_gain(working_set_bytes):
     it. Neither of meTile's two main regimes has any:
 
       decode    each weight element is read exactly once, so the working set is the whole weight and no
-                tiling changes that. Real MLP weights run 2.5 MB to 50 MB, all above the knee, and the
-                chosen configs achieve 80 to 128 GB/s against their footprint's level of 128 to 555.
+                tiling changes that. Real MLP weights run 2.5 MB to 50 MB, and while most of those are
+                inside the fast level, residency across decode steps does not survive: a token touches
+                every layer's weights, roughly a gigabyte, between two reads of the same one.
       prefill   compute bound, not memory bound. The generated kernels reach 0.96x to 0.97x of
                 MATRIX_PEAK_TFLOPS, and MLX reaches 0.95x to 0.96x, so there is nothing for a tiling to
                 recover.
