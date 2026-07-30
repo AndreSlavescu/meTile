@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785382163246,
+  "lastUpdate": 1785384682445,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2071,6 +2071,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 457.68,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8f20bedcb2a71ec248f3f7779a2384f53cd29b7",
+          "message": "Label every published result with the precision it was measured at (#28)\n\n* Prune configurations the device cannot host instead of failing the whole shape\n\nHead dimension 256 was recorded as an unsupported attention shape, and the kernel was never the\nproblem. It computes correctly at five of the six block sizes the tuner offers -- 32 through 512 all\nmatch MLX -- and reaches the threadgroup memory limit only at 1024, where it wants 40960 bytes\nagainst 32768. The tuner compiled candidates in a loop with no guard, so that one candidate raised\nand took the whole shape with it. Attention on Qwen3-VL then fell back to MLX for every shape.\n\nTask framing was wrong too, worth saying: this was carried as \"make the attention decode kernel fit\nhead_dim 256\". Nothing needed to fit. Measuring each block size individually is what showed the\nkernel was already correct at D=256 and the selector was at fault, and no amount of work on the\nkernel would have fixed it.\n\nThreadgroup memory exhaustion is now a typed OutOfResources rather than a bare RuntimeError, and\nthe three MLX tuners prune on it. Only on it: a candidate asking for more memory than the part has\nis a fact about that candidate, while any other compile failure is a bug that must surface, and\ncatching RuntimeError broadly would swallow both. This is the distinction Triton draws with its own\nOutOfResources, whose autotuner prunes shared-memory failures the same way.\n\nFixing it in the tuners rather than in attention fixes all three -- attention, rms_norm and\nadd_rms_norm all had the same unguarded loop, and only attention had a config list that reached the\nlimit in practice.\n\nmeTile attention at head dimension 256 now runs and agrees with MLX exactly, 0.0 maximum absolute\ndifference on the shape that previously fell back.\n\nThe unsupported-shape backstop stays, since shapes that genuinely cannot run still need one, but its\ncomment no longer cites head_dim 256 as the motivating case.\n\n6 new tests, including one asserting that only OutOfResources is pruned and that a plain\nRuntimeError still propagates. 661 pass.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Label every published result with the precision it was measured at\n\nThree artifacts reported end-to-end model speedups with no statement of the precision behind them,\nand they were the most quotable numbers in the repository. m5-mlx-lm-bf16-models.json shows decode\nspeedups of 1.37x to 1.75x, and those runs had meTile quantizing the down projection to affine8 while\nMLX ran bf16 -- a representation change, not a kernel win, with nothing in the file saying so. I\nquoted from that file earlier in exactly the way it invites.\n\nThe writer was never the problem. It refuses to emit an unlabelled result at schema 19 and\n_validate_suite even rejects a label that disagrees with the recorded plan, and the chart renderer has\nbeen printing \"mixed precision; not BF16-vs-BF16\" all along. What none of them could do is police\nartifacts written at schemas 2, 3 and 5, before labels existed, which is precisely where the\nunlabelled ones were. Validation at write time cannot reach a file already on disk.\n\nSo the audit now covers the directory rather than the writer, and age is no longer an exemption.\nEvery published result must carry a precision class and say whether both sides ran the same weight\nrepresentation. A mixed-precision result must additionally carry an accuracy metric somewhere in it,\nfollowing MLPerf's rule for quantized submissions: arbitrary reproducible quantization is allowed, but\nit has to be described and it has to meet an accuracy target. A speedup at a different precision with\nno accuracy evidence beside it is not a result anyone can act on. The calibration fidelity that\njustifies the affine8 decode was already recorded; it simply was not connected to the claim.\n\nLabels are derived rather than re-measured, because the label is a function of which features ran and\nevery one of these files records that in selected_plan. The backfill calls the same\n_precision_comparison the writer uses instead of reimplementing its rules, since a second\nimplementation would be free to drift from the first and the audit checking labels against plans would\nthen be checking a copy. Each one is marked derived_from: selected_plan so nobody mistakes it for\nsomething the original run emitted, and the baseline dtype stays as the function reports it -- those\nschemas recorded no model dtype, and inferring one from the filename would be a guess dressed as data.\n\nWhat the labels say, which is the point:\n\n    m5-mlx-lm-bf16-models.json        mixed_precision_affine_int8_decode   <- the 1.37x-1.75x figures\n    m5-mlx-lm-models.json             same_precision\n    m5-mlx-lm-bf16-dense-qwen15.json  same_precision\n\nSo the 4-bit end-to-end numbers are like-for-like, and decode there is parity. The bf16 figures are\nnot, and should not be quoted as a speedup.\n\n4 audit tests over every published file, 18 passing with 7 correctly skipping the mixed-precision\naccuracy check as same-representation comparisons. 679 pass with 7 skipped in the fast suite.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T21:08:18-07:00",
+          "tree_id": "c089692c9397ed9236aeb929f0378b18289d3e99",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/b8f20bedcb2a71ec248f3f7779a2384f53cd29b7"
+        },
+        "date": 1785384680142,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 359.79,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3422.76,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 435.18,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1248.52,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 452.56,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1146,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 273.33,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 273.59,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 285.51,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 335.73,
             "unit": "us"
           }
         ]
