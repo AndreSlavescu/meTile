@@ -85,6 +85,17 @@
           }
         ]
       },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "same_precision",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "model_native"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": true
+      },
       "recorded_at": "2026-07-18T05:54:35.665276+00:00",
       "revision": "a6c7c4725b1d3669aa6de5f28fe9cc33a0829a39",
       "samples": {
@@ -303,6 +314,17 @@
         "vocab_size": 128256
       },
       "plan_confirmation": null,
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "same_precision",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "model_native"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": true
+      },
       "recorded_at": "2026-07-18T05:55:22.571917+00:00",
       "revision": "a6c7c4725b1d3669aa6de5f28fe9cc33a0829a39",
       "samples": {
@@ -543,6 +565,17 @@
             "ttft_speedup": 1.0566367154713627
           }
         ]
+      },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "same_precision",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "model_native"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": true
       },
       "recorded_at": "2026-07-18T05:55:54.508341+00:00",
       "revision": "a6c7c4725b1d3669aa6de5f28fe9cc33a0829a39",
@@ -835,6 +868,17 @@
             "ttft_speedup": 1.1624366980842127
           }
         ]
+      },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "same_precision",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "model_native"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": true
       },
       "recorded_at": "2026-07-18T05:57:13.516053+00:00",
       "revision": "a6c7c4725b1d3669aa6de5f28fe9cc33a0829a39",
