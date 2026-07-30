@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785384803804,
+  "lastUpdate": 1785384985724,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2293,6 +2293,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 459.54,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "02ab97cc632e9591cede29e0d316241852ed8cf8",
+          "message": "Measure attention projections instead of serving them, and record the amortisation trap (#30)\n\nThe q, k, v and o projections are about a quarter of a decode token and have no meTile path, so they\nlook like the obvious next thing to serve. At matched bf16 they are not worth serving, and the reason\nis the same one the standing goal already records: MLX's decode GEMVs run at the hardware streaming\nlimit.\n\nAt one row MLX reads these weights at 121 to 254 GB/s against a 120.6 GB/s streaming ceiling, so for\nthree of four shapes the weights are cache-resident and DRAM is not even the constraint. meTile\nmeasures 0.993x, 0.721x, 1.007x and 0.996x there, and 0.93x to 1.03x at eight rows. A win appears only\nat thirty-two rows, 1.33x to 1.56x, which is batch or prefill rather than decode, and two of the four\nshapes stop being bit-exact there. Routing that would trade the logit-equality contract for a win\noutside the case the task was about.\n\nSo this closes as measured rather than built. Adding the path would deliver parity at decode along with\na code path, a tuning surface and a bit-exactness risk.\n\nThe measurement is the deliverable, and getting it wrong was instructive enough to encode. A first\nversion sized the inner dispatch count for 64 MB of weight traffic per eval. For a 4.7 MB projection\nthat is thirteen dispatches, about 390 us of work against a roughly 200 us mx.eval round trip, so\nnearly a third of every sample was overhead -- and because the two sides pay it differently it reported\nMLX at 52 GB/s with a 2.3x gap and meTile at 1.828x. Both were fiction. Targeting a gigabyte per eval\nputs the round trip near 2%, and the same shape then reads 146 GB/s at 0.993x.\n\nThat is the third time this session that insufficient amortisation manufactured a win: module reloads\ninside a timing loop reported the scheduling pass at 0.83x to 0.92x when it was measuring the Metal\ncompiler, and a per-call API reported the int4 multi-row QMV at 0.05x when the published path uses a\nprepared executor. The rule that would have caught all three: if a measurement of a small kernel shows\na large difference, suspect the harness before believing it.\n\nbenchmarks/projection_headroom.py takes the traffic target as a flag, so lowering it reproduces the\nerror rather than leaving the claim to be trusted.\n\n680 pass, 7 skipped.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T21:11:48-07:00",
+          "tree_id": "95cb9bd31fb60b49a12c2c904af2cfafc8454fb7",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/02ab97cc632e9591cede29e0d316241852ed8cf8"
+        },
+        "date": 1785384984084,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 480.29,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3947.76,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 448.16,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1204.87,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 415.4,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1297.79,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 342.54,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 354.23,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 384.49,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 419.31,
             "unit": "us"
           }
         ]
