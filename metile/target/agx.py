@@ -165,6 +165,19 @@ def tiling_gain(working_set_bytes):
     The figure worth putting beside the other ratios in this file. Fitting under 2 MB is worth about
     19x, where choosing the matrix unit over scalar is worth 2.4x to 3.7x and instruction scheduling is
     worth at most 1.09x and unreachable in practice.
+
+    Available to a pass only where there is reuse, which is the part worth checking before reaching for
+    it. Neither of meTile's two main regimes has any:
+
+      decode    each weight element is read exactly once, so the working set is the whole weight and no
+                tiling changes that. Real MLP weights run 2.5 MB to 50 MB, all above the knee, and the
+                chosen configs achieve 80 to 128 GB/s against their footprint's level of 128 to 555.
+      prefill   compute bound, not memory bound. The generated kernels reach 0.96x to 0.97x of
+                MATRIX_PEAK_TFLOPS, and MLX reaches 0.95x to 0.96x, so there is nothing for a tiling to
+                recover.
+
+    So this is a real property of the part that the current kernels cannot exploit. It becomes reachable
+    if a kernel is restructured to reuse a resident tile across more work than it does today.
     """
     return read_bandwidth_gbps(working_set_bytes) / STREAMING_READ_GBPS
 
