@@ -15,6 +15,7 @@ from kernels.add_rmsnorm import add_rmsnorm
 from kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
 from kernels.rmsnorm import rmsnorm
 from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
+from metile.frontend.kernel import OutOfResources
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 from metile.tuning import confirm_pairwise, round_robin
 
@@ -455,6 +456,24 @@ def _write_add_rms_config(key, config):
     atomic_write_json(_mlx_add_rms_cache_path, payload)
 
 
+def _admissible(build):
+    """Compile one tuning candidate, or return None when the device cannot host it.
+
+    Only OutOfResources is pruned. A configuration asking for more threadgroup memory than the part
+    has is a fact about that candidate, and the tuner should try the others; any other compile
+    failure is a bug and must surface. This is the distinction Triton draws with its own
+    OutOfResources, and catching RuntimeError broadly here would swallow both.
+
+    Without this, one inadmissible candidate failed the whole shape. Head dimension 256 works at
+    five of the six block sizes offered and reaches the limit only at 1024, so attention on
+    Qwen3-VL fell back to MLX entirely, and the shape was recorded as unsupported.
+    """
+    try:
+        return build()
+    except OutOfResources:
+        return None
+
+
 def _tune_mlx_attention(query, key, value, scale, configs):
     mx = _require_mlx()
     dimension = query.shape[-1]
@@ -469,9 +488,13 @@ def _tune_mlx_attention(query, key, value, scale, configs):
                 )
             )
         else:
-            kernel = _compile_mlx_attention(
-                query.shape[1], key.shape[1], dimension, query.dtype, scale, config.block
+            kernel = _admissible(
+                lambda config=config: _compile_mlx_attention(
+                    query.shape[1], key.shape[1], dimension, query.dtype, scale, config.block
+                )
             )
+            if kernel is None:
+                continue
             kernels.append(
                 (config, lambda kernel=kernel: kernel(query, key, value), kernel.description_bits)
             )
@@ -491,7 +514,13 @@ def _tune_mlx_rms_norm(values, weight, eps, configs):
                 )
             )
         else:
-            kernel = _compile_mlx_rms_norm(values.shape[-1], values.dtype, eps, config.block)
+            kernel = _admissible(
+                lambda config=config: _compile_mlx_rms_norm(
+                    values.shape[-1], values.dtype, eps, config.block
+                )
+            )
+            if kernel is None:
+                continue
             kernels.append(
                 (config, lambda kernel=kernel: kernel(values, weight), kernel.description_bits)
             )
@@ -510,7 +539,13 @@ def _tune_mlx_add_rms_norm(values, residual, weight, eps, configs):
 
             kernels.append((config, native_dispatch, 0))
         else:
-            kernel = _compile_mlx_add_rms_norm(values.shape[-1], values.dtype, eps, config.block)
+            kernel = _admissible(
+                lambda config=config: _compile_mlx_add_rms_norm(
+                    values.shape[-1], values.dtype, eps, config.block
+                )
+            )
+            if kernel is None:
+                continue
             kernels.append(
                 (
                     config,

@@ -40,8 +40,18 @@ _scalar_buffer_cache: dict = {}
 _ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4, "uchar": 1}
 
 
+class OutOfResources(RuntimeError):
+    """A configuration asks for more threadgroup memory than the device has.
+
+    Typed rather than a bare RuntimeError so tuners can prune the config and keep going, which is
+    the distinction Triton draws with its own OutOfResources: exceeding a hardware limit is a fact
+    about one candidate, while any other compile failure is a bug that should surface. Catching
+    RuntimeError broadly in a tuning loop would swallow both.
+    """
+
+
 def _validate_threadgroup_memory(metal_ir: mir.MFunction):
-    """Raise RuntimeError if threadgroup memory exceeds hardware limit."""
+    """Raise OutOfResources if threadgroup memory exceeds the hardware limit."""
     total_bytes = 0
     for op in metal_ir.ops:
         if isinstance(op, mir.MThreadgroupAlloc):
@@ -50,7 +60,7 @@ def _validate_threadgroup_memory(metal_ir: mir.MFunction):
         return
     limit = MetalDevice.get().max_threadgroup_memory
     if total_bytes > limit:
-        raise RuntimeError(
+        raise OutOfResources(
             f"Kernel '{metal_ir.name}' requires {total_bytes} bytes threadgroup memory "
             f"but device limit is {limit} bytes. Reduce tile sizes."
         )

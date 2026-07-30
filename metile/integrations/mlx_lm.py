@@ -3483,6 +3483,12 @@ def autotune_metile_for_mlx_lm(
 # hardcode the current kernel's allocation formula into the gate, and drift silently the first
 # time the kernel's tiling changes. Recording the failure per shape is self-calibrating and
 # costs one build attempt for each shape that cannot work.
+#
+# Head dimension 256 was the case that motivated this and no longer needs it. The kernel was
+# always fine there; the tuner offered a block size that could not fit and failed the whole shape
+# instead of pruning it, so attention fell back for a reason that had nothing to do with the
+# shape being unsupported. Tuners now prune on OutOfResources. This set stays as the backstop for
+# shapes that genuinely cannot run, which is what it was for.
 _unsupported_decode_shapes = set()
 
 
