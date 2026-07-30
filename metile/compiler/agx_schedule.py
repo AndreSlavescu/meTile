@@ -22,19 +22,25 @@ Two transformations, both bit-exact by construction, because neither changes any
                 from nopping it.
     reorder     move independent instructions, preserving every register dependence.
 
-Instruction-level parallelism is the one job this cannot finish here, and the blocker has moved
-once already, so it is worth stating precisely.
+    collapse    fold a run of identical fmas into one, which is what instruction-level
+                parallelism is reaching for taken to its limit: instead of shortening a dependent
+                chain of k steps, remove it. k steps of `a*m + d` equal one
+                `a*m**k + d*(m**(k-1) + ... + 1)`, and both constants are often in the immediate
+                field, so three instructions become one. Reassociation, so off by default.
 
-It is no longer the combine. `rd * 1 + rs` is a register-plus-register add, verified across
-eighteen register pairs, so summing two partial chains is expressible. What is missing is a
-register to put the second chain in. Splitting a chain needs one that nothing else uses, and
-proving that requires reading every instruction in the kernel — a register touched only by an
-instruction this file cannot decode is indistinguishable from a free one. Instruction lengths
-cannot be recovered in general, so the stream cannot be walked, so no register can be shown free.
-Guessing would corrupt whatever already lived there, and silently.
+Collapsing is the ILP-family transform this level can express, and it took two attempts to find.
+Splitting a chain across registers is the obvious approach and needs a free register, which cannot
+be proved free by decoding — a register touched only by an instruction this file cannot read is
+indistinguishable from an unused one, and instruction lengths cannot be recovered in general. The
+metadata's register count would settle it, but the transform still needs the chain to be a sum,
+and the only chains decodable here are multiply-accumulate. Collapsing needs neither: no new
+register, no new instruction, just arithmetic on the constants already there.
 
-So the ILP half lives in `metile.compiler.scheduling` at the IR level, where reassociation needs
-neither a new instruction nor a new register. Both halves are reached through `optimize` below.
+Off by default because collapsing reassociates, so results change in the last bits, the same trade
+its IR counterpart makes. It also self-limits: `encode_immediate` refuses constants outside the
+field, so a run whose collapsed constants do not land in it is left alone rather than approximated.
+Whether retiring the folded instructions saves time is measurable and not assumed here; what it
+certainly saves is a dependent chain of length k.
 
 Scope is deliberately narrow and self-enforcing. Only the compact f32 fma is decoded, and every
 byte that is not part of one decoded instruction is a barrier nothing crosses. That is not
@@ -193,6 +199,67 @@ def simplify(text, offsets):
     return patched, retired
 
 
+def collapse(text, offsets):
+    """Fold runs of identical fmas into one instruction each. Returns (code, folded count).
+
+    Reassociates, so it changes results in the last bits and is off by default in `optimize`.
+
+    A run qualifies when its instructions are adjacent, target the same register, carry the same
+    immediate multiplier and addend, and do not negate. Anything else is left alone: an addend that
+    names a register is excluded because its value can change between the steps, which is exactly
+    what makes the closed form invalid.
+    """
+    instructions = decode(text, offsets)
+    patched = bytearray(text)
+    folded = 0
+
+    for run in _runs(instructions):
+        start = 0
+        while start < len(run):
+            head = run[start]
+            stop = start + 1
+            while stop < len(run) and _foldable(head, run[stop]):
+                stop += 1
+            length = stop - start
+            if length < 2 or head.addend is None:
+                start = stop
+                continue
+            multiplier = head.multiplier**length
+            addend = head.addend * sum(head.multiplier**step for step in range(length))
+            try:
+                built = agx_isa.encode_fma(
+                    head.register, multiplier, addend, last=run[stop - 1].last
+                )
+            except agx_isa.EncodingError:
+                # The closed form left the immediate field. Approximating would change the result
+                # by more than reassociation does, so the run keeps its instructions.
+                start = stop
+                continue
+            patched[head.offset : head.offset + agx_isa.FMA_LENGTH] = built
+            for absorbed in run[start + 1 : stop]:
+                patched = bytearray(
+                    agx_isa.write_flag(
+                        bytes(patched), absorbed.offset, agx_isa.INSTRUCTION_DISABLE, True
+                    )
+                )
+            folded += 1
+            start = stop
+    return bytes(patched), folded
+
+
+def _foldable(head, other):
+    """Whether `other` continues a run that folds into a single instruction with `head`."""
+    return (
+        other.register == head.register
+        and other.multiplier == head.multiplier
+        and other.addend is not None
+        and head.addend is not None
+        and other.addend == head.addend
+        and not other.negate_product
+        and not head.negate_product
+    )
+
+
 def reorder(text, offsets):
     """Reorder independent instructions within each run. Returns (code, moved count).
 
@@ -235,18 +302,23 @@ def reorder(text, offsets):
     return bytes(patched), moved
 
 
-def optimize(text, offsets, simplify_identities=True, reorder_independent=True):
+def optimize(text, offsets, simplify_identities=True, reorder_independent=True, fold_runs=False):
     """Run the machine-level passes in order. Returns (code, report).
 
     The single entry point, so a caller asks for optimisation rather than for a list of
     transformations. Simplification runs first: an instruction it retires is one reordering does
     not have to place, and retiring changes no offsets, so the second pass sees the same layout.
 
-    The IR-level half of meTile's optimisation, including the instruction-level parallelism this
-    level cannot express, is `metile.compiler.scheduling`. Both are native to the compiler; they
-    differ in which side of the MSL boundary they act on, and only this side survives.
+    Folding runs comes first when asked for, because it changes which instructions exist and the
+    two passes after it should see the result. It is off by default: it reassociates, and the model
+    tests assert bit-exact logits.
+
+    `metile.compiler.scheduling` is the IR-level half. Both are native to the compiler; they differ
+    in which side of the MSL boundary they act on, and only this side survives it.
     """
-    report = {"retired": 0, "moved": 0}
+    report = {"retired": 0, "moved": 0, "folded": 0}
+    if fold_runs:
+        text, report["folded"] = collapse(text, offsets)
     if simplify_identities:
         text, report["retired"] = simplify(text, offsets)
     if reorder_independent:

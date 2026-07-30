@@ -159,7 +159,7 @@ def test_optimize_with_everything_switched_off_returns_the_code_untouched():
         text, offsets, simplify_identities=False, reorder_independent=False
     )
     assert untouched == text
-    assert report == {"retired": 0, "moved": 0}
+    assert report == {"retired": 0, "moved": 0, "folded": 0}
 
 
 def test_an_fma_adding_a_live_register_is_not_an_identity():
@@ -192,3 +192,99 @@ def test_decoding_round_trips_every_addend_form():
         agx_isa.encode_fma(2, 2.0, 1.0, last=True),
     ):
         assert agx_schedule.decode(original, [0])[0].encode() == original
+
+
+CONSTANT_CHAIN = """#include <metal_stdlib>
+using namespace metal;
+kernel void probe(device const float* x [[buffer(0)]],
+                  device float* out     [[buffer(1)]],
+                  constant uint& n      [[buffer(2)]],
+                  uint gid [[thread_position_in_grid]]) {
+    float a = x[gid];
+    a = fma(a, 2.0f, 1.0f);
+    a = fma(a, 2.0f, 1.0f);
+    a = fma(a, 2.0f, 1.0f);
+    a = fma(a, 2.0f, 1.0f);
+    out[gid] = a;
+}
+"""
+
+
+def _constant_chain_offsets():
+    from metile.target import Unavailable, machine_code
+
+    try:
+        text = machine_code(CONSTANT_CHAIN, "probe")
+    except Unavailable as error:
+        pytest.skip(f"no Metal toolchain: {error}")
+    offsets = [
+        offset
+        for offset in range(0, len(text) - agx_isa.FMA_LENGTH, 2)
+        if text[offset] & 0x0F == agx_isa.FMA_OPCODE_NIBBLE
+        and text[offset + 2] & 0x0F == 0x0E
+        and text[offset + agx_isa.FMA_MULTIPLIER_BYTE] == 0xC1
+    ]
+    return text, offsets
+
+
+def test_collapsing_a_run_folds_it_into_one_instruction():
+    """Three steps of a*2+1 are one a*8+7, and the GPU has to agree.
+
+    The closed form for k steps is a*m**k + d*(m**(k-1) + ... + 1). Here the constants are powers
+    of two so the fold is exact and can be compared against the untouched kernel as well as against
+    the prediction; in general it reassociates, which is why it is off by default.
+    """
+    text, offsets = _constant_chain_offsets()
+    assert len(offsets) == 3
+    baseline = agx_isa.execute(CONSTANT_CHAIN, "probe", [1.0, 2.0, 3.0, 5.0])
+
+    folded_code, folded = agx_schedule.collapse(text, offsets)
+    assert folded == 1
+
+    remaining = agx_schedule.decode(folded_code, offsets)
+    assert remaining[0].multiplier == 8.0
+    assert remaining[0].addend == 7.0
+    assert all(
+        agx_isa.read_flag(folded_code, instruction.offset, agx_isa.INSTRUCTION_DISABLE)
+        for instruction in remaining[1:]
+    )
+
+    got = agx_isa.execute(
+        CONSTANT_CHAIN, "probe", [1.0, 2.0, 3.0, 5.0], rewrite=lambda _: folded_code
+    )
+    assert got == baseline
+
+
+def test_collapsing_leaves_a_run_alone_when_the_closed_form_escapes_the_field():
+    """Approximating would change the result by more than reassociating does.
+
+    Six steps of a*2+1 close to a*64 + 63, and 63 is not `(1 + m/8) * 2**e` for any m under eight,
+    so the fold is declined rather than rounded.
+    """
+    instruction = agx_isa.encode_fma(0, 2.0, 1.0)
+    run = instruction * 6
+    offsets = [index * agx_isa.FMA_LENGTH for index in range(6)]
+    with pytest.raises(agx_isa.EncodingError):
+        agx_isa.encode_immediate(63.0, low_bit=0)
+    unchanged, folded = agx_schedule.collapse(run, offsets)
+    assert folded == 0
+    assert unchanged == run
+
+
+def test_collapsing_declines_a_register_addend():
+    """A register's value can change between steps, so the closed form does not hold."""
+    instruction = agx_isa.encode_fma(0, 2.0, addend_register=3)
+    run = instruction * 3
+    offsets = [index * agx_isa.FMA_LENGTH for index in range(3)]
+    unchanged, folded = agx_schedule.collapse(run, offsets)
+    assert folded == 0
+    assert unchanged == run
+
+
+def test_optimize_leaves_folding_off_unless_asked():
+    """It reassociates, and the model tests assert bit-exact logits."""
+    text, offsets = _constant_chain_offsets()
+    _, report = agx_schedule.optimize(text, offsets)
+    assert report["folded"] == 0
+    _, asked = agx_schedule.optimize(text, offsets, fold_runs=True)
+    assert asked["folded"] == 1

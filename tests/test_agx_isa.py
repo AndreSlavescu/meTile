@@ -149,7 +149,12 @@ def test_nopping_an_instruction_removes_exactly_its_effect():
         intact=31.0,
         removed=15.0,
     )
-    assert len(offsets) == 4, f"expected four fmas, found {[hex(o) for o in offsets]}"
+    assert len(offsets) == 4, (
+        f"expected four fmas, found {[hex(o) for o in offsets]}. The scan skips an offset whose "
+        f"patched kernel fails to dispatch, and heavy concurrent GPU work makes that happen to "
+        f"offsets that are perfectly valid, so run this without other GPU load before treating a "
+        f"short list as an ISA change."
+    )
     assert {b - a for a, b in itertools.pairwise(offsets)} == {agx_isa.FMA_LENGTH}
 
 
