@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785396611592,
+  "lastUpdate": 1785397400621,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2441,6 +2441,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 398.45,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "andre.slavescu@gmail.com",
+            "name": "AndreSlavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "andre.slavescu@gmail.com",
+            "name": "AndreSlavescu",
+            "username": "AndreSlavescu"
+          },
+          "distinct": true,
+          "id": "4a40a23e8d0169a5c7584785443be0efe4506266",
+          "message": "Test whether the hierarchy lever is reachable, and build the arbiter that settles config disputes\n\nThe 19.8x from fitting a working set under 2 MB is the largest ratio in the target model, so the obvious\nnext question was whether real kernels are missing it. They are not missing it; they cannot reach it, and\nthe two reasons are worth recording next to the number so nobody spends a week on it.\n\n  decode    each weight element is read exactly once, so the working set *is* the weight and no tiling\n            changes that. Real MLP weights run 2.5 MB to 50 MB, every one above the knee. The chosen\n            configs achieve 80 to 128 GB/s against the level their footprint sits at, 128 to 555, so\n            there is a 1.3x to 5.9x gap -- but it is not a tiling gap, because there is no reuse for a\n            cache to hold on to.\n  prefill   compute bound. The generated kernels reach 0.96x to 0.97x of the 15.33 TFLOP/s matrix peak\n            and MLX reaches 0.95x to 0.96x. Nothing for a tiling to recover.\n\n`tiling_gain` now says this, so the ratio cannot be read as an available win.\n\nThe second half is a tool, and it exists because I got this wrong first. At rows 64 the tuner picks MLX,\nand a sweep showed a generated config at 1.15x better -- then a distribution check showed every generated\nconfig beating native on median while being tighter than it. That looked conclusive twice.\n\nIt was the harness twice. Measuring all of one arm and then all of the other lets drift between blocks\npass as a difference, and the answer also depends on how many dispatches share an eval:\n\n    batch     1      2      4      8     16     32\n    ratio  1.049  1.041  1.007  0.968  0.957  1.001\n    wins     80%    78%    54%    20%     2%    56%\n\nThere is no stable ordering at rows 64, and keeping native is the correct response, which is what the\nagreement gate already does. The tuner was right and my measurement was not.\n\nbenchmarks/config_arbiter.py is that check as a tool: arms interleaved within every round with the order\nflipped between rounds, ratio and win rate reported across batch sizes, and a win counted only if it holds\nat all of them. Baselined against the tuner's own choice rather than against native, because comparing to\nnative when the tuner picked a generated config answers a question nobody asked -- at rows 16 every\ncandidate beats native by 1.34x to 2.10x and calling that a mis-pick is a false positive, since the config\nit chose is one of them.\n\nA detector that never fires is indistinguishable from a broken one, so --against-native is its sensitivity\ncheck: at rows 16 it finds 4 of 4, which is how \"0 of 8 at rows 64\" earns being believed.\n\n686 pass. Lint clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T00:39:45-07:00",
+          "tree_id": "e0f8e24bdde39d063b40eee4bbbd5ea47c69439c",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/4a40a23e8d0169a5c7584785443be0efe4506266"
+        },
+        "date": 1785397398559,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 362.75,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3669.36,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 508.34,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1174.19,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 525.99,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1036.17,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 278.4,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 288.16,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 289.84,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 338.18,
             "unit": "us"
           }
         ]
