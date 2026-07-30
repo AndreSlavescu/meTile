@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785384985724,
+  "lastUpdate": 1785396611592,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2367,6 +2367,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 419.31,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11f7b337f165e0b98872357053d436cb018f8dfb",
+          "message": "Measure the memory hierarchy and threadgroup memory, which reorders the target model (#31)\n\n* Measure the memory hierarchy, which outranks every other lever in the target model\n\nmeTile recorded one bandwidth number, 120.6 GB/s streaming from DRAM, and it is not the whole story.\nThe gap surfaced by accident while scoping attention projections: a 786 KB weight read at 254 GB/s,\ntwice the recorded ceiling, so something above DRAM was serving it.\n\nSweeping working-set size finds the levels:\n\n    <= 2 MB     2386 GB/s     19.8x DRAM\n    4 MB         555          4.6x\n    8 MB         192          1.6x\n    16 MB        161          1.3x\n    32 MB        134          1.1x\n    >= 64 MB     121-128      1.0x\n\nThe knee at 2 to 4 MB is a factor of four in one step. That makes fitting a working set the largest\nlever in metile/target/agx.py by some distance: choosing the matrix unit over scalar is worth 2.4x to\n3.7x, and instruction scheduling is capped at 1.09x and measured unreachable above MSL. A tiling that\nfits and a tiling that misses are not the same kernel, and until now the compiler had no way to know\nthe difference. `read_bandwidth_gbps`, `resident` and `tiling_gain` give a pass something to consult.\n\nTwo controls, because a 19x claim earns them. The pass loop re-reads the same addresses, so the\nbackend could in principle collapse it into a multiply and the fast numbers would be fiction: tripling\nthe traffic triples the elapsed time at every size, which a collapsed loop could not do. And the sweep\nhas to reach the known 120.6 GB/s at large sizes or the thread count is too low to saturate and every\nnumber is a lower bound on something else -- it reaches 120.5, and the probe reports the check rather\nthan assuming it.\n\nThe resident regime is recorded as one number rather than four, and finding out why was the useful part.\nIt measured 1545, 2006, 2138 and 2386 GB/s at 256 KB, 512 KB, 1 MB and 2 MB: bandwidth *rising* with\nworking set, which cannot be a property of a cache. It is the pass loop again -- a smaller working set\nmeans fewer inner iterations per pass, so bookkeeping takes a larger share, and the effect shrinks as\nthe set grows. Only the 2 MB figure is close to uncontaminated and it is a floor. Publishing four\nnumbers would claim a resolution the measurement does not have.\n\nA monotonicity test over the table is what caught that, twice: first the 256 KB entry reading slower\nthan 512 KB, then 512 KB reading slower than 1 MB. A larger working set is never served faster, so a\ntable that says otherwise is measuring the harness.\n\n683 pass. Lint and vulture clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Measure threadgroup memory against the cache, and confirm the pad calculation was right\n\nThe shared-memory passes -- cooperative loads, padding, swizzling, double buffering -- all assume\nthreadgroup memory is the fast place to put data. On this part that needed checking, because device\nmemory is not slow when resident: 2386 GB/s under 2 MB against DRAM's 121. The question is not whether\nthreadgroup memory is fast but whether it beats the cache that would have served the same bytes.\n\nIt does, barely. 3361 GB/s contiguous against 2749 for the same read from resident device memory, so\n1.22x. That is a much smaller margin than the usual assumption about scratchpad memory and it means no\npass can justify staging on bandwidth alone.\n\nWhat it gains in peak it gives back in fragility. Across per-lane strides the threadgroup arm spreads\n7.69x and the device arm 1.80x, which inverts the usual habit of treating shared memory as forgiving\nand device memory as the thing needing careful access. Here device memory is the forgiving one.\n\nThe collapses are bank aliasing, and the sweep separates that from any size effect:\n\n    stride    shared   device\n     16 B      3361     2749\n    128 B      1216     2079     <- power of two\n    144 B      2322     2341\n    256 B       605     2004     <- power of two\n    512 B       437     1641     <- power of two\n\n144 bytes is one vector larger than 128 and reads nearly twice as fast, so this is alignment rather than\ndistance. Thirty-two banks of four bytes puts every lane on the same bank at 128.\n\nThat confirms `_optimal_pad`, which was written from a stated model of 32 four-byte banks and never\nmeasured. It pads to an odd stride, odd strides do not collapse, so the pass was right for the reason it\nclaimed; a test now ties the two together so the measurement and the pass cannot drift apart.\n\nGetting here took a wrong diagnosis worth recording. A per-thread span of eight vectors measured about\nhalf speed, which looked like a conflict, so an arm was added that padded the span by one to break it up.\nPadding made it worse -- the unpadded span was seven and adding one moved it *onto* 128 bytes rather than\noff. Padding is not a direction, it is an arithmetic result, and plus one is not automatically safe. The\nsweep replaced the guess.\n\nControls throughout: elapsed time scales with the pass count at every stride, min 1.88x max 2.00x on\ndoubling, so no loop is being collapsed.\n\n686 pass. Lint and vulture clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T00:26:17-07:00",
+          "tree_id": "c66e3b2b32996b68ef9a6ed3c819355e3fef66d2",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/11f7b337f165e0b98872357053d436cb018f8dfb"
+        },
+        "date": 1785396609247,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 426.78,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3801.65,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 347.54,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1093.74,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 327.2,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1166.65,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 337.03,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 339.2,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 348.93,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 398.45,
             "unit": "us"
           }
         ]
