@@ -57,7 +57,11 @@ def attention_decode_kernel(
     query = []
     for component in range(values_per_lane):
         dimension = lane * values_per_lane + component
-        query.append(metile.load(Q + query_offset + dimension) * scale)
+        # Cast to f32 before scaling. Q, K and V are the model's storage dtype, and for
+        # bfloat16 a product of two loads rounds to an 8-bit significand before it ever
+        # reaches the f32 accumulator. Over D terms that cost 4x MLX's accuracy and was
+        # enough to move a logit by 0.43.
+        query.append(metile.cast(metile.load(Q + query_offset + dimension), "f32") * scale)
 
     local_maximum = metile.scalar(-1e30)
     local_sum = metile.scalar(0.0)
@@ -69,7 +73,7 @@ def attention_decode_kernel(
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
             key_offset = token_offset + dimension
-            score = score + query[component] * metile.load(K + key_offset)
+            score = score + query[component] * metile.cast(metile.load(K + key_offset), "f32")
 
         score = metile.simd_sum(score)
         new_maximum = metile.maximum(local_maximum, score)
@@ -80,7 +84,7 @@ def attention_decode_kernel(
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
             value_offset = token_offset + dimension
-            value = metile.load(V + value_offset)
+            value = metile.cast(metile.load(V + value_offset), "f32")
             local_outputs[component] = local_outputs[component] * old_factor + probability * value
         local_maximum = new_maximum
 
@@ -176,7 +180,11 @@ def attention_decode_partial_kernel(
     query = []
     for component in range(values_per_lane):
         dimension = lane * values_per_lane + component
-        query.append(metile.load(Q + query_offset + dimension) * scale)
+        # Cast to f32 before scaling. Q, K and V are the model's storage dtype, and for
+        # bfloat16 a product of two loads rounds to an 8-bit significand before it ever
+        # reaches the f32 accumulator. Over D terms that cost 4x MLX's accuracy and was
+        # enough to move a logit by 0.43.
+        query.append(metile.cast(metile.load(Q + query_offset + dimension), "f32") * scale)
 
     local_maximum = metile.scalar(-1e30)
     local_sum = metile.scalar(0.0)
@@ -189,7 +197,9 @@ def attention_decode_partial_kernel(
         score = 0.0
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
-            score = score + query[component] * metile.load(K + token_offset + dimension)
+            score = score + query[component] * metile.cast(
+                metile.load(K + token_offset + dimension), "f32"
+            )
 
         score = metile.simd_sum(score)
         new_maximum = metile.maximum(local_maximum, score)
@@ -199,7 +209,7 @@ def attention_decode_partial_kernel(
 
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
-            value = metile.load(V + token_offset + dimension)
+            value = metile.cast(metile.load(V + token_offset + dimension), "f32")
             local_outputs[component] = local_outputs[component] * old_factor + probability * value
         local_maximum = new_maximum
 
@@ -366,7 +376,11 @@ def attention_flash_kernel(
     query = []
     for component in range(values_per_lane):
         dimension = lane * values_per_lane + component
-        query.append(metile.load(Q + query_offset + dimension) * scale)
+        # Cast to f32 before scaling. Q, K and V are the model's storage dtype, and for
+        # bfloat16 a product of two loads rounds to an 8-bit significand before it ever
+        # reaches the f32 accumulator. Over D terms that cost 4x MLX's accuracy and was
+        # enough to move a logit by 0.43.
+        query.append(metile.cast(metile.load(Q + query_offset + dimension), "f32") * scale)
 
     local_maximum = metile.scalar(-1e30)
     local_sum = metile.scalar(0.0)
@@ -380,7 +394,9 @@ def attention_flash_kernel(
         score = 0.0
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
-            score = score + query[component] * metile.load(K + token_offset + dimension)
+            score = score + query[component] * metile.cast(
+                metile.load(K + token_offset + dimension), "f32"
+            )
 
         score = metile.simd_sum(score)
         new_maximum = metile.maximum(local_maximum, score)
@@ -389,7 +405,7 @@ def attention_flash_kernel(
         local_sum = local_sum * old_factor + probability
         for component in range(values_per_lane):
             dimension = lane * values_per_lane + component
-            value = metile.load(V + token_offset + dimension)
+            value = metile.cast(metile.load(V + token_offset + dimension), "f32")
             local_outputs[component] = local_outputs[component] * old_factor + probability * value
         local_maximum = new_maximum
 
