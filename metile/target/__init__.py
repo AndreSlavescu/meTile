@@ -14,6 +14,7 @@ from metile.target.agx import (
     Unavailable,
     ilp_headroom,
     inspect,
+    machine_code,
     spills,
 )
 
@@ -26,5 +27,6 @@ __all__ = [
     "Unavailable",
     "ilp_headroom",
     "inspect",
+    "machine_code",
     "spills",
 ]

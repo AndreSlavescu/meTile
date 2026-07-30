@@ -121,23 +121,15 @@ def _table_fields(blob, table):
             yield index, table + relative
 
 
-def inspect(source, function, workdir=".metile-agx"):
-    """Return {'registers', 'text_bytes', 'spilling'} for one MSL kernel.
+def _compiled(source, function, workdir):
+    """Compile one MSL kernel and unwrap to the GPU Mach-O inside the binary archive.
 
-    Metal exposes no register count, and the obvious stand-in does not work:
-    maxTotalThreadsPerThreadgroup reads 1024 whether a kernel holds 4 live floats or 512.
-    The compiler does record the number, and reaching it takes three unwraps. An
-    MTLBinaryArchive serializes to a fat file whose applegpu_* slice is the GPU code; that
-    slice's __compute section is itself a Mach-O; inside it __GPU_METADATA is a FlatBuffer
-    and __text is the machine code.
+    Three unwraps. An MTLBinaryArchive serializes to a fat file whose applegpu_* slice is the
+    GPU code; that slice's __compute section is itself a Mach-O; inside it __GPU_METADATA is a
+    FlatBuffer and __text is the machine code.
 
-    The count is field 0 of the table referenced by field 0 of the FlatBuffer root. Read by
-    path, never by byte offset: the buffer embeds the kernel name and signature, so a fixed
-    offset drifts between kernels. Reading byte 188 worked for one probe kernel and silently
-    reported a neighbouring field, 24 registers and "spilling", for every real one.
-
-    This costs a Metal compile per call, on the order of a second, so it is for offline
-    analysis and not for anything on a dispatch path.
+    Costs a Metal compile per call, on the order of a second, so this is for offline analysis
+    and never for a dispatch path.
     """
     workdir = Path(workdir)
     binary = _harness(workdir)
@@ -159,6 +151,37 @@ def inspect(source, function, workdir=".metile-agx"):
         check=True,
     )
     nested.write_bytes(_section(thin, None))
+    return nested
+
+
+def machine_code(source, function, workdir=".metile-agx"):
+    """The kernel's __text bytes: the instructions the GPU will actually run.
+
+    This is what makes a claim about code generation checkable instead of arguable. Two source
+    forms that compile to identical bytes cannot differ in speed, which turns questions the
+    timing harness answers badly into questions with a yes or no answer.
+
+    Used that way it established that Apple's backend normalises statement order completely:
+    two independent fma chains written serially and written interleaved produce byte-identical
+    machine code, as do a load placed at its use and the same load hoisted. That is why
+    meTile's own scheduling pass is off by default. See benchmarks/agx_source_order.py.
+    """
+    return _section(_compiled(source, function, workdir), None, "__text")
+
+
+def inspect(source, function, workdir=".metile-agx"):
+    """Return {'registers', 'text_bytes', 'spilling'} for one MSL kernel.
+
+    Metal exposes no register count, and the obvious stand-in does not work:
+    maxTotalThreadsPerThreadgroup reads 1024 whether a kernel holds 4 live floats or 512. The
+    compiler does record the number, inside the __GPU_METADATA FlatBuffer.
+
+    The count is field 0 of the table referenced by field 0 of the FlatBuffer root. Read by
+    path, never by byte offset: the buffer embeds the kernel name and signature, so a fixed
+    offset drifts between kernels. Reading byte 188 worked for one probe kernel and silently
+    reported a neighbouring field, 24 registers and "spilling", for every real one.
+    """
+    nested = _compiled(source, function, workdir)
     metadata = _section(nested, "__GPU_METADATA")
 
     root = struct.unpack_from("<I", metadata, 0)[0]
