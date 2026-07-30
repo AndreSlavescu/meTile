@@ -25,6 +25,18 @@ Established, in descending order of confidence:
                    rewriting three fmas to `a*6+7` gives 949 from x=1, and to `a*1.25+1.5`
                    gives 11.578125. Both were predicted before running.
 
+    registers      the register index appears twice in the compact form, as byte 0's high
+                   nibble and as `(r << 1) | 1` in byte 1, and the two agreed across every
+                   instruction examined. Confirmed by redirecting an instruction onto another
+                   chain's register and predicting the whole kernel's output: three redirects,
+                   three exact matches.
+
+    assembly       with registers, constants and flags all measured, `encode_fma` assembles the
+                   form from scratch. It reproduces the compiler's own bytes exactly for the
+                   cases the compiler emits, and four synthesised forms the compiler never
+                   emitted — a*3+0.5, a*1.5-2, a*7 with no addend, and -a*2+1 — each ran exactly
+                   as predicted on four inputs.
+
     flags          three bits of the compact fma control its arithmetic, each found by scanning
                    all 256 values of its byte and then predicting the result of setting it
                    across a chain on four inputs. Twelve predictions, all exact: byte 2 bit
@@ -132,6 +144,69 @@ INSTRUCTION_DISABLE = FmaFlag(6, 0x20, "retire the instruction", "no effect, lik
 # holding 15, so some operand slot is being redirected to the accumulator. Which one was never
 # pinned down and it was never checked across several inputs, so it stays a note. Naming it would
 # put it on the same footing as the flags above, which were each predicted on four inputs.
+
+
+# Register selection, established across three independent fma chains and then confirmed by
+# redirecting an instruction onto another chain's register and predicting the whole kernel's
+# output. Three redirects, three exact matches. The index appears twice: as byte 0's high nibble
+# and as `(r << 1) | 1` in byte 1, and the two agreed in all eight instructions examined.
+FMA_REGISTER_HIGH_BYTE = 0
+FMA_REGISTER_BYTE = 1
+FMA_MAX_REGISTER = 15
+
+# The remaining constant bytes of the form, taken as the compiler writes them. Byte 7 was 0x22 or
+# 0x42 on the first fma of a chain and 0x02 everywhere else, which looks like a dependency or wait
+# field; 0x02 is what a synthesised instruction uses, and synthesised instructions run correctly
+# with it.
+_FMA_ADDEND_CONTROL = 0x21
+_FMA_TAIL = bytes((0x02, 0x02))
+_FMA_NOT_LAST = 0x20
+_FMA_MODE_BASE = 0x0E
+
+
+def encode_fma(register, multiplier, addend=None, last=False, negate_product=False):
+    """Assemble a complete compact fma: `register = register * multiplier (+/- addend)`.
+
+    Every field comes from a measurement that was checked by prediction, so this is an encoder
+    rather than a template with holes: pass the register, the constants and the signs and the
+    eight bytes come out. Reproduces the compiler's own encoding exactly for the cases it emits,
+    which is the cheapest available check that the assembly is right.
+
+    `addend` of None drops the addend and leaves a plain multiply. A negative addend is encoded
+    by setting the negate flag, which is how the field reaches values its unsigned immediate
+    cannot.
+    """
+    if not 0 <= register <= FMA_MAX_REGISTER:
+        raise EncodingError(f"register {register} is outside the field")
+    mode = _FMA_MODE_BASE
+    if not last:
+        mode |= _FMA_NOT_LAST
+    if negate_product:
+        mode |= PRODUCT_NEGATE.mask
+    # Dropping the addend clears bit 0x20 of the control byte and leaves the immediate slot
+    # holding an ordinary encoded constant, because zero there is not inert. Writing 0x00 was
+    # tried and the kernel computed a*m + a: an eight-fold growth per step where seven was
+    # predicted, from a synthesised `a*7`. Zero selects a register operand rather than meaning
+    # "no operand", and register 0 happened to be the accumulator. The value written here is
+    # ignored once the control bit is clear, which is the configuration the flag scan verified.
+    control = _FMA_ADDEND_CONTROL & ~ADDEND_ENABLE.mask
+    addend_byte = encode_immediate(1.0, low_bit=0)
+    if addend is not None:
+        control = _FMA_ADDEND_CONTROL
+        if addend < 0:
+            control |= ADDEND_NEGATE.mask
+        addend_byte = encode_immediate(abs(addend), low_bit=0)
+    return bytes(
+        (
+            (register << 4) | FMA_OPCODE_NIBBLE,
+            (register << 1) | 1,
+            mode,
+            encode_immediate(multiplier, low_bit=1),
+            control,
+            addend_byte,
+            *_FMA_TAIL,
+        )
+    )
 
 
 def read_flag(text, offset, flag):
