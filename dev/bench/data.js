@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785397400621,
+  "lastUpdate": 1785441919540,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2515,6 +2515,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 338.18,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fc3e078d7b4ad02925e2bcc631078317cdf2fba",
+          "message": "Correct the memory hierarchy: the earlier table measured the thread count, not the part (#32)\n\nThe hierarchy constants I added a few commits ago were wrong, and an occupancy probe written to explain\nsomething else is what showed it. That table put the fast level's capacity at 2 MB with a fourfold cliff\npast it. There is no cliff at 2 MB. Every size in it was measured at 64 threadgroups, which saturates DRAM\nat 128 MB and starves an 8 MB working set by a factor of twelve:\n\n    working set    64 groups    512 groups\n         8 MB            196          2403\n        16 MB            160          1910\n        32 MB            131           447\n\nSo the \"levels\" between 4 and 32 MB were the thread count. Measuring each size at several threadgroup\ncounts and keeping the best moves the capacity from 2 MB to at least 16 MB and turns the far side from a\ncliff into a ramp: 2453, 1795, 448, 175, 156 GB/s at 16, 32, 64, 128 and 256 MB. The thread count alone\nmoves 16 MB by 19.7x, which is why one count cannot serve the sweep.\n\nThe DRAM constant survives, and that was worth checking rather than assuming, because the corrected sweep\nreads 156 GB/s at 256 MB against a recorded 120.6 and a constant that low would have reopened every decode\nconclusion built on it. At a one-gigabyte working set bandwidth converges to 125 to 131 GB/s whatever the\noccupancy, so 120.6 is right for true streaming and the 156 was partial residency. STREAMING_READ_GBPS\nstands.\n\nAlso recorded, with a caveat that matters more than the numbers: how many threadgroups a resident working\nset needs before it reads at resident speed, 256 at 4 MB rising to 1024 at 16 MB. Residency is necessary\nand not sufficient. It is not yet shown to be actionable for real kernels -- the affine decode matmul\nlaunches 35 to 280 groups depending on block_n, an eightfold range straddling those thresholds, and its\nconfigs measure within 3% of each other, so whatever binds that kernel it is not this.\n\nOne test changed rather than being made to pass. It asserted the drop past the resident capacity was at\nleast threefold, which encoded the cliff the corrected measurement removed, so it was testing an artefact\nof the harness. It now asserts the span and the ordering, which is what survives. A second test pins that\nresidency alone does not deliver resident bandwidth.\n\n687 pass. Lint and vulture clean.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T13:02:16-07:00",
+          "tree_id": "bccdd3202b25fc6ff5926509d1f83137cc5665e7",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/5fc3e078d7b4ad02925e2bcc631078317cdf2fba"
+        },
+        "date": 1785441917896,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 519.38,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4252.39,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 528.26,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1387.46,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 516.02,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1370.73,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 433.73,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 414.75,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 433.83,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 506.64,
             "unit": "us"
           }
         ]
