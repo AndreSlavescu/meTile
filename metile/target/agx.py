@@ -37,6 +37,76 @@ SCALAR_PEAK_TFLOPS = {"f32": 4.1, "f16": 6.5}
 MATRIX_PEAK_TFLOPS = 15.33
 STREAMING_READ_GBPS = 120.6
 
+# Read bandwidth as a function of working-set size, measured by benchmarks/agx_memory_hierarchy.py.
+# One number for bandwidth is badly wrong here: a working set that stays resident is served sixteen to
+# twenty times faster than one that streams, and that ratio is larger than every other factor in this
+# file. A tiling that fits and a tiling that misses are not the same kernel.
+#
+# Coalesced streaming reads, 16384 threads, six gigabytes of traffic per dispatch, sizes interleaved
+# across rounds. The pass loop re-reads the same addresses, so the obvious worry is that the backend
+# collapses it into a multiply and the fast numbers are fiction; tripling the traffic triples the
+# elapsed time at every size, which it could not if the loop were collapsed.
+#
+# The resident regime is one entry, not four, because the probe cannot resolve it. Measured 1545, 2006,
+# 2138 and 2386 GB/s at 256 KB, 512 KB, 1 MB and 2 MB -- bandwidth *rising* with working set, which
+# cannot be a property of a cache. It is the pass loop: a smaller working set means fewer inner
+# iterations per pass, so loop bookkeeping takes a larger share, and the effect shrinks as the set
+# grows. Only the 2 MB figure is close to uncontaminated, and it is a floor.
+#
+# So what this establishes is that a resident working set runs at 2386 GB/s or better, and nothing about
+# how that varies below 2 MB. Reporting four numbers would claim a resolution the measurement does not
+# have; a monotonicity test on the table is what caught the attempt.
+BANDWIDTH_BY_WORKING_SET_GBPS = {
+    2 * 1024 * 1024: 2386.0,
+    4 * 1024 * 1024: 555.0,
+    8 * 1024 * 1024: 192.0,
+    16 * 1024 * 1024: 161.0,
+    32 * 1024 * 1024: 134.0,
+    64 * 1024 * 1024: 128.0,
+    128 * 1024 * 1024: 124.0,
+}
+
+# Largest working set still served by the fast level, and what it delivers. The knee is sharp: 2 MB
+# reads 2386 GB/s and 4 MB reads 555, so this is the number a tiling pass should be trying to stay
+# under. The rate is a floor for the reason above.
+RESIDENT_WORKING_SET_BYTES = 2 * 1024 * 1024
+RESIDENT_READ_GBPS = 2386.0
+
+# Threadgroup memory, measured by benchmarks/agx_threadgroup_bandwidth.py against a resident device read
+# over the same 32 KB, so this compares staging with a cache hit rather than with DRAM.
+#
+# It is faster, but only just, and only when read contiguously: 3361 GB/s against the device arm's 2749,
+# so 1.22x. That is a far smaller margin than the usual assumption about scratchpad memory, and it means
+# a pass cannot justify staging on bandwidth alone.
+#
+# What it buys in peak it gives back in sensitivity. Across strides the threadgroup arm spreads 7.69x
+# and the device arm 1.80x, so threadgroup memory is the more fragile of the two -- the opposite of the
+# habit of treating shared memory as forgiving scratch and device memory as the thing needing careful
+# access.
+THREADGROUP_PEAK_GBPS = 3361.0
+THREADGROUP_OVER_RESIDENT = 1.22
+
+# GB/s by per-lane stride in bytes, contiguous first. The collapses are the power-of-two strides from 128
+# bytes up; 144 bytes reads 2322 while 128 reads 1216, which is bank aliasing and not a size effect.
+THREADGROUP_GBPS_BY_STRIDE = {
+    16: 3361.0,
+    32: 2658.0,
+    48: 2978.0,
+    64: 2032.0,
+    80: 2737.0,
+    96: 2510.0,
+    112: 2468.0,
+    128: 1216.0,
+    144: 2322.0,
+    192: 2032.0,
+    256: 605.0,
+    512: 437.0,
+}
+
+# Smallest per-lane stride at which a power of two collapses threadgroup bandwidth. 32 banks of four
+# bytes, so 128 bytes puts every lane on the same bank.
+THREADGROUP_CONFLICT_STRIDE_BYTES = 128
+
 
 class Unavailable(RuntimeError):
     """The toolchain needed to inspect compiled kernels is not present."""
@@ -50,6 +120,53 @@ def ilp_headroom(dtype="f32"):
 def spills(registers):
     """Whether a kernel using this many registers is spilling."""
     return registers >= REGISTER_BUDGET
+
+
+def read_bandwidth_gbps(working_set_bytes):
+    """Expected read bandwidth for a working set of this size, in GB/s.
+
+    For a pass deciding a tile size. Interpolating between measured points would invent a smooth curve
+    the hardware does not have -- the drop from 2 MB to 4 MB is a factor of four -- so this reports the
+    measurement for the smallest size at least as large as the request, which is the conservative
+    direction: a tile is served no faster than the next size up was measured at.
+    """
+    if working_set_bytes <= 0:
+        raise ValueError("a working set must be positive")
+    for size in sorted(BANDWIDTH_BY_WORKING_SET_GBPS):
+        if working_set_bytes <= size:
+            return BANDWIDTH_BY_WORKING_SET_GBPS[size]
+    return STREAMING_READ_GBPS
+
+
+def resident(working_set_bytes):
+    """Whether a working set of this size is served by the fast level rather than by DRAM."""
+    return 0 < working_set_bytes <= RESIDENT_WORKING_SET_BYTES
+
+
+def threadgroup_conflicts(stride_bytes):
+    """Whether this per-lane stride puts threadgroup memory into bank conflict.
+
+    Power-of-two strides from 128 bytes collapse it: 128 reads 1216 GB/s against 3361 contiguous, 256
+    reads 605 and 512 reads 437, while 144 bytes -- one vector larger than 128 -- reads 2322. Device
+    memory shows nothing comparable, so this is a hazard staging introduces rather than one it avoids.
+
+    `metile.compiler.passes._optimal_pad` already pads to an odd stride, which this confirms is the
+    right direction; the docstring's reasoning about 32 four-byte banks was never measured until now.
+    """
+    if stride_bytes <= 0:
+        raise ValueError("a stride must be positive")
+    power_of_two = stride_bytes & (stride_bytes - 1) == 0
+    return power_of_two and stride_bytes >= THREADGROUP_CONFLICT_STRIDE_BYTES
+
+
+def tiling_gain(working_set_bytes):
+    """How much bandwidth a tiling wins by fitting this working set instead of streaming.
+
+    The figure worth putting beside the other ratios in this file. Fitting under 2 MB is worth about
+    19x, where choosing the matrix unit over scalar is worth 2.4x to 3.7x and instruction scheduling is
+    worth at most 1.09x and unreachable in practice.
+    """
+    return read_bandwidth_gbps(working_set_bytes) / STREAMING_READ_GBPS
 
 
 def _harness(workdir):

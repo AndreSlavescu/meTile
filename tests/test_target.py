@@ -1,5 +1,7 @@
 """The target model is measured hardware knowledge, so guard what depends on its shape."""
 
+import itertools
+
 import pytest
 
 from metile.target import (
@@ -99,3 +101,96 @@ def test_the_backend_normalises_statement_order():
         "on the assumption that it does not; re-measure benchmarks/agx_source_order.py and "
         "reconsider the default."
     )
+
+
+def test_bandwidth_depends_on_working_set_and_the_knee_is_sharp():
+    """One bandwidth number is badly wrong for this part, so the model has to be a curve.
+
+    The measured drop from 2 MB to 4 MB is about a factor of four. Interpolating across it would invent
+    a smooth ramp the hardware does not have, so the lookup reports the measurement for the smallest
+    size at least as large as the request.
+    """
+    from metile.target import RESIDENT_WORKING_SET_BYTES, read_bandwidth_gbps
+
+    resident_rate = read_bandwidth_gbps(RESIDENT_WORKING_SET_BYTES)
+    beyond_rate = read_bandwidth_gbps(RESIDENT_WORKING_SET_BYTES * 2)
+    assert resident_rate > 3 * beyond_rate
+    assert read_bandwidth_gbps(2**30) == pytest.approx(STREAMING_READ_GBPS)
+
+    # Monotonically non-increasing: a larger working set is never served faster. This is what caught
+    # a 256 KB entry reading slower than 512 KB, which is impossible for a smaller working set and was
+    # the probe's loop overhead rather than the hierarchy.
+    rates = [read_bandwidth_gbps(2**exponent) for exponent in range(14, 31)]
+    for faster, slower in itertools.pairwise(rates):
+        assert faster >= slower
+
+
+def test_a_working_set_is_resident_only_up_to_the_measured_capacity():
+    from metile.target import RESIDENT_WORKING_SET_BYTES, resident
+
+    assert resident(RESIDENT_WORKING_SET_BYTES)
+    assert resident(1024)
+    assert not resident(RESIDENT_WORKING_SET_BYTES + 1)
+    assert not resident(0)
+
+
+def test_fitting_a_tile_outranks_every_other_lever_in_this_file():
+    """The comparison that should drive where compiler effort goes.
+
+    Keeping a working set resident is worth about 19x. Choosing the matrix unit over scalar is worth
+    2.4x to 3.7x. Instruction scheduling is capped at 1.09x and measured unreachable above MSL. If that
+    ordering ever changes on new hardware, the guidance built on it needs revisiting rather than being
+    carried over.
+    """
+    from metile.target import RESIDENT_WORKING_SET_BYTES, tiling_gain
+
+    fitting = tiling_gain(RESIDENT_WORKING_SET_BYTES)
+    functional_unit = MATRIX_PEAK_TFLOPS / min(SCALAR_PEAK_TFLOPS.values())
+    assert fitting > functional_unit > max(ILP_CEILING.values())
+    assert tiling_gain(2**30) == pytest.approx(1.0)
+
+
+def test_threadgroup_memory_is_barely_faster_than_a_resident_device_read():
+    """The margin matters because passes are built on the assumption that it is much faster.
+
+    Measured 3361 GB/s contiguous against 2749 for the same bytes read from resident device memory. A
+    pass that stages data has to justify itself on something other than 1.22x, and this is the number
+    that says so.
+    """
+    from metile.target import RESIDENT_READ_GBPS, THREADGROUP_OVER_RESIDENT, THREADGROUP_PEAK_GBPS
+
+    assert 1.0 < THREADGROUP_OVER_RESIDENT < 1.5
+    assert THREADGROUP_PEAK_GBPS > RESIDENT_READ_GBPS
+
+
+def test_power_of_two_strides_from_128_bytes_are_flagged_as_conflicting():
+    """The hazard staging introduces, which device memory does not have.
+
+    128 bytes reads 1216 GB/s against 3361 contiguous, 256 reads 605 and 512 reads 437, while 144 bytes
+    reads 2322. Odd strides are safe, which is what `_optimal_pad` already produces.
+    """
+    from metile.target import threadgroup_conflicts
+
+    for stride in (128, 256, 512, 1024):
+        assert threadgroup_conflicts(stride)
+    for stride in (16, 48, 112, 144, 192):
+        assert not threadgroup_conflicts(stride)
+    # Below the conflict stride a power of two is still fine: a float4 already spans four banks.
+    for stride in (16, 32, 64):
+        assert not threadgroup_conflicts(stride)
+
+
+def test_the_existing_pad_calculation_avoids_the_measured_hazard():
+    """Ties the measurement to the pass it validates.
+
+    `_optimal_pad` was written from a stated model of 32 four-byte banks and never measured. It pads to
+    an odd stride, and the sweep confirms odd strides do not collapse, so the pass was right for the
+    reason it claimed.
+    """
+    from metile.compiler.passes import _optimal_pad
+    from metile.target import threadgroup_conflicts
+
+    for stride in (8, 16, 32, 64, 96, 128, 256):
+        padded = stride + _optimal_pad(stride)
+        assert padded % 2 == 1, f"stride {stride} padded to {padded}, which is even"
+        assert not threadgroup_conflicts(padded * 4), f"padded stride {padded} still conflicts"
