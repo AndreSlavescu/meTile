@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785384682445,
+  "lastUpdate": 1785384773896,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2145,6 +2145,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 335.73,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e0f1d464783630736b8ad33262c2a405269a3eed",
+          "message": "Prune configurations the device cannot host instead of failing the whole shape (#27)\n\nHead dimension 256 was recorded as an unsupported attention shape, and the kernel was never the\nproblem. It computes correctly at five of the six block sizes the tuner offers -- 32 through 512 all\nmatch MLX -- and reaches the threadgroup memory limit only at 1024, where it wants 40960 bytes\nagainst 32768. The tuner compiled candidates in a loop with no guard, so that one candidate raised\nand took the whole shape with it. Attention on Qwen3-VL then fell back to MLX for every shape.\n\nTask framing was wrong too, worth saying: this was carried as \"make the attention decode kernel fit\nhead_dim 256\". Nothing needed to fit. Measuring each block size individually is what showed the\nkernel was already correct at D=256 and the selector was at fault, and no amount of work on the\nkernel would have fixed it.\n\nThreadgroup memory exhaustion is now a typed OutOfResources rather than a bare RuntimeError, and\nthe three MLX tuners prune on it. Only on it: a candidate asking for more memory than the part has\nis a fact about that candidate, while any other compile failure is a bug that must surface, and\ncatching RuntimeError broadly would swallow both. This is the distinction Triton draws with its own\nOutOfResources, whose autotuner prunes shared-memory failures the same way.\n\nFixing it in the tuners rather than in attention fixes all three -- attention, rms_norm and\nadd_rms_norm all had the same unguarded loop, and only attention had a config list that reached the\nlimit in practice.\n\nmeTile attention at head dimension 256 now runs and agrees with MLX exactly, 0.0 maximum absolute\ndifference on the shape that previously fell back.\n\nThe unsupported-shape backstop stays, since shapes that genuinely cannot run still need one, but its\ncomment no longer cites head_dim 256 as the motivating case.\n\n6 new tests, including one asserting that only OutOfResources is pruned and that a plain\nRuntimeError still propagates. 661 pass.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T21:08:14-07:00",
+          "tree_id": "b1511285af7a0086e13698e25f16aef521038bf4",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/e0f1d464783630736b8ad33262c2a405269a3eed"
+        },
+        "date": 1785384771742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 408.91,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3946.08,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 399.61,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1224.82,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 396.24,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1148.25,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 286.49,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 287.21,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 331.21,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 408.52,
             "unit": "us"
           }
         ]
