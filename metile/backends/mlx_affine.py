@@ -79,8 +79,22 @@ class MLXAffineWeight:
 
     @classmethod
     def from_mlx(cls, weight, scales, biases, *, group_size=64, bits=4):
+        # Four bits is not a formatting preference, it is the operand format the matrix unit
+        # takes. `lower_affine_matmul` builds NAX affine fragments with block_size=4 and has no
+        # bit-width parameter to thread anything else through.
+        #
+        # Relaxing this to accept eight bits was tried and is a trap worth naming. The repacking
+        # generalises cleanly, the weights load, and the kernel runs 1.6x to 2.0x faster than MLX --
+        # because it decodes eight nibbles per word where the data holds four bytes, so it reads
+        # half the values and returns garbage, at a relative error of 2.5 to 2.9. A large speedup
+        # arriving together with a wrong answer is one bug, not one win and one bug. Only the
+        # tuner's agreement gate kept it out of a selection.
         if group_size != 64 or bits != 4:
-            raise ValueError("MLX affine NAX weights require group size 64 and 4 bits")
+            raise ValueError(
+                f"MLX affine NAX weights require group size 64 and 4 bits, got {group_size} and "
+                f"{bits}. The matrix-unit affine fragment format is 4-bit; supporting another "
+                f"width means teaching lower_affine_matmul the bit width, not relaxing this check."
+            )
         packed, repacked_scales, repacked_biases = repack_mlx_affine_weight(
             weight,
             scales,
