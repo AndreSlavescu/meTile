@@ -555,6 +555,25 @@ class KernelLauncher:
         # Constant folding (all kernel types)
         metal_ir = fold_constants(metal_ir)
 
+        # Instruction scheduling, off by default and last in the pipeline when on, so that it
+        # sees the operations that actually get emitted.
+        #
+        # Off by default because it was measured to do nothing. Reordering MSL statements does
+        # not move the register count in any of six kernels spanning 14 to 126 registers, and
+        # no timing difference survives the benchmark's own control rows, which compare
+        # byte-identical MSL against itself and spread by 0.6% to 7.6% between runs. The reason
+        # is structural rather than a shortcoming of the pass: Apple's backend does its own
+        # scheduling and allocation from the MSL it receives, so statement order is a
+        # suggestion. See benchmarks/agx_schedule_effect.py.
+        #
+        # It stays because it is correct, tested, and the thing that would become load bearing
+        # if meTile emitted below MSL, which the binary-archive work established is possible.
+        # Set METILE_SCHEDULE=1 to compile with it.
+        if os.environ.get("METILE_SCHEDULE") == "1":
+            from metile.compiler.scheduling import reorder_for_latency
+
+            metal_ir = reorder_for_latency(metal_ir)
+
         if _debug_all or "metal_ir_opt" in _debug_flags:
             from metile.ir.printer import print_metal_ir
 

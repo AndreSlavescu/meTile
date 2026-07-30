@@ -2644,13 +2644,8 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}}}")
 
 
-def _resolve(val: mir.MValue) -> mir.MValue:
-    """Follow CSE forwarding chain to canonical value."""
-    while (
-        val.defining_op and val.defining_op.result is not None and val.defining_op.result is not val
-    ):
-        val = val.defining_op.result
-    return val
+# The IR owns this rule, because passes other than codegen depend on agreeing with it.
+_resolve = mir.resolve
 
 
 def _val_name(val: mir.MValue, func: mir.MFunction) -> str:

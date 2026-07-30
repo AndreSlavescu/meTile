@@ -66,6 +66,23 @@ class MValue:
     defining_op: MOp | None = field(default=None, repr=False)
 
 
+def resolve(val: MValue) -> MValue:
+    """Follow CSE forwarding to the value that is actually emitted.
+
+    Common subexpression elimination does not delete the redundant value; it points the loser's
+    `defining_op` at the winner, so two MValue objects with different names can name one
+    variable in the generated code. Anything reasoning about values has to resolve first. A
+    pass that keys on `name` or on object identity sees two independent values where the
+    emitter sees one, and for a scheduler that means a missing dependence edge and a kernel
+    that uses a variable before it is declared.
+    """
+    while (
+        val.defining_op and val.defining_op.result is not None and val.defining_op.result is not val
+    ):
+        val = val.defining_op.result
+    return val
+
+
 @dataclass
 class MOp:
     """Base class for Metal IR operations."""
