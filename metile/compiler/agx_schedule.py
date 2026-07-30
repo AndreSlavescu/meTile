@@ -22,14 +22,19 @@ Two transformations, both bit-exact by construction, because neither changes any
                 from nopping it.
     reorder     move independent instructions, preserving every register dependence.
 
-Instruction-level parallelism is the one job this cannot yet finish here, and the reason is worth
-stating rather than leaving as an omission. Splitting a dependent chain across registers is
-within reach — the register field is known, so half the chain can be retargeted — but the two
-partial results then have to be added together, and a register-plus-register add is not among the
-forms `agx_isa` has decoded. Every operand slot mapped so far takes an immediate. Producing half a
-transformation would leave a kernel computing half an answer, so the ILP half lives in
-`metile.compiler.scheduling` at the IR level, where reassociation needs no new instruction. Both
-are reached through `optimize` below.
+Instruction-level parallelism is the one job this cannot finish here, and the blocker has moved
+once already, so it is worth stating precisely.
+
+It is no longer the combine. `rd * 1 + rs` is a register-plus-register add, verified across
+eighteen register pairs, so summing two partial chains is expressible. What is missing is a
+register to put the second chain in. Splitting a chain needs one that nothing else uses, and
+proving that requires reading every instruction in the kernel — a register touched only by an
+instruction this file cannot decode is indistinguishable from a free one. Instruction lengths
+cannot be recovered in general, so the stream cannot be walked, so no register can be shown free.
+Guessing would corrupt whatever already lived there, and silently.
+
+So the ILP half lives in `metile.compiler.scheduling` at the IR level, where reassociation needs
+neither a new instruction nor a new register. Both halves are reached through `optimize` below.
 
 Scope is deliberately narrow and self-enforcing. Only the compact f32 fma is decoded, and every
 byte that is not part of one decoded instruction is a barrier nothing crosses. That is not
@@ -48,39 +53,63 @@ _CONTINUES = agx_isa.FmaFlag(2, 0x20, "more instructions follow in this run", "n
 
 
 class Fma:
-    """One decoded compact fma: `register = register * multiplier (+/-) addend`."""
+    """One decoded compact fma: `register = register * multiplier + addend`.
 
-    def __init__(self, offset, register, multiplier, addend, negate_product, last):
+    The addend is one of three things, because the slot is: `addend` holds an immediate,
+    `addend_register` names a register, and a register index at or above the reachable range reads
+    zero, which is the only way a zero addend is expressible at all.
+    """
+
+    def __init__(self, offset, register, multiplier, addend, addend_register, negate_product, last):
         self.offset = offset
         self.register = register
         self.multiplier = multiplier
         self.addend = addend
+        self.addend_register = addend_register
         self.negate_product = negate_product
         self.last = last
+
+    def addend_is_zero(self):
+        """Whether the addend contributes nothing, which needs the register range to decide."""
+        return (
+            self.addend is None
+            and self.addend_register is not None
+            and self.addend_register >= agx_isa.ARCHITECTURAL_REGISTERS
+        )
 
     def is_identity(self):
         """Whether this instruction leaves its register unchanged.
 
-        Only `a * 1` with no addend qualifies. `a * 1 + 0` looks like it should too, and an
-        earlier version of this checked for it, but that instruction cannot exist: the immediate
-        field holds `(1 + m/8) * 2**(e - 11)`, whose smallest value is 2**-11, so there is no
-        encoding for zero and a decoded addend is never it. The check was unreachable.
+        `a * 1` plus something that reads zero. Deciding it needs the addend's register index, not
+        merely its absence: an fma whose addend slot names a live register adds that register, and
+        retiring it would drop a real term. An earlier version checked for `a * 1 + 0` as an
+        immediate, which cannot exist — the field holds `(1 + m/8) * 2**(e - 11)`, whose smallest
+        value is 2**-11, so it has no encoding for zero.
 
         A negated product is not the identity even at these constants, because it flips the sign.
         """
-        return not self.negate_product and self.multiplier == 1.0 and self.addend is None
+        return not self.negate_product and self.multiplier == 1.0 and self.addend_is_zero()
 
     def encode(self, last=None):
+        register = self.addend_register
+        if self.addend is not None or self.addend_is_zero():
+            register = None
         return agx_isa.encode_fma(
             self.register,
             self.multiplier,
             self.addend,
             last=self.last if last is None else last,
             negate_product=self.negate_product,
+            addend_register=register,
         )
 
     def __repr__(self):
-        addend = "" if self.addend is None else f" + {self.addend:g}"
+        if self.addend is not None:
+            addend = f" + {self.addend:g}"
+        elif self.addend_is_zero():
+            addend = ""
+        else:
+            addend = f" + r{self.addend_register}"
         sign = "-" if self.negate_product else ""
         return f"Fma(0x{self.offset:04x}: r{self.register} = {sign}r{self.register} * {self.multiplier:g}{addend})"
 
@@ -107,18 +136,21 @@ def decode(text, offsets):
                 f"offset 0x{offset:04x} disagrees with itself about its register: "
                 f"byte 0 says {register}, byte 1 says {window[1] >> 1}"
             )
-        carries_addend = agx_isa.read_flag(window, 0, agx_isa.ADDEND_ENABLE)
         addend = None
-        if carries_addend:
+        addend_register = None
+        if agx_isa.read_flag(window, 0, agx_isa.ADDEND_IMMEDIATE):
             addend = agx_isa.decode_immediate(window[agx_isa.FMA_ADDEND_BYTE])
             if agx_isa.read_flag(window, 0, agx_isa.ADDEND_NEGATE):
                 addend = -addend
+        else:
+            addend_register = window[agx_isa.FMA_ADDEND_BYTE] >> 1
         found.append(
             Fma(
                 offset=offset,
                 register=register,
                 multiplier=agx_isa.decode_immediate(window[agx_isa.FMA_MULTIPLIER_BYTE]),
                 addend=addend,
+                addend_register=addend_register,
                 negate_product=agx_isa.read_flag(window, 0, agx_isa.PRODUCT_NEGATE),
                 last=not agx_isa.read_flag(window, 0, _CONTINUES),
             )

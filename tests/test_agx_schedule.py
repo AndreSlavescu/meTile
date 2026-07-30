@@ -160,3 +160,35 @@ def test_optimize_with_everything_switched_off_returns_the_code_untouched():
     )
     assert untouched == text
     assert report == {"retired": 0, "moved": 0}
+
+
+def test_an_fma_adding_a_live_register_is_not_an_identity():
+    """`a * 1 + r3` adds a real term, so retiring it would drop it.
+
+    This is the property the addend-flag correction bought. When the flag was read as
+    "addend present or absent", `a * 1` with anything in the slot looked like a no-op, and this
+    instruction would have been retired and a term silently lost. Deciding it needs the register
+    index, because only an index beyond the reachable range reads zero.
+    """
+    live = agx_isa.encode_fma(2, 1.0, addend_register=3)
+    decoded = agx_schedule.decode(live, [0])[0]
+    assert decoded.addend_register == 3
+    assert not decoded.addend_is_zero()
+    assert not decoded.is_identity()
+
+    zero = agx_schedule.decode(agx_isa.encode_fma(2, 1.0), [0])[0]
+    assert zero.addend_is_zero()
+    assert zero.is_identity()
+
+
+def test_decoding_round_trips_every_addend_form():
+    """Re-encoding a decoded instruction has to reproduce it, or a rewrite silently changes it."""
+    for original in (
+        agx_isa.encode_fma(2, 2.0, 1.0),
+        agx_isa.encode_fma(2, 2.0, -1.0),
+        agx_isa.encode_fma(2, 1.5, addend_register=3),
+        agx_isa.encode_fma(2, 1.0),
+        agx_isa.encode_fma(2, 2.0, 1.0, negate_product=True),
+        agx_isa.encode_fma(2, 2.0, 1.0, last=True),
+    ):
+        assert agx_schedule.decode(original, [0])[0].encode() == original
