@@ -3401,6 +3401,25 @@ def autotune_metile_for_mlx_lm(
         return selected
 
 
+# Shapes whose decode kernel cannot be built on this device, learned by trying once.
+#
+# The shape gate below cannot express every hardware constraint. A head dimension of 256,
+# which Qwen3.5, Qwen3.6 and Qwen3-VL all use, satisfies every condition it checks and then
+# needs 40960 bytes of threadgroup memory against a 32768-byte limit, so the kernel raises at
+# build time. Before this cache that RuntimeError escaped into the caller's generate loop:
+# enabling meTile attention on those models crashed instead of falling back.
+#
+# Deriving a head-dimension bound arithmetically was the alternative and is worse: it would
+# hardcode the current kernel's allocation formula into the gate, and drift silently the first
+# time the kernel's tiling changes. Recording the failure per shape is self-calibrating and
+# costs one build attempt for each shape that cannot work.
+_unsupported_decode_shapes = set()
+
+
+def _decode_shape_key(queries, keys):
+    return (queries.shape[1], keys.shape[1], queries.shape[-1], str(queries.dtype))
+
+
 def _supports_metile_decode(queries, keys, values, cache, mask, sinks):
     return (
         not hasattr(cache, "bits")
@@ -3415,6 +3434,7 @@ def _supports_metile_decode(queries, keys, values, cache, mask, sinks):
         and queries.shape[-1] % 32 == 0
         and queries.dtype == keys.dtype == values.dtype
         and str(queries.dtype) in ("mlx.core.bfloat16", "mlx.core.float16", "mlx.core.float32")
+        and _decode_shape_key(queries, keys) not in _unsupported_decode_shapes
     )
 
 
@@ -4466,12 +4486,20 @@ def apply_metile_to_mlx_lm(
                 sinks=None,
             ):
                 if _supports_metile_decode(queries, keys, values, cache, mask, sinks):
-                    return _mlx_attention_decode_unchecked(
-                        queries,
-                        keys,
-                        values,
-                        scale,
-                    )
+                    try:
+                        return _mlx_attention_decode_unchecked(
+                            queries,
+                            keys,
+                            values,
+                            scale,
+                        )
+                    except RuntimeError:
+                        # The kernel cannot be built for this shape on this device, most
+                        # often because its threadgroup memory exceeds the limit. Record the
+                        # shape so later tokens skip the attempt, and serve this one from MLX.
+                        # Falling back is the whole point: a shape meTile cannot handle must
+                        # cost speed, never correctness or a crash.
+                        _unsupported_decode_shapes.add(_decode_shape_key(queries, keys))
                 return attention_original(
                     queries,
                     keys,
