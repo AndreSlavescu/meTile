@@ -75,17 +75,36 @@ FEATURE_SETS = {
 # cannot masquerade as passes, and so fixing one shows up as an unexpected pass rather than
 # staying quietly green.
 #
-# Qwen3-VL-4B + attention: greedy decode diverges from MLX at token 7 of 48, and the decode
-# step's logits differ by 0.43 against a maximum magnitude of 27.4, roughly 1.6% and far more
-# than bfloat16 rounding on a single operation. Narrowed but not solved. Ruled out so far, all
-# measured: the kernel is numerically clean in isolation across float16 and bfloat16, head
-# dimensions 64 and 128, grouped-query ratios 4 and 7, and every key count from 1 to 128; the
-# other three subsystems are bit-exact on this same model; and both models use the same
-# KVCache class with the same step. Still open: what differs between this model's real
-# invocation and every synthetic reproduction of it.
-KNOWN_DIVERGENCES = {
-    ("Qwen3-VL-4B-Instruct-4bit", "attention"): "diverges at token 7; logits differ by 0.43",
-    ("Qwen3-VL-4B-Instruct-4bit", "all"): "same cause as the attention-only case",
+# Empty right now. The Qwen3-VL-4B attention entry lived here and was retired once the cause
+# was found: the kernel multiplied two storage-dtype loads together, so for bfloat16 every
+# dot-product term rounded to an 8-bit significand before reaching the f32 accumulator. That
+# cost 4x MLX's accuracy and moved a logit by 0.43. Casting the loads to f32 made all 36
+# decode-step calls bit-exact, and this xfail then reported XPASS(strict), which is how the
+# mechanism is supposed to announce a fix.
+KNOWN_DIVERGENCES = {}
+
+# Pairs whose logits differ only by floating-point reduction order, where meTile is measured
+# to be as accurate as MLX or better. Bit-exactness is the default and any pair not listed
+# here must achieve it; these are bounded instead, as a fraction of the logit magnitude.
+#
+# Both were measured against a float32 reference at kernel level before being allowed here:
+#
+#   quantized SwiGLU, hidden 2048, inter 8192, float16
+#     MLX errs 18.05 from truth, meTile 4.10. MLX's f16 accumulation degrades at this
+#     reduction width and meTile's does not.
+#   RMSNorm, hidden 3072, float16
+#     MLX errs 0.00293, meTile 0.00185.
+#
+# Matching MLX bit-for-bit in these two cases means adopting its summation order, which is
+# measurably less accurate. That is the wrong trade, so the difference is documented rather
+# than eliminated. A pair that drifts the other way, where meTile is worse, must fail: that
+# is what caught the attention kernel multiplying storage-dtype loads together.
+ORDERING_TOLERANCE = 0.005
+ORDERING_DIFFERENCES = {
+    ("Llama-3.2-1B-Instruct-4bit", "quantized_mlp"): "f16 SwiGLU reduction; meTile 4.4x closer",
+    ("Llama-3.2-1B-Instruct-4bit", "all"): "same cause as its quantized_mlp case",
+    ("Llama-3.2-3B-Instruct-4bit", "rms_norm"): "f16 RMSNorm reduction; meTile 1.6x closer",
+    ("Llama-3.2-3B-Instruct-4bit", "all"): "same cause as its rms_norm case",
 }
 
 # Layer attributes whose bound implementation meTile may replace. Used to prove the patch
@@ -291,6 +310,75 @@ def test_decode_matches_mlx_token_for_token(case, feature_name, request):
             "greedy decode diverged from MLX:\n"
             + _divergence_report(case, feature_name, swap, reference, actual, tokenizer)
         )
+
+
+def _decode_logits(model, tokens, steps=6):
+    """Prefill, take `steps` decode steps, return the final step's logits as f32.
+
+    Decode steps, not prefill. meTile's attention only engages when the query length is 1,
+    so a prefill comparison reports bit-exactness while never running the kernel: true and
+    meaningless. This measured everything as exact until that was noticed.
+    """
+    import mlx.core as mx
+    from mlx_lm.models.cache import make_prompt_cache
+
+    cache = make_prompt_cache(model)
+    out = model(tokens, cache=cache)
+    mx.eval(out)
+    nxt = mx.argmax(out[:, -1, :], axis=-1)
+    for _ in range(steps):
+        out = model(nxt[None, :], cache=cache)
+        mx.eval(out)
+        nxt = mx.argmax(out[:, -1, :], axis=-1)
+    return out[:, -1, :].astype(mx.float32)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("feature_name", sorted(FEATURE_SETS))
+@pytest.mark.parametrize("case", MODEL_CASES, ids=lambda c: c.name)
+def test_decode_logits_are_bit_exact(case, feature_name):
+    """The real contract: identical logits, not merely identical tokens.
+
+    Token equality is a weaker and noisier property. Two logit vectors can differ and still
+    argmax the same way for many steps, so a token test can pass over a genuine numeric
+    regression and then fail later on an unrelated change. Comparing logits catches the
+    regression where it happens, and needs no decoding to do it.
+    """
+    mx = pytest.importorskip("mlx.core")
+    pytest.importorskip("mlx_lm")
+    _require(case)
+    from mlx_lm import load
+
+    from metile.integrations.mlx_lm import apply_metile_to_mlx_lm
+
+    features = FEATURE_SETS[feature_name]
+    model, tokenizer = load(case.repo)
+    swap = _observe_patch(model, apply_metile_to_mlx_lm, features)
+    assert swap.restored, "apply_metile_to_mlx_lm did not restore the original implementations"
+    if not swap.swapped:
+        pytest.skip(f"{feature_name} patches nothing on {case.name}")
+
+    tokens = mx.array([tokenizer.encode(PROMPT)])
+    reference = _decode_logits(model, tokens)
+    with apply_metile_to_mlx_lm(model=model, **features):
+        actual = _decode_logits(model, tokens)
+    mx.eval(reference, actual)
+
+    difference = float(mx.max(mx.abs(actual - reference)).item())
+    magnitude = float(mx.max(mx.abs(reference)).item())
+    ordering = ORDERING_DIFFERENCES.get((case.name, feature_name))
+    if ordering:
+        allowed = ORDERING_TOLERANCE * magnitude
+        assert difference <= allowed, (
+            f"{case.name} / {feature_name}: logits differ by {difference:.6f}, beyond the "
+            f"{allowed:.6f} allowed for a reduction-order difference ({ordering}). "
+            f"A larger gap is a regression, not reordering; patched {swap.swapped}"
+        )
+        return
+    assert difference == 0.0, (
+        f"{case.name} / {feature_name}: decode logits differ by {difference:.6f} "
+        f"against a maximum magnitude of {magnitude:.2f}; patched {swap.swapped}"
+    )
 
 
 @pytest.mark.slow
