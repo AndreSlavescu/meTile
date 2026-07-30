@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785384773896,
+  "lastUpdate": 1785384803804,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2219,6 +2219,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 408.52,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d60ce9ba5418c95c55bfd6eff6c3681e3d0639c8",
+          "message": "Measure the int8 multi-row headroom, and keep the four-bit guard that was protecting us (#29)\n\nThe int4 multi-row win reproduces and is stronger than published: 1.45x, 1.73x and 1.54x at rows 8,\n16 and 32 through the prepared executor. The int8 half of this task does not exist, and finding that\nout was more instructive than the number.\n\nWhy int4 wins is bandwidth, not batching. MLX re-reads weights per row tile, and at four bits that\ndrops its effective weight-read bandwidth to 36 GB/s at sixteen rows against a measured 120 GB/s\nstreaming ceiling -- a 3.4x gap, of which the kernel captures about half. At eight bits MLX runs 62\nGB/s, a 1.9x gap. benchmarks/quantized_row_headroom.py measures this per width so the question\n\"should we build a multi-row kernel for N bits\" is answerable before anyone builds one. Effective\nbandwidth rather than time, because eight-bit weights are twice the bytes and a ratio of times\ncannot tell a slower kernel from a worse use of the memory system.\n\nHalf of the eight-bit gap would be around 1.4x, which is worth wanting, so I tried it. The repacking\ngeneralises to eight bits in a few lines, the weights load, results came back and the kernel measured\n1.6x to 2.0x faster than MLX. It was also wrong, at a relative error of 2.5 to 2.9, and the speed and\nthe wrongness are the same fact: `lower_affine_matmul` emits NAX affine fragments with block_size=4\nand takes no bit width, so it decoded eight nibbles per word where the data held four bytes, read\nhalf the values, and finished early. A large speedup arriving together with a wrong answer is one bug,\nnot one win and one bug.\n\nTwo things worth keeping from that. The four-bit check in MLXAffineWeight.from_mlx is load-bearing\nrather than a formatting preference, and I loosened it without checking that anything downstream\nhonoured the parameter -- the bit width was threaded into cache keys but never into the lowering. It\nis restored, its message now says why, and a test pins it, because relaxing it looks harmless and the\nfailure is silent. Only the tuner's agreement gate stopped the fast wrong kernel being selected,\nwhich is the gate doing exactly its job and not a reason to rely on it.\n\nThe generalised repacking is reverted too. It was correct, but a correct-looking eight-bit path\nsitting beside a four-bit-only lowering is precisely the trap that just caught me.\n\nSupporting eight bits means teaching the lowering a bit width, which is real compiler work against a\n1.4x prize, not a check to relax.\n\n680 pass, 7 skipped.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T21:10:06-07:00",
+          "tree_id": "deec560a582ab99321ef0ae4900094806dcd82ff",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/d60ce9ba5418c95c55bfd6eff6c3681e3d0639c8"
+        },
+        "date": 1785384801398,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 406.05,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3369.56,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 397.65,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1224.48,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 373.8,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1245.18,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 297.97,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 316.76,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 483.33,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 459.54,
             "unit": "us"
           }
         ]
