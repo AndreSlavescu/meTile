@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785380240195,
+  "lastUpdate": 1785381925770,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1923,6 +1923,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 424.58,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f13f51f992a8b91de5186c392e6574e2b329399",
+          "message": "Optimise machine code where reordering survives (#24)\n\n* Optimise machine code where reordering survives\n\nmeTile's IR scheduler is measured to be inert: Apple's backend rebuilds the schedule from the\ndataflow, so two source orders compile to byte-identical instructions. That is not a shortcoming\nof the pass, it is where the boundary of control sits when the output is MSL. This pass is on the\nother side of it -- it reads the instructions the backend produced, rewrites them, and puts them\nback, so nothing downstream re-derives anything.\n\nThe register field is what makes it possible. A compact fma names its register in byte 0's high\nnibble and again as (r << 1) | 1 in byte 1, so which instructions depend on each other is\nreadable rather than guessed: this form reads and writes exactly one register, so two fmas on\ndifferent registers are independent and two on the same one are not. That is the entire\ndependence relation.\n\n    simplify    retires instructions computing nothing, via the flag verified to be\n                indistinguishable from nopping.\n    reorder     moves independent instructions, preserving every register dependence.\n\nBoth are bit-exact by construction, and both are checked that way rather than argued. On three\nchains over three registers, reordering moves seven of eight instructions and the GPU returns the\nsame three values; retiring a planted identity changes nothing either. An unsound rewrite here\nwould produce a kernel that compiles, dispatches and returns a wrong number, so a structural\ncheck would not be enough.\n\nInstruction-level parallelism is the one job this level cannot finish, and it is worth naming\nrather than omitting. Splitting a dependent chain across registers is within reach, since the\nregister field is known and half a chain can be retargeted, but the two partial results then need\nadding together and a register-plus-register add is not among the decoded forms -- every operand\nslot mapped so far takes an immediate. Half a transformation leaves a kernel computing half an\nanswer. So the ILP half stays in metile.compiler.scheduling at the IR level, where reassociation\nneeds no new instruction, and `optimize` is the one entry point that names both.\n\nTwo things the tests caught in my own code. `is_identity` checked for `a * 1 + 0`, which cannot\nexist: the immediate field holds (1 + m/8) * 2**(e - 11), whose smallest value is 2**-11, so\nthere is no encoding for zero and a decoded addend is never it. The branch was unreachable. And\nthe run-continuation bit is positional rather than a property of the operation, so moving an\ninstruction to or from the end of a run has to recompute it.\n\nScope is narrow and enforces itself: only the compact f32 fma is decoded, and any byte that is\nnot part of a decoded instruction is a barrier. Not caution for its own sake -- instruction\nlengths cannot be recovered in general, since the length-field theory failed on eight of eight\nkernels, so an undecoded region might be one instruction or twenty.\n\n9 tests, 646 in total. Lint clean.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Decode the register form of the addend, and move the ILP blocker\n\nFollows the addend-flag correction. The slot holds either an immediate or a register, so `decode`\nnow reads both and `Fma` carries both, and re-encoding a decoded instruction reproduces it for\nevery form -- immediate, negative immediate, register, zero, negated product, run-final -- which a\nnew round-trip test asserts, because a rewrite that does not round-trip changes the kernel while\nlooking like it preserved it.\n\nThe correction bought a safety property this pass needed. `is_identity` decided on the addend\nbeing absent, and under the old reading `a * 1` with anything in the slot looked like a no-op. It\nis not: an fma whose addend names a live register adds that register, and retiring it drops a real\nterm. Deciding it now needs the register index, since only an index beyond the reachable range\nreads zero. A test pins both directions.\n\nThe ILP account changes too, and it is worth being precise since the blocker has moved once\nalready. It is no longer the combine: `rd * 1 + rs` is a register-plus-register add, verified\nacross eighteen register pairs, so summing two partial chains is expressible. What is missing is a\nregister to put the second chain in. Splitting a chain needs one nothing else uses, and proving\nthat means reading every instruction in the kernel, because a register touched only by an\ninstruction this file cannot decode is indistinguishable from a free one. Instruction lengths\ncannot be recovered in general, so the stream cannot be walked, so no register can be shown free.\nGuessing corrupts whatever lived there, silently.\n\n11 tests here, 38 across the ISA and this pass.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Report an archive-incapable device as unavailable, not as a failing test\n\nCI caught what this machine cannot. A device that will not serialize a binary archive raised\nRuntimeError, so every machine-code test failed on the runner instead of opting out:\n\n    RuntimeError: Error Domain=MTLBinaryArchiveDomain Code=1\n    \"The binary archive contains no items eligible to be serialized\"\n\nThat is a capability the machine lacks, exactly like a missing swiftc, so it now raises\nUnavailable and the tests skip. Both places that invoke the prober make the same distinction, and\nthe conversion was checked by driving the failure through a stubbed subprocess rather than trusted.\n\nAlso corrects two passages left describing the addend flag as \"include the addend or not\" after the\nflag itself was corrected. Documentation contradicting the code it documents is worse than none,\nbecause it is the version read first.\n\n651 pass; the ISA and machine-pass suites are 45 between them.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n* Collapse runs of identical fmas, which is ILP taken to its limit\n\nThe machine-level pass now has its instruction-level-parallelism transform, and it took two\nattempts to find one this level can express.\n\nSplitting a dependent chain across registers is the obvious approach and it does not work here.\nIt needs a register nothing else uses, and no register can be shown free by decoding: one touched\nonly by an instruction this file cannot read is indistinguishable from an unused one, and\ninstruction lengths cannot be recovered in general so the stream cannot be walked. The metadata's\nregister count would settle that, but the transform still wants the chain to be a sum, and the only\nchains decodable here are multiply-accumulate.\n\nCollapsing needs neither a register nor a new instruction. k steps of `a*m + d` equal one\n`a*m**k + d*(m**(k-1) + ... + 1)`, so three instructions become one and a dependent chain of three\nbecomes none. Instead of shortening the chain, remove it. Three fmas of a*2+1 fold to a*8+7 and the\nGPU returns the same four values as the untouched kernel.\n\nIt self-limits in two ways that are tested rather than asserted in a comment. Six steps of a*2+1\nclose to a*64 + 63, and 63 is not representable in the immediate field, so the fold is declined\ninstead of rounded -- approximating would change the result by more than reassociating does. And a\nrun whose addend names a register is declined outright, because a register's value can change\nbetween the steps and the closed form does not hold.\n\nOff by default, like its IR counterpart, because collapsing reassociates and the model tests assert\nbit-exact logits. Whether retiring the folded instructions saves time is measurable and not claimed\nhere; what it certainly removes is the chain.\n\nAlso improves one assertion message. The boundary scan skips any offset whose patched kernel fails\nto dispatch, which is right for genuine rejections but also happens to valid offsets under heavy\nconcurrent GPU load. That surfaced as a confusing \"expected four fmas\" failure while a model matrix\nwas running, so the message now says so.\n\n15 tests here, 655 in total.\n\nCo-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T20:22:12-07:00",
+          "tree_id": "502894124c7ece2cf67258ee8eaade3135f07acd",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/1f13f51f992a8b91de5186c392e6574e2b329399"
+        },
+        "date": 1785381924443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 360.38,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 2419.72,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 313.76,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 969.91,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 315.43,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 928.65,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 289.07,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 301.51,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 277.62,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 426.67,
             "unit": "us"
           }
         ]
