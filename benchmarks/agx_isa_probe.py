@@ -183,7 +183,7 @@ def main():
     for flag, clear, step, label in (
         (agx_isa.PRODUCT_NEGATE, False, lambda v: -v * 2.0 + 1.0, "product negated: -a*m+d"),
         (agx_isa.ADDEND_NEGATE, False, lambda v: v * 2.0 - 1.0, "addend negated: a*m-d"),
-        (agx_isa.ADDEND_ENABLE, True, lambda v: v * 2.0, "addend dropped: a*m"),
+        (agx_isa.ADDEND_IMMEDIATE, True, lambda v: v * 2.0, "addend becomes a zero register: a*m"),
     ):
 
         def rewrite(original, f=flag, c=clear, where=tuple(compact)):

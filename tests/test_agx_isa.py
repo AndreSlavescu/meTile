@@ -163,7 +163,7 @@ def _compact_offsets(text):
     (
         (agx_isa.PRODUCT_NEGATE, False, lambda v: -v * 2.0 + 1.0),
         (agx_isa.ADDEND_NEGATE, False, lambda v: v * 2.0 - 1.0),
-        (agx_isa.ADDEND_ENABLE, True, lambda v: v * 2.0),
+        (agx_isa.ADDEND_IMMEDIATE, True, lambda v: v * 2.0),
     ),
 )
 def test_each_arithmetic_flag_does_what_it_claims(flag, clear, step):
@@ -197,7 +197,7 @@ def test_each_arithmetic_flag_does_what_it_claims(flag, clear, step):
 def test_flags_read_back_the_way_they_were_written():
     instruction = bytes.fromhex("0901 2ec1 21b0 0202")
     assert not agx_isa.read_flag(instruction, 0, agx_isa.PRODUCT_NEGATE)
-    assert agx_isa.read_flag(instruction, 0, agx_isa.ADDEND_ENABLE)
+    assert agx_isa.read_flag(instruction, 0, agx_isa.ADDEND_IMMEDIATE)
     negated = agx_isa.write_flag(instruction, 0, agx_isa.PRODUCT_NEGATE, True)
     assert agx_isa.read_flag(negated, 0, agx_isa.PRODUCT_NEGATE)
     assert len(negated) == len(instruction)
@@ -263,8 +263,8 @@ def test_dropping_the_addend_does_not_write_zero_into_its_slot():
     """
     built = agx_isa.encode_fma(0, 7.0, addend=None)
     assert built[agx_isa.FMA_ADDEND_BYTE] != 0x00
-    assert not agx_isa.read_flag(built, 0, agx_isa.ADDEND_ENABLE)
-    assert agx_isa.read_flag(agx_isa.encode_fma(0, 7.0, 1.0), 0, agx_isa.ADDEND_ENABLE)
+    assert not agx_isa.read_flag(built, 0, agx_isa.ADDEND_IMMEDIATE)
+    assert agx_isa.read_flag(agx_isa.encode_fma(0, 7.0, 1.0), 0, agx_isa.ADDEND_IMMEDIATE)
 
 
 def test_a_negative_addend_uses_the_negate_flag():
@@ -311,3 +311,106 @@ def test_synthesised_instructions_run_as_predicted(fields, step):
         predicted.append(running)
 
     assert agx_isa.execute(CHAIN, "probe", inputs, rewrite=rewrite) == predicted
+
+
+def test_the_addend_slot_can_name_a_register():
+    """`rd * 1 + rs` is the register-plus-register add, which the immediate form cannot express."""
+    built = agx_isa.encode_fma(2, 1.0, addend_register=3)
+    assert not agx_isa.read_flag(built, 0, agx_isa.ADDEND_IMMEDIATE)
+    assert built[agx_isa.FMA_ADDEND_BYTE] >> 1 == 3
+    with pytest.raises(agx_isa.EncodingError, match="not both"):
+        agx_isa.encode_fma(2, 1.0, addend=1.0, addend_register=3)
+    with pytest.raises(agx_isa.EncodingError, match="addend register"):
+        agx_isa.encode_fma(2, 1.0, addend_register=agx_isa.ARCHITECTURAL_REGISTERS)
+
+
+def test_a_zero_addend_names_a_register_beyond_the_reachable_range():
+    """There is no zero immediate, so a zero addend has to come from a register that reads zero.
+
+    Asserted rather than left implicit because it is the one place the encoder relies on an index
+    the field cannot reach. If a future part reduced that range, this would start adding whatever
+    a now-reachable register holds, and silently.
+    """
+    built = agx_isa.encode_fma(2, 1.0)
+    assert not agx_isa.read_flag(built, 0, agx_isa.ADDEND_IMMEDIATE)
+    assert built[agx_isa.FMA_ADDEND_BYTE] >> 1 >= agx_isa.ARCHITECTURAL_REGISTERS
+
+
+THREE_CHAINS = (
+    """#include <metal_stdlib>
+using namespace metal;
+kernel void probe(device const float* x [[buffer(0)]],
+                  device float* out     [[buffer(1)]],
+                  constant uint& n      [[buffer(2)]],
+                  uint gid [[thread_position_in_grid]]) {
+    float a = x[gid + 0];
+    float b = x[gid + 1];
+    float c = x[gid + 2];
+"""
+    + "\n".join(
+        f"    {v} = fma({v}, {m}f, 1.0f);"
+        for m, v in ((2.0, "a"), (3.0, "b"), (5.0, "c"))
+        for _ in range(3)
+    )
+    + """
+    out[gid] = a + b + c;
+}
+"""
+)
+
+
+def test_a_register_addend_adds_that_register_on_the_gpu():
+    """Rewrite one instruction to read another chain's register, and predict all four threads.
+
+    Four threads rather than one, because thread `gid` reads x[gid], x[gid+1] and x[gid+2]: an
+    earlier version of this prediction used thread 0's inputs for every thread and mispredicted
+    three of four while the encoding was perfectly correct.
+    """
+    from metile.target import Unavailable, machine_code
+
+    multipliers = {"a": 2.0, "b": 3.0, "c": 5.0}
+    try:
+        text = machine_code(THREE_CHAINS, "probe")
+    except Unavailable as error:
+        pytest.skip(f"no Metal toolchain: {error}")
+
+    byname = {agx_isa.encode_immediate(m, low_bit=1): name for name, m in multipliers.items()}
+    compact = [
+        (offset, byname[text[offset + agx_isa.FMA_MULTIPLIER_BYTE]])
+        for offset in range(0, len(text) - agx_isa.FMA_LENGTH, 2)
+        if text[offset] & 0x0F == agx_isa.FMA_OPCODE_NIBBLE
+        and text[offset + 2] & 0x0F == 0x0E
+        and text[offset + agx_isa.FMA_MULTIPLIER_BYTE] in byname
+    ]
+    registers = {chain: text[offset] >> 4 for offset, chain in compact}
+    assert len(registers) == 3
+
+    inputs = [1.0, 2.0, 3.0, 5.0, 7.0, 11.0]
+    threads = 4
+    victim = [offset for offset, chain in compact if chain == "a"][-1]
+    source = registers["b"]
+    by_register = {value: name for name, value in registers.items()}
+
+    def rewrite(original):
+        patched = bytearray(original)
+        patched[victim : victim + agx_isa.FMA_LENGTH] = agx_isa.encode_fma(
+            registers["a"], 1.0, addend_register=source, last=False
+        )
+        return bytes(patched)
+
+    predicted = []
+    for gid in range(threads):
+        state = {"a": inputs[gid], "b": inputs[gid + 1], "c": inputs[gid + 2]}
+        for chain in state:
+            hidden = 3 - sum(1 for _, owner in compact if owner == chain)
+            for _ in range(hidden):
+                state[chain] = state[chain] * multipliers[chain] + 1.0
+        for offset, chain in compact:
+            if offset == victim:
+                state[chain] = state[chain] * 1.0 + state[by_register[source]]
+            else:
+                state[chain] = state[chain] * multipliers[chain] + 1.0
+        predicted.append(sum(state.values()))
+
+    got = agx_isa.execute(THREE_CHAINS, "probe", inputs, rewrite=rewrite)[:threads]
+    assert got == predicted
