@@ -10,6 +10,7 @@ comparing.
     2  boundaries         find where instructions actually start, behaviourally
     3  immediates         read the constant field out of kernels compiled with known constants
     4  encode             synthesise constants the compiler never emitted and predict the answer
+    5  flags              set one arithmetic bit at a time and predict the answer again
 
 Stage 4 is the one that matters. Stages 1 to 3 could all be satisfied by a field map that is
 merely consistent with what the compiler happens to emit; only predicting the result of bytes
@@ -172,10 +173,38 @@ def main():
         label = f"{count} fma -> a*{multiplier:g}+{addend:g}"
         print(f"   {label:<26}{value:>12g}{got:>12g}   {'MATCHES' if agree else 'differs'}")
 
+    print("\n5. Do the arithmetic flags mean what they claim? One bit at a time, four inputs.")
+    print(f"   {'flag':<30}{'predicted':>28}   verdict")
+    inputs = [1.0, 2.0, 3.0, 5.0]
+    for flag, clear, step, label in (
+        (agx_isa.PRODUCT_NEGATE, False, lambda v: -v * 2.0 + 1.0, "product negated: -a*m+d"),
+        (agx_isa.ADDEND_NEGATE, False, lambda v: v * 2.0 - 1.0, "addend negated: a*m-d"),
+        (agx_isa.ADDEND_ENABLE, True, lambda v: v * 2.0, "addend dropped: a*m"),
+    ):
+
+        def rewrite(original, f=flag, c=clear, where=tuple(compact)):
+            patched = original
+            for offset in where:
+                patched = agx_isa.write_flag(patched, offset, f, not c)
+            return patched
+
+        predicted = []
+        for value in inputs:
+            running = value * 2.0 + 1.0
+            for _ in compact:
+                running = step(running)
+            predicted.append(running)
+        got = agx_isa.execute(CHAIN, "probe", inputs, rewrite=rewrite, workdir=work)
+        agree = got == predicted
+        checks.append(agree)
+        shown = ", ".join(f"{value:g}" for value in predicted)
+        print(f"   {label:<30}{shown:>28}   {'MATCHES' if agree else f'got {got}'}")
+
     print()
     if all(checks) and all(observed):
-        print("The immediate field is encodable, not merely readable: predictions made before")
-        print("running matched the GPU exactly, for bytes no Metal compiler produced.")
+        print("Both the constant field and the arithmetic flags are encodable, not merely")
+        print("readable: every prediction made before running matched the GPU exactly, for")
+        print("bytes no Metal compiler produced.")
     else:
         print("A prediction missed. The field map in metile/target/agx_isa.py is wrong here,")
         print("or this toolchain encodes constants differently; re-derive before relying on it.")

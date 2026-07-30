@@ -146,3 +146,87 @@ def test_nopping_an_instruction_removes_exactly_its_effect():
     )
     assert len(offsets) == 4, f"expected four fmas, found {[hex(o) for o in offsets]}"
     assert {b - a for a, b in itertools.pairwise(offsets)} == {agx_isa.FMA_LENGTH}
+
+
+def _compact_offsets(text):
+    return [
+        offset
+        for offset in range(0, len(text) - agx_isa.FMA_LENGTH, 2)
+        if text[offset] & 0x0F == agx_isa.FMA_OPCODE_NIBBLE
+        and text[offset + 2] & 0x0F == 0x0E
+        and text[offset + agx_isa.FMA_MULTIPLIER_BYTE] == 0xC1
+    ]
+
+
+@pytest.mark.parametrize(
+    ("flag", "clear", "step"),
+    (
+        (agx_isa.PRODUCT_NEGATE, False, lambda v: -v * 2.0 + 1.0),
+        (agx_isa.ADDEND_NEGATE, False, lambda v: v * 2.0 - 1.0),
+        (agx_isa.ADDEND_ENABLE, True, lambda v: v * 2.0),
+    ),
+)
+def test_each_arithmetic_flag_does_what_it_claims(flag, clear, step):
+    """Set the bit on every compact fma, then check the GPU against arithmetic, not a table.
+
+    Four inputs rather than one. A single input can agree by coincidence -- negating the product
+    and negating the addend both happen to move the result by an even amount -- and a flag that
+    only holds for x=1 is not understood.
+    """
+    text = _machine_code()
+    offsets = _compact_offsets(text)
+    assert len(offsets) == 3
+
+    def rewrite(original):
+        patched = original
+        for offset in offsets:
+            patched = agx_isa.write_flag(patched, offset, flag, not clear)
+        return patched
+
+    inputs = [1.0, 2.0, 3.0, 5.0]
+    predicted = []
+    for value in inputs:
+        running = value * 2.0 + 1.0  # the long-form fma, left alone
+        for _ in offsets:
+            running = step(running)
+        predicted.append(running)
+
+    assert agx_isa.execute(CHAIN, "probe", inputs, rewrite=rewrite) == predicted
+
+
+def test_flags_read_back_the_way_they_were_written():
+    instruction = bytes.fromhex("0901 2ec1 21b0 0202")
+    assert not agx_isa.read_flag(instruction, 0, agx_isa.PRODUCT_NEGATE)
+    assert agx_isa.read_flag(instruction, 0, agx_isa.ADDEND_ENABLE)
+    negated = agx_isa.write_flag(instruction, 0, agx_isa.PRODUCT_NEGATE, True)
+    assert agx_isa.read_flag(negated, 0, agx_isa.PRODUCT_NEGATE)
+    assert len(negated) == len(instruction)
+    assert agx_isa.write_flag(negated, 0, agx_isa.PRODUCT_NEGATE, False) == instruction
+
+
+def test_disabling_an_instruction_by_flag_matches_nopping_it():
+    """The flag and the nop should be indistinguishable, and both equal dropping the operation.
+
+    Worth asserting because it ties the two capabilities together: the behavioural boundary
+    finder works by overwriting bytes, and this flag achieves the same effect without touching
+    the instruction's length or its neighbours.
+    """
+    text = _machine_code()
+    offsets = _compact_offsets(text)
+    last = offsets[-1]
+
+    def by_flag(original):
+        return agx_isa.write_flag(original, last, agx_isa.INSTRUCTION_DISABLE, True)
+
+    def by_nop(original):
+        patched = bytearray(original)
+        patched[last : last + agx_isa.FMA_LENGTH] = agx_isa.NOP * (
+            agx_isa.FMA_LENGTH // len(agx_isa.NOP)
+        )
+        return bytes(patched)
+
+    inputs = [1.0, 2.0]
+    flagged = agx_isa.execute(CHAIN, "probe", inputs, rewrite=by_flag)
+    nopped = agx_isa.execute(CHAIN, "probe", inputs, rewrite=by_nop)
+    assert flagged == nopped
+    assert flagged[0] == 15.0  # three fmas of a*2+1 from x=1 instead of four
