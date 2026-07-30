@@ -752,7 +752,13 @@ def mlx_affine_swiglu_qmv(
 
 
 def repack_mlx_affine_weight(weight, scales, biases):
-    """Repack MLX output-major affine uint4 weights into K-major NAX layout."""
+    """Repack MLX output-major affine uint4 weights into K-major NAX layout.
+
+    Four bits throughout, matching the matrix unit's affine fragment format. Generalising this to
+    eight is a few lines and does not help: the consumer, `lower_affine_matmul`, emits NAX affine
+    fragments with block_size=4 and takes no bit width, so a wider repack only produces weights the
+    kernel will decode as nibbles. See the guard in MLXAffineWeight.from_mlx.
+    """
     import mlx.core as mx
 
     if biases is None:
