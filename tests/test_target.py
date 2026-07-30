@@ -1,5 +1,7 @@
 """The target model is measured hardware knowledge, so guard what depends on its shape."""
 
+import itertools
+
 import pytest
 
 from metile.target import (
@@ -99,3 +101,50 @@ def test_the_backend_normalises_statement_order():
         "on the assumption that it does not; re-measure benchmarks/agx_source_order.py and "
         "reconsider the default."
     )
+
+
+def test_bandwidth_depends_on_working_set_and_the_knee_is_sharp():
+    """One bandwidth number is badly wrong for this part, so the model has to be a curve.
+
+    The measured drop from 2 MB to 4 MB is about a factor of four. Interpolating across it would invent
+    a smooth ramp the hardware does not have, so the lookup reports the measurement for the smallest
+    size at least as large as the request.
+    """
+    from metile.target import RESIDENT_WORKING_SET_BYTES, read_bandwidth_gbps
+
+    resident_rate = read_bandwidth_gbps(RESIDENT_WORKING_SET_BYTES)
+    beyond_rate = read_bandwidth_gbps(RESIDENT_WORKING_SET_BYTES * 2)
+    assert resident_rate > 3 * beyond_rate
+    assert read_bandwidth_gbps(2**30) == pytest.approx(STREAMING_READ_GBPS)
+
+    # Monotonically non-increasing: a larger working set is never served faster. This is what caught
+    # a 256 KB entry reading slower than 512 KB, which is impossible for a smaller working set and was
+    # the probe's loop overhead rather than the hierarchy.
+    rates = [read_bandwidth_gbps(2**exponent) for exponent in range(14, 31)]
+    for faster, slower in itertools.pairwise(rates):
+        assert faster >= slower
+
+
+def test_a_working_set_is_resident_only_up_to_the_measured_capacity():
+    from metile.target import RESIDENT_WORKING_SET_BYTES, resident
+
+    assert resident(RESIDENT_WORKING_SET_BYTES)
+    assert resident(1024)
+    assert not resident(RESIDENT_WORKING_SET_BYTES + 1)
+    assert not resident(0)
+
+
+def test_fitting_a_tile_outranks_every_other_lever_in_this_file():
+    """The comparison that should drive where compiler effort goes.
+
+    Keeping a working set resident is worth about 19x. Choosing the matrix unit over scalar is worth
+    2.4x to 3.7x. Instruction scheduling is capped at 1.09x and measured unreachable above MSL. If that
+    ordering ever changes on new hardware, the guidance built on it needs revisiting rather than being
+    carried over.
+    """
+    from metile.target import RESIDENT_WORKING_SET_BYTES, tiling_gain
+
+    fitting = tiling_gain(RESIDENT_WORKING_SET_BYTES)
+    functional_unit = MATRIX_PEAK_TFLOPS / min(SCALAR_PEAK_TFLOPS.values())
+    assert fitting > functional_unit > max(ILP_CEILING.values())
+    assert tiling_gain(2**30) == pytest.approx(1.0)

@@ -37,6 +37,41 @@ SCALAR_PEAK_TFLOPS = {"f32": 4.1, "f16": 6.5}
 MATRIX_PEAK_TFLOPS = 15.33
 STREAMING_READ_GBPS = 120.6
 
+# Read bandwidth as a function of working-set size, measured by benchmarks/agx_memory_hierarchy.py.
+# One number for bandwidth is badly wrong here: a working set that stays resident is served sixteen to
+# twenty times faster than one that streams, and that ratio is larger than every other factor in this
+# file. A tiling that fits and a tiling that misses are not the same kernel.
+#
+# Coalesced streaming reads, 16384 threads, six gigabytes of traffic per dispatch, sizes interleaved
+# across rounds. The pass loop re-reads the same addresses, so the obvious worry is that the backend
+# collapses it into a multiply and the fast numbers are fiction; tripling the traffic triples the
+# elapsed time at every size, which it could not if the loop were collapsed.
+#
+# The resident regime is one entry, not four, because the probe cannot resolve it. Measured 1545, 2006,
+# 2138 and 2386 GB/s at 256 KB, 512 KB, 1 MB and 2 MB -- bandwidth *rising* with working set, which
+# cannot be a property of a cache. It is the pass loop: a smaller working set means fewer inner
+# iterations per pass, so loop bookkeeping takes a larger share, and the effect shrinks as the set
+# grows. Only the 2 MB figure is close to uncontaminated, and it is a floor.
+#
+# So what this establishes is that a resident working set runs at 2386 GB/s or better, and nothing about
+# how that varies below 2 MB. Reporting four numbers would claim a resolution the measurement does not
+# have; a monotonicity test on the table is what caught the attempt.
+BANDWIDTH_BY_WORKING_SET_GBPS = {
+    2 * 1024 * 1024: 2386.0,
+    4 * 1024 * 1024: 555.0,
+    8 * 1024 * 1024: 192.0,
+    16 * 1024 * 1024: 161.0,
+    32 * 1024 * 1024: 134.0,
+    64 * 1024 * 1024: 128.0,
+    128 * 1024 * 1024: 124.0,
+}
+
+# Largest working set still served by the fast level, and what it delivers. The knee is sharp: 2 MB
+# reads 2386 GB/s and 4 MB reads 555, so this is the number a tiling pass should be trying to stay
+# under. The rate is a floor for the reason above.
+RESIDENT_WORKING_SET_BYTES = 2 * 1024 * 1024
+RESIDENT_READ_GBPS = 2386.0
+
 
 class Unavailable(RuntimeError):
     """The toolchain needed to inspect compiled kernels is not present."""
@@ -50,6 +85,37 @@ def ilp_headroom(dtype="f32"):
 def spills(registers):
     """Whether a kernel using this many registers is spilling."""
     return registers >= REGISTER_BUDGET
+
+
+def read_bandwidth_gbps(working_set_bytes):
+    """Expected read bandwidth for a working set of this size, in GB/s.
+
+    For a pass deciding a tile size. Interpolating between measured points would invent a smooth curve
+    the hardware does not have -- the drop from 2 MB to 4 MB is a factor of four -- so this reports the
+    measurement for the smallest size at least as large as the request, which is the conservative
+    direction: a tile is served no faster than the next size up was measured at.
+    """
+    if working_set_bytes <= 0:
+        raise ValueError("a working set must be positive")
+    for size in sorted(BANDWIDTH_BY_WORKING_SET_GBPS):
+        if working_set_bytes <= size:
+            return BANDWIDTH_BY_WORKING_SET_GBPS[size]
+    return STREAMING_READ_GBPS
+
+
+def resident(working_set_bytes):
+    """Whether a working set of this size is served by the fast level rather than by DRAM."""
+    return 0 < working_set_bytes <= RESIDENT_WORKING_SET_BYTES
+
+
+def tiling_gain(working_set_bytes):
+    """How much bandwidth a tiling wins by fitting this working set instead of streaming.
+
+    The figure worth putting beside the other ratios in this file. Fitting under 2 MB is worth about
+    19x, where choosing the matrix unit over scalar is worth 2.4x to 3.7x and instruction scheduling is
+    worth at most 1.09x and unreachable in practice.
+    """
+    return read_bandwidth_gbps(working_set_bytes) / STREAMING_READ_GBPS
 
 
 def _harness(workdir):

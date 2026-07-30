@@ -6,27 +6,39 @@ pass can consult them instead of a comment repeating a value someone once saw.
 """
 
 from metile.target.agx import (
+    BANDWIDTH_BY_WORKING_SET_GBPS,
     ILP_CEILING,
     MATRIX_PEAK_TFLOPS,
     REGISTER_BUDGET,
+    RESIDENT_READ_GBPS,
+    RESIDENT_WORKING_SET_BYTES,
     SCALAR_PEAK_TFLOPS,
     STREAMING_READ_GBPS,
     Unavailable,
     ilp_headroom,
     inspect,
     machine_code,
+    read_bandwidth_gbps,
+    resident,
     spills,
+    tiling_gain,
 )
 
 __all__ = [
+    "BANDWIDTH_BY_WORKING_SET_GBPS",
     "ILP_CEILING",
     "MATRIX_PEAK_TFLOPS",
     "REGISTER_BUDGET",
+    "RESIDENT_READ_GBPS",
+    "RESIDENT_WORKING_SET_BYTES",
     "SCALAR_PEAK_TFLOPS",
     "STREAMING_READ_GBPS",
     "Unavailable",
     "ilp_headroom",
     "inspect",
     "machine_code",
+    "read_bandwidth_gbps",
+    "resident",
     "spills",
+    "tiling_gain",
 ]
