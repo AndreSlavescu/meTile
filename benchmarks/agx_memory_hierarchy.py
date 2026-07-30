@@ -13,21 +13,20 @@ levels; the knees between them are capacities.
 
 Three things make the numbers trustworthy rather than suggestive:
 
-  saturation   the sweep has to reach the known 120.6 GB/s at large sizes, or the thread count is too
-               low to saturate and every number is a lower bound on something else. Printed as a check
-               rather than assumed.
+  occupancy    every working set is measured at several threadgroup counts and the best is kept. A fixed
+               count is not safe: the first version of this used 64 for everything, which saturates DRAM
+               at 128 MB but starves an 8 MB working set by a factor of twelve, and the resulting table
+               described the thread count rather than the hierarchy.
   amortisation each dispatch reads gigabytes and runs for tens of milliseconds, so launch overhead is
                far below the noise. Timing small kernels through a host round trip is what produced
                three fabricated results earlier in this project.
   interleaving sizes are measured in rotating order across rounds, because a sweep that walks from
                small to large measures thermal drift as much as it measures the hierarchy.
 
-One limit of this probe is worth knowing before reading its output. Inside the resident regime bandwidth
-*rises* with working set -- 1545, 2006, 2138 and 2386 GB/s at 256 KB, 512 KB, 1 MB and 2 MB -- which
-cannot be a property of a cache. A smaller working set means fewer inner iterations per pass, so the
-pass loop's bookkeeping takes a larger share, and the effect shrinks as the set grows. The probe
-therefore establishes that a resident set runs at 2386 GB/s or better and says nothing reliable about
-how that varies below 2 MB. `metile.target.agx` records it as one number for that reason.
+One limit remains after the occupancy sweep. The smallest working sets cannot be given both enough
+threads to saturate and enough work per thread to amortise the pass loop, because the two demands
+conflict once the set is only a few times the thread count. Numbers below about 1 MB are floors rather
+than levels, and `metile.target.agx` records the resident regime as a single figure for that reason.
 
 usage:
     python benchmarks/agx_memory_hierarchy.py
@@ -50,11 +49,15 @@ import metile
 from metile.target import agx
 
 THREADGROUP = 256
-# Enough threads to saturate DRAM, and few enough that a 256 KB working set still gives every thread
-# something to do: the inner loop strides by the total thread count, so a working set smaller than that
-# leaves threads idle and measures parallelism instead of bandwidth.
-THREADGROUPS = 64
-VECTOR_BYTES = 16  # float4
+VECTOR_BYTES = 16
+
+# Threadgroup counts tried at every working set, with the best taken. A single count cannot serve the
+# whole sweep and picking one produced a wrong answer that sat in the target model until the occupancy
+# probe contradicted it: at 64 groups an 8 MB working set reads 196 GB/s and at 512 it reads 2403, so the
+# "level" recorded at 8 MB was the thread count, not the memory system. Too few threads starves the path;
+# too many leaves each thread one inner iteration per pass, where loop bookkeeping competes with the
+# loads. Only the maximum over the sweep is a property of the part.
+THREADGROUP_COUNTS = (32, 64, 128, 256, 512, 1024)  # float4
 
 SIZES_KB = (256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144)
 
@@ -63,7 +66,6 @@ def _arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--traffic", type=float, default=4.0, help="GB read per dispatch")
     parser.add_argument("--rounds", type=int, default=5)
-    parser.add_argument("--threadgroups", type=int, default=THREADGROUPS)
     return parser.parse_args()
 
 
@@ -93,26 +95,30 @@ def main():
     from metile.runtime.metal_device import MetalDevice
 
     device = MetalDevice.get()
-    threads = arguments.threadgroups * THREADGROUP
-    grid, block = (threads, 1, 1), (THREADGROUP, 1, 1)
     pipeline = device.compile_msl(READ_KERNEL, "probe")
 
     print(f"device: {device.name}")
-    print(f"{threads} threads, {arguments.traffic:g} GB read per dispatch")
+    print(f"{arguments.traffic:g} GB read per dispatch, best of {THREADGROUP_COUNTS} threadgroups")
     print(f"recorded streaming ceiling: {agx.STREAMING_READ_GBPS} GB/s\n")
 
     target_bytes = arguments.traffic * 1e9
-    cases = []
     largest = max(SIZES_KB) * 1024
     data = metile.Buffer(data=np.ones(largest // 4, dtype=np.float32))
-    out = metile.Buffer(data=np.zeros(threads * 4, dtype=np.float32))
+    out = metile.Buffer(data=np.zeros(max(THREADGROUP_COUNTS) * THREADGROUP * 4, dtype=np.float32))
 
+    cases = []
     for size_kb in SIZES_KB:
         size = size_kb * 1024
         vectors = size // VECTOR_BYTES
-        if vectors < threads:
-            continue
         passes = max(1, int(target_bytes // size))
+        for count in THREADGROUP_COUNTS:
+            if vectors < count * THREADGROUP:
+                continue
+            cases.append((size, count, vectors, passes))
+
+    def measure(case):
+        _, count, vectors, passes = case
+        threads = count * THREADGROUP
         buffers = [
             data.metal_buffer,
             out.metal_buffer,
@@ -120,48 +126,45 @@ def main():
             metile.Buffer(data=np.array([passes], dtype=np.uint32)).metal_buffer,
             metile.Buffer(data=np.array([threads], dtype=np.uint32)).metal_buffer,
         ]
-        cases.append((size, vectors, passes, buffers))
-
-    def measure(buffers):
         started = time.perf_counter_ns()
-        device.dispatch_kernel(pipeline, buffers, grid, block)
+        device.dispatch_kernel(pipeline, buffers, (threads, 1, 1), (THREADGROUP, 1, 1))
         device.sync()
-        return (time.perf_counter_ns() - started) / 1e9
+        seconds = (time.perf_counter_ns() - started) / 1e9
+        return vectors * VECTOR_BYTES * passes / seconds / 1e9
 
-    for _, _, _, buffers in cases:
-        measure(buffers)
+    for case in cases:
+        measure(case)
 
-    samples = {size: [] for size, _, _, _ in cases}
+    samples = {case: [] for case in cases}
     for index in range(arguments.rounds):
         ordered = cases[index % len(cases) :] + cases[: index % len(cases)]
-        for size, _, _, buffers in ordered:
-            samples[size].append(measure(buffers))
+        for case in ordered:
+            samples[case].append(measure(case))
 
-    print(f"{'working set':>13}{'passes':>8}{'ms':>9}{'GB/s':>9}{'vs DRAM':>9}")
+    rates = {case: statistics.median(values) for case, values in samples.items()}
+
+    print(f"{'working set':>13}{'best groups':>13}{'GB/s':>9}{'vs DRAM':>9}{'worst groups':>14}")
     results = []
-    for size, vectors, passes, _ in cases:
-        seconds = statistics.median(samples[size])
-        gbps = (vectors * VECTOR_BYTES * passes) / seconds / 1e9
-        results.append((size, gbps))
+    for size_kb in SIZES_KB:
+        size = size_kb * 1024
+        here = [(case, rate) for case, rate in rates.items() if case[0] == size]
+        if not here:
+            continue
+        best_case, best = max(here, key=lambda pair: pair[1])
+        worst = min(rate for _, rate in here)
+        results.append((size, best))
         label = f"{size // 1024} KB" if size < 1024 * 1024 else f"{size // (1024 * 1024)} MB"
         print(
-            f"{label:>13}{passes:>8}{seconds * 1e3:>9.1f}{gbps:>9.1f}"
-            f"{gbps / agx.STREAMING_READ_GBPS:>8.2f}x"
+            f"{label:>13}{best_case[1]:>13}{best:>9.0f}"
+            f"{best / agx.STREAMING_READ_GBPS:>8.2f}x{best / worst:>13.1f}x"
         )
 
     dram = min(gbps for _, gbps in results)
     peak = max(gbps for _, gbps in results)
-    print(f"\nslowest {dram:.1f} GB/s, fastest {peak:.1f} GB/s, ratio {peak / dram:.2f}x")
-    saturated = dram >= 0.9 * agx.STREAMING_READ_GBPS
+    print(f"\nslowest {dram:.0f} GB/s, fastest {peak:.0f} GB/s, ratio {peak / dram:.2f}x")
     print(
-        f"saturation check: largest working sets reach {dram:.1f} GB/s against a recorded "
-        f"{agx.STREAMING_READ_GBPS} GB/s -- {'ok' if saturated else 'TOO LOW, raise --threadgroups'}"
+        "last column is how much the thread count alone moves that size, which is why it is swept."
     )
-    if not saturated:
-        print(
-            "Until that passes, every number here is a lower bound and the knees may be artefacts."
-        )
-        return 1
 
     # Report the knees rather than leaving them to be eyeballed: a level boundary is where bandwidth
     # drops materially between adjacent sizes.

@@ -7,6 +7,7 @@ pass can consult them instead of a comment repeating a value someone once saw.
 
 from metile.target.agx import (
     BANDWIDTH_BY_WORKING_SET_GBPS,
+    GROUPS_FOR_RESIDENT_BANDWIDTH,
     ILP_CEILING,
     MATRIX_PEAK_TFLOPS,
     REGISTER_BUDGET,
@@ -31,6 +32,7 @@ from metile.target.agx import (
 
 __all__ = [
     "BANDWIDTH_BY_WORKING_SET_GBPS",
+    "GROUPS_FOR_RESIDENT_BANDWIDTH",
     "ILP_CEILING",
     "MATRIX_PEAK_TFLOPS",
     "REGISTER_BUDGET",

@@ -103,18 +103,18 @@ def test_the_backend_normalises_statement_order():
     )
 
 
-def test_bandwidth_depends_on_working_set_and_the_knee_is_sharp():
+def test_bandwidth_depends_on_working_set_and_spans_more_than_ten_times():
     """One bandwidth number is badly wrong for this part, so the model has to be a curve.
 
-    The measured drop from 2 MB to 4 MB is about a factor of four. Interpolating across it would invent
-    a smooth ramp the hardware does not have, so the lookup reports the measurement for the smallest
-    size at least as large as the request.
+    This used to assert the drop past the resident capacity was at least threefold, which encoded a knee
+    that measurement later removed. The first table was taken at a single thread count and put the
+    capacity at 2 MB with a fourfold cliff; sweeping occupancy per size moved the capacity to 16 MB and
+    made the far side a ramp -- 2453, 1795, 448, 175 -- so the sharp-knee assertion was testing an
+    artefact of the harness. What survives is the span and the ordering.
     """
     from metile.target import RESIDENT_WORKING_SET_BYTES, read_bandwidth_gbps
 
-    resident_rate = read_bandwidth_gbps(RESIDENT_WORKING_SET_BYTES)
-    beyond_rate = read_bandwidth_gbps(RESIDENT_WORKING_SET_BYTES * 2)
-    assert resident_rate > 3 * beyond_rate
+    assert read_bandwidth_gbps(RESIDENT_WORKING_SET_BYTES) > 10 * STREAMING_READ_GBPS
     assert read_bandwidth_gbps(2**30) == pytest.approx(STREAMING_READ_GBPS)
 
     # Monotonically non-increasing: a larger working set is never served faster. This is what caught
@@ -123,6 +123,19 @@ def test_bandwidth_depends_on_working_set_and_the_knee_is_sharp():
     rates = [read_bandwidth_gbps(2**exponent) for exponent in range(14, 31)]
     for faster, slower in itertools.pairwise(rates):
         assert faster >= slower
+
+
+def test_reaching_resident_bandwidth_takes_parallelism_as_well_as_residency():
+    """Residency is necessary and not sufficient, which is what the first table missed.
+
+    At 64 threadgroups an 8 MB working set reads 196 GB/s; at 512 it reads 2431. Data being resident buys
+    nothing if too few threadgroups are in flight to ask for it.
+    """
+    from metile.target import GROUPS_FOR_RESIDENT_BANDWIDTH
+
+    required = sorted(GROUPS_FOR_RESIDENT_BANDWIDTH.items())
+    assert [groups for _, groups in required] == sorted(groups for _, groups in required)
+    assert all(groups >= 256 for _, groups in required)
 
 
 def test_a_working_set_is_resident_only_up_to_the_measured_capacity():
