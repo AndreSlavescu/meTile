@@ -21,12 +21,36 @@ checkout and CI stay green instead of failing for the wrong reason. The large ti
 via METILE_TEST_LARGE_MODELS=1 because it loads up to 15 GB of weights.
 """
 
+import gc
 import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _release_gpu_memory():
+    """Drop each test's model weights before the next test loads its own.
+
+    Every test here loads a checkpoint and none released one, so across the matrix several models'
+    weights stayed resident at once, up to about fifteen gigabytes for the largest. Letting the
+    Python reference go is not enough: MLX keeps freed device buffers in a cache, so the memory is
+    not returned until that cache is dropped.
+
+    This is a robustness fix rather than a proven root cause. The symptom was one test in five full
+    matrix runs failing on bit-exactness, always passing in isolation and always passing with its
+    own model's cases run alone, so it needed the whole matrix to appear. Memory pressure has
+    produced exactly that signature in this project before, in a benchmark where two models' weights
+    overlapping corrupted single measurements and the damage read as a result rather than as noise.
+    """
+    yield
+    gc.collect()
+    mx = __import__("sys").modules.get("mlx.core")
+    if mx is not None:
+        mx.clear_cache()
+
 
 CACHE = Path.home() / ".cache/huggingface/hub"
 PROMPT = "Explain tiled matrix multiplication in two sentences."

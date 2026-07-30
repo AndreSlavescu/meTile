@@ -120,12 +120,82 @@ _COMPRESSED_INTERVAL_DIRECTION_BUDGET = 13
 _COMPRESSED_WORKING_SET_FRACTION = 0.9
 _COMPRESSED_SUBSET_AUGMENTATION_BUDGET = 16
 _QUANTIZED_MLP_MIN_ROWS = 32
-_SUPPORTED_GATED_MLP_MODULES = frozenset(
+# The exact classes meTile will replace, by module and name. A set of modules plus a hardcoded
+# class name was not enough: every architecture here computes the same gated MLP, but they do not
+# all call the class MLP. Qwen3.5 and Qwen3.6 reach it as Qwen3NextMLP from a third module, so a
+# name check silently excluded three of the newest models, and their equivalence tests skipped
+# with "patches nothing" rather than failing. A skipped test looks like a passing one in a summary.
+#
+# Membership is a claim about the implementation, not the name. Every class here has a __call__ of
+# `down_proj(swiglu(gate_proj(x), up_proj(x)))`, and `swiglu(gate, x)` is `nn.silu(gate) * x`,
+# which is what `_execute_quantized_mlp` computes.
+_GATED_MLP_CLASSES = frozenset(
     {
-        "mlx_lm.models.llama",
-        "mlx_lm.models.qwen2",
+        ("mlx_lm.models.llama", "MLP"),
+        ("mlx_lm.models.qwen2", "MLP"),
+        ("mlx_lm.models.qwen3", "MLP"),
+        ("mlx_lm.models.qwen3_next", "Qwen3NextMLP"),
     }
 )
+
+# Blocks whose residual structure the fusion pass reproduces, which is a stricter requirement than
+# carrying a gated MLP. Every class here has a __call__ of `r = attention(input_layernorm(x));
+# h = x + r; out = h + mlp(post_attention_layernorm(h))`, and for the first three that text is
+# character-for-character identical.
+#
+# Qwen3.5's DecoderLayer is included, but it is the reason `_attention_module` exists. It differs
+# from the others in one respect: on every layer that is not a multiple of full_attention_interval
+# the attention is a GatedDeltaNet bound to `linear_attn`, and `self_attn` is not present at all.
+# The residual structure around it is the same, so resolving the attention by attribute rather
+# than by name is the whole adaptation needed. Excluding it instead left the equivalence tests for
+# three of the newest models skipping rather than passing.
+_FUSED_BLOCK_CLASSES = frozenset(
+    {
+        ("mlx_lm.models.llama", "TransformerBlock"),
+        ("mlx_lm.models.qwen2", "TransformerBlock"),
+        ("mlx_lm.models.qwen3", "TransformerBlock"),
+        ("mlx_lm.models.qwen3_5", "DecoderLayer"),
+    }
+)
+
+# Attribute names a block may bind its attention to, in the order to look. Hybrid architectures
+# alternate: Qwen3.5 uses `linear_attn` on most layers and `self_attn` on the rest, so this is
+# resolved per call rather than once per class.
+_ATTENTION_ATTRIBUTES = ("self_attn", "linear_attn")
+
+
+def _attention_module(block):
+    """The attention a block will call, or None if it binds none this pass understands."""
+    for name in _ATTENTION_ATTRIBUTES:
+        found = getattr(block, name, None)
+        if found is not None:
+            return found
+    return None
+
+
+def _recognised(cls, registry):
+    """Whether meTile is allowed to replace this class's __call__."""
+    return (cls.__module__, cls.__name__) in registry
+
+
+def _registry_classes(registry):
+    """Import and return the classes in a registry, skipping any this mlx-lm does not have.
+
+    Used when patching without a model in hand. Skipping rather than raising because the
+    registry spans several mlx-lm versions and a missing architecture is not an error.
+    """
+    import importlib
+
+    found = []
+    for module_name, class_name in sorted(registry):
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        cls = getattr(module, class_name, None)
+        if cls is not None:
+            found.append(cls)
+    return found
 
 
 @dataclass(frozen=True)
@@ -3540,15 +3610,10 @@ def _patch_graph_fusion(
     if model is not None:
         classes.extend(type(layer) for layer in _model_layers(model))
     else:
-        from mlx_lm.models import llama, qwen2
-
-        classes.extend((llama.TransformerBlock, qwen2.TransformerBlock))
+        classes.extend(_registry_classes(_FUSED_BLOCK_CLASSES))
 
     for block_class in dict.fromkeys(classes):
-        if (
-            block_class.__module__ not in _SUPPORTED_GATED_MLP_MODULES
-            or block_class.__name__ != "TransformerBlock"
-        ):
+        if not _recognised(block_class, _FUSED_BLOCK_CLASSES):
             continue
         original = block_class.__call__
         if getattr(original, "_metile_original", None) is not None:
@@ -3622,7 +3687,13 @@ def _patch_graph_fusion(
                 ):
                     return original_call(self, values, mask, cache)
 
-                attention_output = self.self_attn(self.input_layernorm(values), mask, cache)
+                # A block binding its attention to neither name is one this replacement cannot
+                # reproduce, so hand it back rather than guess. Checked here rather than at patch
+                # time because a hybrid architecture binds different names on different layers.
+                attention = _attention_module(self)
+                if attention is None:
+                    return original_call(self, values, mask, cache)
+                attention_output = attention(self.input_layernorm(values), mask, cache)
                 if (
                     fuse_residual_rms
                     and (selected is None or selected.algorithm != "mlx")
@@ -3764,12 +3835,10 @@ def _patch_quantized_mlp(
         raise ValueError("quantized MLP maximum rows must not be smaller than its minimum")
     classes = [type(layer.mlp) for layer in _model_layers(model) if hasattr(layer, "mlp")]
     if model is None:
-        from mlx_lm.models import llama, qwen2
-
-        classes.extend((llama.MLP, qwen2.MLP))
+        classes.extend(_registry_classes(_GATED_MLP_CLASSES))
 
     for mlp_class in dict.fromkeys(classes):
-        if mlp_class.__module__ not in _SUPPORTED_GATED_MLP_MODULES or mlp_class.__name__ != "MLP":
+        if not _recognised(mlp_class, _GATED_MLP_CLASSES):
             continue
         original = mlp_class.__call__
         if getattr(original, "_metile_original", None) is not None:
@@ -3832,11 +3901,8 @@ def _patch_compressed_down(compressed_down, replacements):
 
 
 def _supports_compressed_gate_up_fusion(module):
-    module_class = type(module)
-    return (
-        module_class.__module__ in _SUPPORTED_GATED_MLP_MODULES
-        and module_class.__name__ == "MLP"
-        and callable(getattr(module, "down_proj", None))
+    return _recognised(type(module), _GATED_MLP_CLASSES) and callable(
+        getattr(module, "down_proj", None)
     )
 
 
