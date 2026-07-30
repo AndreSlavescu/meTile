@@ -238,6 +238,17 @@
         "strong_decode_speedup_win": 1.05,
         "ttft_speedup_floor": 0.995
       },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "mixed_precision_affine_int8_decode",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "affine8"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": false
+      },
       "recorded_at": "2026-07-19T03:11:12.445075+00:00",
       "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",
       "samples": {
@@ -663,6 +674,17 @@
         "required_wins": 5,
         "strong_decode_speedup_win": 1.05,
         "ttft_speedup_floor": 0.995
+      },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "mixed_precision_affine_int8_decode",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "affine8"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": false
       },
       "recorded_at": "2026-07-19T03:28:22.912583+00:00",
       "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",
@@ -1104,6 +1126,17 @@
         "required_wins": 5,
         "strong_decode_speedup_win": 1.05,
         "ttft_speedup_floor": 0.995
+      },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "mixed_precision_affine_int8_decode",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "affine8"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": false
       },
       "recorded_at": "2026-07-19T03:25:52.351506+00:00",
       "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",
@@ -1643,6 +1676,17 @@
         "required_wins": 5,
         "strong_decode_speedup_win": 1.05,
         "ttft_speedup_floor": 0.995
+      },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "mixed_precision_affine_int8_decode",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "affine8"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": false
       },
       "recorded_at": "2026-07-19T04:59:28.151230+00:00",
       "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",
@@ -2197,6 +2241,17 @@
         "required_wins": 5,
         "strong_decode_speedup_win": 1.05,
         "ttft_speedup_floor": 0.995
+      },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "mixed_precision_affine_int8_decode",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "affine8"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": false
       },
       "recorded_at": "2026-07-19T06:43:17.077007+00:00",
       "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",
@@ -2811,6 +2866,17 @@
         "strong_decode_speedup_win": 1.05,
         "ttft_speedup_floor": 0.995
       },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "mixed_precision_affine_int8_decode",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "affine8"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": false
+      },
       "recorded_at": "2026-07-19T09:19:35.623632+00:00",
       "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",
       "samples": {
@@ -3382,6 +3448,17 @@
         "required_wins": 5,
         "strong_decode_speedup_win": 1.05,
         "ttft_speedup_floor": 0.995
+      },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "mixed_precision_affine_int8_decode",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "affine8"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": false
       },
       "recorded_at": "2026-07-19T07:57:10.536048+00:00",
       "revision": "f87f11bf087c5b20f591170c806d125dfa1f1c62",

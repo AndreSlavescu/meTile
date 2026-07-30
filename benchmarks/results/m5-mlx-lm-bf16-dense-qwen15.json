@@ -1,7 +1,4 @@
 {
-  "schema_version": 3,
-  "recorded_at": "2026-07-18T10:50:41Z",
-  "suite": "bf16-dense",
   "models": [
     {
       "candidate_plan": {
@@ -126,6 +123,17 @@
           }
         ]
       },
+      "precision_comparison": {
+        "baseline_weights": "model_native",
+        "class": "same_precision",
+        "derived_from": "selected_plan",
+        "native_weights_preserved": true,
+        "optimized_decode_weights": [
+          "model_native"
+        ],
+        "prefill_weights": "model_native",
+        "same_weight_representation": true
+      },
       "recorded_at": "2026-07-18T10:22:45.985454+00:00",
       "revision": "29d8263c520bfdf9778d0e1906c378b262a5ff63",
       "samples": {
@@ -249,7 +257,7 @@
             "algorithm": "mlx",
             "block": 0,
             "dtype": "mlx.core.bfloat16",
-            "eps": 0.000001,
+            "eps": 1e-06,
             "hidden": 1536,
             "row_bucket": 1
           },
@@ -257,7 +265,7 @@
             "algorithm": "mlx",
             "block": 0,
             "dtype": "mlx.core.bfloat16",
-            "eps": 0.000001,
+            "eps": 1e-06,
             "hidden": 1536,
             "row_bucket": 128
           }
@@ -337,7 +345,7 @@
             "algorithm": "mlx",
             "block": 0,
             "dtype": "mlx.core.bfloat16",
-            "eps": 0.000001,
+            "eps": 1e-06,
             "hidden": 1536,
             "row_bucket": 1
           },
@@ -345,7 +353,7 @@
             "algorithm": "mlx",
             "block": 0,
             "dtype": "mlx.core.bfloat16",
-            "eps": 0.000001,
+            "eps": 1e-06,
             "hidden": 1536,
             "row_bucket": 128
           }
@@ -384,5 +392,8 @@
         "trials": 9
       }
     }
-  ]
+  ],
+  "recorded_at": "2026-07-18T10:50:41Z",
+  "schema_version": 3,
+  "suite": "bf16-dense"
 }
