@@ -143,7 +143,14 @@ def _compiled(source, function, workdir):
         [str(binary), str(metal), function, str(archive)], capture_output=True, text=True
     )
     if built.returncode != 0:
-        raise RuntimeError(built.stderr.strip()[:300])
+        message = built.stderr.strip()
+        # A device that will not serialize a binary archive cannot be inspected at all, which is a
+        # property of the machine and not a fault in the kernel. Reporting it as Unavailable, the
+        # way a missing swiftc is reported, lets callers skip; raising RuntimeError made every
+        # machine-code test fail on a CI runner rather than opt out of a capability it lacks.
+        if "MTLBinaryArchive" in message or "eligible to be serialized" in message:
+            raise Unavailable(f"this device does not serialize binary archives: {message[:200]}")
+        raise RuntimeError(message[:300])
 
     subprocess.run(
         ["xcrun", "metal-lipo", str(archive), "-thin", _gpu_arch(archive), "-output", str(thin)],

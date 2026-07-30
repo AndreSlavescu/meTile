@@ -122,7 +122,12 @@ def test_an_edited_archive_runs_the_edited_code():
 
 
 def test_a_rewrite_that_changes_length_is_refused():
-    """Shifting the bytes after the patch would move the metadata the driver reads."""
+    """Shifting the bytes after the patch would move the metadata the driver reads.
+
+    `_machine_code` is called for its skip, not its value: a device that will not serialize a
+    binary archive cannot run one either, and this test would otherwise fail there rather than
+    opt out. That is exactly what happened on CI.
+    """
     _machine_code()
     with pytest.raises(agx_isa.EncodingError, match="keep the length"):
         agx_isa.execute(CHAIN, "probe", [1.0], rewrite=lambda text: text[:-2])
