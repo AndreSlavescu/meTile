@@ -138,7 +138,15 @@ class FmaFlag:
 # fma(a, m, d) with every flag clear computes a * m + d.
 PRODUCT_NEGATE = FmaFlag(2, 0x10, "negate the product", "-a*m + d")
 ADDEND_NEGATE = FmaFlag(4, 0x10, "negate the addend", "a*m - d")
-ADDEND_ENABLE = FmaFlag(4, 0x20, "include the addend at all", "a*m + d, clear gives a*m")
+# Named for what it selects, after an earlier name got it wrong. It was called ADDEND_ENABLE and
+# described as including the addend or not, because clearing it turned a*m+d into a*m. That reading
+# survived a prediction on four inputs and was still incomplete: clearing it switches the addend
+# slot from an immediate to a *register*, and the byte left in the slot happened to name register
+# 88, outside the sixteen the field can reach, which reads zero. The addend was never absent, it
+# was zero.
+ADDEND_IMMEDIATE = FmaFlag(
+    4, 0x20, "the addend slot holds an immediate", "immediate; clear means it names a register"
+)
 INSTRUCTION_DISABLE = FmaFlag(6, 0x20, "retire the instruction", "no effect, like a nop")
 # Not exported: setting 0x01 in byte 2 made `a*2+1` compute `a*a`, giving 225 from an accumulator
 # holding 15, so some operand slot is being redirected to the accumulator. Which one was never
@@ -154,6 +162,16 @@ FMA_REGISTER_HIGH_BYTE = 0
 FMA_REGISTER_BYTE = 1
 FMA_MAX_REGISTER = 15
 
+# The addend slot uses the same shape when it names a register: `r << 1`, low bit ignored. Verified
+# by rewriting instructions to `rd = rd * m + rs` for every ordered pair of three live registers at
+# two multipliers, predicting all four threads each: eighteen rewrites, seventy-two exact values.
+# This is the register-plus-register add, reached as `rd * 1 + rs`.
+#
+# Indices at or above sixteen read zero, which is what makes a zero addend expressible at all,
+# since the immediate field's smallest value is 2**-11 and it has no encoding for zero.
+ARCHITECTURAL_REGISTERS = 16
+_ZERO_REGISTER_SLOT = 0x58  # names register 44, above the sixteen reachable, so it reads zero
+
 # The remaining constant bytes of the form, taken as the compiler writes them. Byte 7 was 0x22 or
 # 0x42 on the first fma of a chain and 0x02 everywhere else, which looks like a dependency or wait
 # field; 0x02 is what a synthesised instruction uses, and synthesised instructions run correctly
@@ -164,7 +182,9 @@ _FMA_NOT_LAST = 0x20
 _FMA_MODE_BASE = 0x0E
 
 
-def encode_fma(register, multiplier, addend=None, last=False, negate_product=False):
+def encode_fma(
+    register, multiplier, addend=None, last=False, negate_product=False, addend_register=None
+):
     """Assemble a complete compact fma: `register = register * multiplier (+/- addend)`.
 
     Every field comes from a measurement that was checked by prediction, so this is an encoder
@@ -172,10 +192,14 @@ def encode_fma(register, multiplier, addend=None, last=False, negate_product=Fal
     eight bytes come out. Reproduces the compiler's own encoding exactly for the cases it emits,
     which is the cheapest available check that the assembly is right.
 
-    `addend` of None drops the addend and leaves a plain multiply. A negative addend is encoded
-    by setting the negate flag, which is how the field reaches values its unsigned immediate
-    cannot.
+    The addend has three forms. A float is an immediate; a negative one is encoded by setting the
+    negate flag, which is how the slot reaches values its unsigned field cannot. `addend_register`
+    names a register instead, which is how `rd * 1 + rs` becomes a register-plus-register add.
+    Passing neither leaves a zero addend, using a register index above the sixteen the field can
+    reach because those read zero and the immediate field has no encoding for zero.
     """
+    if addend is not None and addend_register is not None:
+        raise EncodingError("an addend is either an immediate or a register, not both")
     if not 0 <= register <= FMA_MAX_REGISTER:
         raise EncodingError(f"register {register} is outside the field")
     mode = _FMA_MODE_BASE
@@ -183,19 +207,20 @@ def encode_fma(register, multiplier, addend=None, last=False, negate_product=Fal
         mode |= _FMA_NOT_LAST
     if negate_product:
         mode |= PRODUCT_NEGATE.mask
-    # Dropping the addend clears bit 0x20 of the control byte and leaves the immediate slot
-    # holding an ordinary encoded constant, because zero there is not inert. Writing 0x00 was
-    # tried and the kernel computed a*m + a: an eight-fold growth per step where seven was
-    # predicted, from a synthesised `a*7`. Zero selects a register operand rather than meaning
-    # "no operand", and register 0 happened to be the accumulator. The value written here is
-    # ignored once the control bit is clear, which is the configuration the flag scan verified.
-    control = _FMA_ADDEND_CONTROL & ~ADDEND_ENABLE.mask
-    addend_byte = encode_immediate(1.0, low_bit=0)
+    # With the immediate bit clear the slot names a register, so what goes in it is a register
+    # index and not a leftover. Writing 0x00 there was tried first and the kernel computed a*m + a,
+    # eight-fold growth per step where seven was predicted, because index zero was the accumulator.
+    control = _FMA_ADDEND_CONTROL & ~ADDEND_IMMEDIATE.mask
+    addend_byte = _ZERO_REGISTER_SLOT
     if addend is not None:
         control = _FMA_ADDEND_CONTROL
         if addend < 0:
             control |= ADDEND_NEGATE.mask
         addend_byte = encode_immediate(abs(addend), low_bit=0)
+    elif addend_register is not None:
+        if not 0 <= addend_register < ARCHITECTURAL_REGISTERS:
+            raise EncodingError(f"addend register {addend_register} is outside the field")
+        addend_byte = addend_register << 1
     return bytes(
         (
             (register << 4) | FMA_OPCODE_NIBBLE,
