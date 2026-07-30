@@ -230,3 +230,84 @@ def test_disabling_an_instruction_by_flag_matches_nopping_it():
     nopped = agx_isa.execute(CHAIN, "probe", inputs, rewrite=by_nop)
     assert flagged == nopped
     assert flagged[0] == 15.0  # three fmas of a*2+1 from x=1 instead of four
+
+
+# What the compiler emitted for `a = fma(a, 2.0f, 1.0f)` on register 0, read out of a compiled
+# kernel: the same instruction twice with the continue flag set, and once with it clear because it
+# ends the run.
+COMPILER_FMA = bytes.fromhex("09012ec121b00202")
+COMPILER_FMA_LAST = bytes.fromhex("09010ec121b00202")
+
+
+def test_the_assembler_reproduces_the_compilers_own_bytes():
+    """The cheapest check that assembly is right: agree with the only other assembler available."""
+    assert agx_isa.encode_fma(0, 2.0, 1.0, last=False) == COMPILER_FMA
+    assert agx_isa.encode_fma(0, 2.0, 1.0, last=True) == COMPILER_FMA_LAST
+    # Registers 2 and 3 as the compiler wrote them for two other accumulators.
+    assert agx_isa.encode_fma(2, 2.0, 1.0)[:2] == bytes((0x29, 0x05))
+    assert agx_isa.encode_fma(3, 3.0, 1.0)[:2] == bytes((0x39, 0x07))
+
+
+def test_the_assembler_refuses_a_register_outside_the_field():
+    for register in (-1, 16, 255):
+        with pytest.raises(agx_isa.EncodingError, match="register"):
+            agx_isa.encode_fma(register, 2.0, 1.0)
+
+
+def test_dropping_the_addend_does_not_write_zero_into_its_slot():
+    """Zero in the immediate slot is not inert, and getting this wrong is silent.
+
+    Writing 0x00 there produced a kernel that computed a*m + a: a synthesised `a*7` grew
+    eight-fold per step. Zero selects a register operand rather than meaning "no operand", so the
+    slot keeps an ordinary encoded constant and the control bit is what disables it.
+    """
+    built = agx_isa.encode_fma(0, 7.0, addend=None)
+    assert built[agx_isa.FMA_ADDEND_BYTE] != 0x00
+    assert not agx_isa.read_flag(built, 0, agx_isa.ADDEND_ENABLE)
+    assert agx_isa.read_flag(agx_isa.encode_fma(0, 7.0, 1.0), 0, agx_isa.ADDEND_ENABLE)
+
+
+def test_a_negative_addend_uses_the_negate_flag():
+    """The immediate field is unsigned, so the sign has to live in the control byte."""
+    built = agx_isa.encode_fma(0, 1.5, -2.0)
+    assert agx_isa.read_flag(built, 0, agx_isa.ADDEND_NEGATE)
+    assert agx_isa.decode_immediate(built[agx_isa.FMA_ADDEND_BYTE]) == 2.0
+
+
+@pytest.mark.parametrize(
+    ("fields", "step"),
+    (
+        ({"multiplier": 3.0, "addend": 0.5}, lambda v: v * 3.0 + 0.5),
+        ({"multiplier": 1.5, "addend": -2.0}, lambda v: v * 1.5 - 2.0),
+        ({"multiplier": 7.0, "addend": None}, lambda v: v * 7.0),
+        ({"multiplier": 2.0, "addend": 1.0, "negate_product": True}, lambda v: -v * 2.0 + 1.0),
+    ),
+)
+def test_synthesised_instructions_run_as_predicted(fields, step):
+    """Assemble instructions from scratch, overwrite real ones, and predict the GPU.
+
+    This is the strongest claim in the file. The bytes are not a compiler's output with a field
+    edited; every one of the eight is chosen from the measured field map, and the arithmetic they
+    produce was worked out before they were assembled.
+    """
+    text = _machine_code()
+    offsets = _compact_offsets(text)
+    assert len(offsets) == 3
+
+    def rewrite(original):
+        patched = bytearray(original)
+        for index, offset in enumerate(offsets):
+            patched[offset : offset + agx_isa.FMA_LENGTH] = agx_isa.encode_fma(
+                original[offset] >> 4, last=(index == len(offsets) - 1), **fields
+            )
+        return bytes(patched)
+
+    inputs = [1.0, 2.0, 3.0, 5.0]
+    predicted = []
+    for value in inputs:
+        running = value * 2.0 + 1.0  # the long-form fma, left alone
+        for _ in offsets:
+            running = step(running)
+        predicted.append(running)
+
+    assert agx_isa.execute(CHAIN, "probe", inputs, rewrite=rewrite) == predicted

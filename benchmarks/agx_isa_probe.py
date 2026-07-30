@@ -11,6 +11,7 @@ comparing.
     3  immediates         read the constant field out of kernels compiled with known constants
     4  encode             synthesise constants the compiler never emitted and predict the answer
     5  flags              set one arithmetic bit at a time and predict the answer again
+    6  assemble           build instructions from scratch and predict the answer once more
 
 Stage 4 is the one that matters. Stages 1 to 3 could all be satisfied by a field map that is
 merely consistent with what the compiler happens to emit; only predicting the result of bytes
@@ -30,6 +31,9 @@ _root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _root)
 
 from metile.target import agx, agx_isa
+
+# The bit the compiler sets on every instruction of a run except the last.
+_CONTINUES = agx_isa.FmaFlag(2, 0x20, "more instructions follow in this run", "not the last")
 
 # Four dependent fmas of a*2+1. Dependent so the backend cannot reorder them, and with distinct
 # results per step so a removed instruction is visible in the output rather than absorbed.
@@ -200,11 +204,51 @@ def main():
         shown = ", ".join(f"{value:g}" for value in predicted)
         print(f"   {label:<30}{shown:>28}   {'MATCHES' if agree else f'got {got}'}")
 
+    print("\n6. Can whole instructions be assembled? Reproduce the compiler, then go beyond it.")
+    for offset in compact:
+        original = bytes(text[offset : offset + agx_isa.FMA_LENGTH])
+        built = agx_isa.encode_fma(
+            original[0] >> 4, 2.0, 1.0, last=not agx_isa.read_flag(original, 0, _CONTINUES)
+        )
+        same = built == original
+        checks.append(same)
+        print(
+            f"   0x{offset:04x}  compiler {original.hex(' ')}  "
+            f"encoder {built.hex(' ')}  {'IDENTICAL' if same else 'DIFFERS'}"
+        )
+
+    print(f"\n   {'synthesised form':<24}{'predicted':>30}   verdict")
+    for fields, step, label in (
+        ({"multiplier": 3.0, "addend": 0.5}, lambda v: v * 3.0 + 0.5, "a*3+0.5"),
+        ({"multiplier": 1.5, "addend": -2.0}, lambda v: v * 1.5 - 2.0, "a*1.5-2"),
+        ({"multiplier": 7.0, "addend": None}, lambda v: v * 7.0, "a*7, no addend"),
+    ):
+
+        def rewrite(original, f=fields, where=tuple(compact)):
+            patched = bytearray(original)
+            for index, offset in enumerate(where):
+                patched[offset : offset + agx_isa.FMA_LENGTH] = agx_isa.encode_fma(
+                    original[offset] >> 4, last=(index == len(where) - 1), **f
+                )
+            return bytes(patched)
+
+        predicted = []
+        for value in inputs:
+            running = value * 2.0 + 1.0
+            for _ in compact:
+                running = step(running)
+            predicted.append(running)
+        got = agx_isa.execute(CHAIN, "probe", inputs, rewrite=rewrite, workdir=work)
+        agree = got == predicted
+        checks.append(agree)
+        shown = ", ".join(f"{value:g}" for value in predicted)
+        print(f"   {label:<24}{shown:>30}   {'MATCHES' if agree else f'got {got}'}")
+
     print()
     if all(checks) and all(observed):
-        print("Both the constant field and the arithmetic flags are encodable, not merely")
-        print("readable: every prediction made before running matched the GPU exactly, for")
-        print("bytes no Metal compiler produced.")
+        print("The compact fma is assemblable, not merely readable. The encoder reproduces the")
+        print("compiler's own bytes exactly, and every prediction made before running matched the")
+        print("GPU, for instructions no Metal compiler produced.")
     else:
         print("A prediction missed. The field map in metile/target/agx_isa.py is wrong here,")
         print("or this toolchain encodes constants differently; re-derive before relying on it.")
