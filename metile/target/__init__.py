@@ -14,6 +14,10 @@ from metile.target.agx import (
     RESIDENT_WORKING_SET_BYTES,
     SCALAR_PEAK_TFLOPS,
     STREAMING_READ_GBPS,
+    THREADGROUP_CONFLICT_STRIDE_BYTES,
+    THREADGROUP_GBPS_BY_STRIDE,
+    THREADGROUP_OVER_RESIDENT,
+    THREADGROUP_PEAK_GBPS,
     Unavailable,
     ilp_headroom,
     inspect,
@@ -21,6 +25,7 @@ from metile.target.agx import (
     read_bandwidth_gbps,
     resident,
     spills,
+    threadgroup_conflicts,
     tiling_gain,
 )
 
@@ -33,6 +38,10 @@ __all__ = [
     "RESIDENT_WORKING_SET_BYTES",
     "SCALAR_PEAK_TFLOPS",
     "STREAMING_READ_GBPS",
+    "THREADGROUP_CONFLICT_STRIDE_BYTES",
+    "THREADGROUP_GBPS_BY_STRIDE",
+    "THREADGROUP_OVER_RESIDENT",
+    "THREADGROUP_PEAK_GBPS",
     "Unavailable",
     "ilp_headroom",
     "inspect",
@@ -40,5 +49,6 @@ __all__ = [
     "read_bandwidth_gbps",
     "resident",
     "spills",
+    "threadgroup_conflicts",
     "tiling_gain",
 ]

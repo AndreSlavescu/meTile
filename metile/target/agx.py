@@ -72,6 +72,41 @@ BANDWIDTH_BY_WORKING_SET_GBPS = {
 RESIDENT_WORKING_SET_BYTES = 2 * 1024 * 1024
 RESIDENT_READ_GBPS = 2386.0
 
+# Threadgroup memory, measured by benchmarks/agx_threadgroup_bandwidth.py against a resident device read
+# over the same 32 KB, so this compares staging with a cache hit rather than with DRAM.
+#
+# It is faster, but only just, and only when read contiguously: 3361 GB/s against the device arm's 2749,
+# so 1.22x. That is a far smaller margin than the usual assumption about scratchpad memory, and it means
+# a pass cannot justify staging on bandwidth alone.
+#
+# What it buys in peak it gives back in sensitivity. Across strides the threadgroup arm spreads 7.69x
+# and the device arm 1.80x, so threadgroup memory is the more fragile of the two -- the opposite of the
+# habit of treating shared memory as forgiving scratch and device memory as the thing needing careful
+# access.
+THREADGROUP_PEAK_GBPS = 3361.0
+THREADGROUP_OVER_RESIDENT = 1.22
+
+# GB/s by per-lane stride in bytes, contiguous first. The collapses are the power-of-two strides from 128
+# bytes up; 144 bytes reads 2322 while 128 reads 1216, which is bank aliasing and not a size effect.
+THREADGROUP_GBPS_BY_STRIDE = {
+    16: 3361.0,
+    32: 2658.0,
+    48: 2978.0,
+    64: 2032.0,
+    80: 2737.0,
+    96: 2510.0,
+    112: 2468.0,
+    128: 1216.0,
+    144: 2322.0,
+    192: 2032.0,
+    256: 605.0,
+    512: 437.0,
+}
+
+# Smallest per-lane stride at which a power of two collapses threadgroup bandwidth. 32 banks of four
+# bytes, so 128 bytes puts every lane on the same bank.
+THREADGROUP_CONFLICT_STRIDE_BYTES = 128
+
 
 class Unavailable(RuntimeError):
     """The toolchain needed to inspect compiled kernels is not present."""
@@ -106,6 +141,22 @@ def read_bandwidth_gbps(working_set_bytes):
 def resident(working_set_bytes):
     """Whether a working set of this size is served by the fast level rather than by DRAM."""
     return 0 < working_set_bytes <= RESIDENT_WORKING_SET_BYTES
+
+
+def threadgroup_conflicts(stride_bytes):
+    """Whether this per-lane stride puts threadgroup memory into bank conflict.
+
+    Power-of-two strides from 128 bytes collapse it: 128 reads 1216 GB/s against 3361 contiguous, 256
+    reads 605 and 512 reads 437, while 144 bytes -- one vector larger than 128 -- reads 2322. Device
+    memory shows nothing comparable, so this is a hazard staging introduces rather than one it avoids.
+
+    `metile.compiler.passes._optimal_pad` already pads to an odd stride, which this confirms is the
+    right direction; the docstring's reasoning about 32 four-byte banks was never measured until now.
+    """
+    if stride_bytes <= 0:
+        raise ValueError("a stride must be positive")
+    power_of_two = stride_bytes & (stride_bytes - 1) == 0
+    return power_of_two and stride_bytes >= THREADGROUP_CONFLICT_STRIDE_BYTES
 
 
 def tiling_gain(working_set_bytes):

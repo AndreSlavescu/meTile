@@ -148,3 +148,49 @@ def test_fitting_a_tile_outranks_every_other_lever_in_this_file():
     functional_unit = MATRIX_PEAK_TFLOPS / min(SCALAR_PEAK_TFLOPS.values())
     assert fitting > functional_unit > max(ILP_CEILING.values())
     assert tiling_gain(2**30) == pytest.approx(1.0)
+
+
+def test_threadgroup_memory_is_barely_faster_than_a_resident_device_read():
+    """The margin matters because passes are built on the assumption that it is much faster.
+
+    Measured 3361 GB/s contiguous against 2749 for the same bytes read from resident device memory. A
+    pass that stages data has to justify itself on something other than 1.22x, and this is the number
+    that says so.
+    """
+    from metile.target import RESIDENT_READ_GBPS, THREADGROUP_OVER_RESIDENT, THREADGROUP_PEAK_GBPS
+
+    assert 1.0 < THREADGROUP_OVER_RESIDENT < 1.5
+    assert THREADGROUP_PEAK_GBPS > RESIDENT_READ_GBPS
+
+
+def test_power_of_two_strides_from_128_bytes_are_flagged_as_conflicting():
+    """The hazard staging introduces, which device memory does not have.
+
+    128 bytes reads 1216 GB/s against 3361 contiguous, 256 reads 605 and 512 reads 437, while 144 bytes
+    reads 2322. Odd strides are safe, which is what `_optimal_pad` already produces.
+    """
+    from metile.target import threadgroup_conflicts
+
+    for stride in (128, 256, 512, 1024):
+        assert threadgroup_conflicts(stride)
+    for stride in (16, 48, 112, 144, 192):
+        assert not threadgroup_conflicts(stride)
+    # Below the conflict stride a power of two is still fine: a float4 already spans four banks.
+    for stride in (16, 32, 64):
+        assert not threadgroup_conflicts(stride)
+
+
+def test_the_existing_pad_calculation_avoids_the_measured_hazard():
+    """Ties the measurement to the pass it validates.
+
+    `_optimal_pad` was written from a stated model of 32 four-byte banks and never measured. It pads to
+    an odd stride, and the sweep confirms odd strides do not collapse, so the pass was right for the
+    reason it claimed.
+    """
+    from metile.compiler.passes import _optimal_pad
+    from metile.target import threadgroup_conflicts
+
+    for stride in (8, 16, 32, 64, 96, 128, 256):
+        padded = stride + _optimal_pad(stride)
+        assert padded % 2 == 1, f"stride {stride} padded to {padded}, which is even"
+        assert not threadgroup_conflicts(padded * 4), f"padded stride {padded} still conflicts"
