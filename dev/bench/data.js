@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785381925770,
+  "lastUpdate": 1785382163246,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1997,6 +1997,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 426.67,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db6cb6258a5b24903e60d96c6e4ff8dce39944ad",
+          "message": "Patch the newest models too, so their equivalence tests stop skipping (#26)\n\nSixteen cases in the model matrix were skipping, not passing, and a skip reads like a pass in a\nsummary. Qwen3.5-4B, Qwen3.5-9B, Qwen3.6-27B and Qwen3-VL-4B reported \"patches nothing\", so their\nlogits agreed with MLX for the uninteresting reason that meTile was not running.\n\nThe cause was an allowlist keyed on a set of modules plus a hardcoded class name of \"MLP\". Every\narchitecture involved computes the same gated MLP -- `down_proj(swiglu(gate_proj(x), up_proj(x)))`\nwhere `swiglu(gate, x)` is `nn.silu(gate) * x`, which is what `_execute_quantized_mlp` computes --\nbut they do not all call the class MLP. Qwen3.5 and Qwen3.6 reach it as Qwen3NextMLP from\nmlx_lm.models.qwen3_next, and Qwen3-VL's is in mlx_lm.models.qwen3, which was simply not listed. No\nkernel was missing; a name check was excluding three of the newest models and a VLM.\n\nMembership is now explicit (module, class) pairs in two registries, because a claim about an\nimplementation should not be spelled as a claim about a name. Graph fusion keeps a stricter one: its\nreplacement reproduces a specific residual structure, and Qwen3.5's DecoderLayer is included only\nbecause `_attention_module` now resolves the attention by attribute. That layer is a hybrid -- on\nevery layer that is not a multiple of full_attention_interval the attention is a GatedDeltaNet bound\nto `linear_attn` and `self_attn` does not exist at all -- so a replacement calling `self.self_attn`\nwould have crashed. Resolving per call rather than per class is the whole adaptation; a block\nbinding neither name falls back instead of guessing.\n\nSkips went from 16 to 0, and all ten newly active cases pass bit-exact on the first run, both token\nequality and decode logits.\n\nLighting them up also surfaced a flake that the skips had been hiding, in a test my change does not\ntouch: Qwen3-VL attention failed bit-exactness in one of five full matrix runs, while passing in\nisolation and passing with its own model's cases run alone. It needed the whole matrix, which is the\nsignature of memory pressure, and this file never released a model -- eighty-two tests each load a\ncheckpoint, up to fifteen gigabytes, and letting the Python reference go does not return device\nmemory because MLX caches freed buffers. A fixture now drops both after every test.\n\nSix full matrix runs since are clean, and they are also consistently faster, 227 to 235 seconds\nagainst 294 to 304 before, which is independent support for the diagnosis rather than for the fix\nmerely hiding it. Not proof: five clean runs against a one-in-five rate is likely but not decisive.\nThe mechanism, the timing change and the precedent in this project all point the same way.\n\n82 pass with no skips; 655 in the fast suite.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T20:25:53-07:00",
+          "tree_id": "0c10a1741712b5928342002f2af2b100db35894a",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/db6cb6258a5b24903e60d96c6e4ff8dce39944ad"
+        },
+        "date": 1785382161161,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 473.72,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3370.33,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 349.43,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1153.3,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 368.68,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1170.13,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 355.43,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 360.11,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 376.67,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 457.68,
             "unit": "us"
           }
         ]
