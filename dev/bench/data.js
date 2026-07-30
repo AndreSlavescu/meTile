@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785375621517,
+  "lastUpdate": 1785377294971,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1775,6 +1775,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 340.6,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e49f0fa01974332fc8aaa086a1b65d69458eaccd",
+          "message": "Assemble G17 fma instructions from scratch, registers included (#23)\n\nThe register field was the last piece needed to build an instruction rather than edit one. The\nindex appears twice in the compact form, as byte 0's high nibble and as (r << 1) | 1 in byte 1,\nand the two agreed in every instruction examined across three independent fma chains. Confirmed\nthe only way that counts: redirect an instruction onto another chain's register and predict the\nwhole kernel's output. Three redirects, three exact matches.\n\nWith registers, constants and flags all measured, `encode_fma` assembles the form outright. It\nreproduces the compiler's own bytes byte for byte on the cases the compiler emits, which is the\ncheapest available check on an assembler -- agree with the only other one in existence -- and\nthen goes past it. Four forms no Metal compiler produced, each predicted on four inputs before\nthe bytes were assembled and each exact:\n\n    a*3+0.5          87.5, 141.5, 195.5, 303.5\n    a*1.5-2          0.625, 7.375, 14.125, 27.625\n    a*7, no addend   1029, 1715, 2401, 3773\n    -a*2+1           -21, -37, -53, -85\n\n`a*1.5-2` is worth noting: the immediate field is unsigned, so a negative addend is not\nrepresentable in it at all and the sign has to travel in the control byte's negate bit. The\nencoder does that itself.\n\nOne prediction failed first, and it is the reason to write predictions down in advance. A\nsynthesised `a*7` measured 1536 from x=1 against 1029 predicted -- eight-fold growth per step\nwhere seven was asked for -- because dropping the addend wrote 0x00 into its immediate slot.\nZero there is not inert: it selects a register operand, register 0 happened to be the\naccumulator, and the kernel computed a*7 + a. The slot now keeps an ordinary encoded constant\nand the control bit alone disables it, which is the configuration the flag scan had verified.\nNothing about that would have been visible from reading the bytes.\n\nThe register field also explains an earlier miss. A redirect predicted 976 and measured 980, and\nthe field was right: chain a had three fmas but only two in the compact form, the one consuming a\nfreshly loaded value using a longer encoding. The replay now derives the hidden count per chain\nand the baseline check is what licenses it -- 488 predicted, 488 measured.\n\n26 ISA tests, 637 in total. The probe re-derives six stages and exits non-zero if any prediction\nmisses. Lint and vulture clean.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T19:05:26-07:00",
+          "tree_id": "0d12872b2da6b77bb903e54af131fde57a1d221e",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/e49f0fa01974332fc8aaa086a1b65d69458eaccd"
+        },
+        "date": 1785377293640,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 457.37,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4121.66,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 479.41,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1364.21,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 506.8,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1371.85,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 425.86,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 447.25,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 369.59,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 432.42,
             "unit": "us"
           }
         ]
