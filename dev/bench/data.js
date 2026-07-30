@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785370461583,
+  "lastUpdate": 1785373856969,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1553,6 +1553,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 468.93,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c66cf80103a8f6af927bda232ffb2b9738a845e4",
+          "message": "Accumulate attention in f32, and assert logit equality instead of token equality (#19)\n\nThe attention decode kernel multiplied two storage-dtype loads together. In MSL\nbfloat * bfloat yields bfloat, so every one of the D dot-product terms rounded to\nan 8-bit significand before it ever reached the f32 accumulator, and the same\nhappened to probability * value. Casting the Q, K and V loads to f32 first fixes\nit.\n\nMeasured against a float32 reference on Qwen3-VL-4B, 36 real decode-step calls:\n\n                       before      after\n  median MLX error     0.003403   0.003403\n  median meTile error  0.013213   0.003403\n  meTile worse than    33/36      0/36\n  max |meTile - MLX|   0.062500   0.000000\n\nAll 36 calls are now bit-exact, and the accuracy is MLX's exactly rather than 4x\nworse. No speed cost: bf16 attention still measures 1.30x at 1024 keys and 1.18x\nat 256, f16 stays at parity.\n\nFinding it took discarding three wrong measurements, each worth naming because\neach looked conclusive. Comparing at prefill reported everything bit-exact, which\nwas true and meaningless: meTile attention only engages when the query length is\n1, so prefill never runs the kernel. Expressing the error in ulps of the tensor's\nmaximum said \"rounding-level\"; per-element ulps said 160000, because a 1e-6 floor\nmakes near-zero elements meaningless. What settled it was comparing both\nimplementations against a float32 reference, where meTile was plainly 4x further\nfrom the truth.\n\nThe tests now assert bit-exact logits rather than identical tokens. Tokens are the\nweaker property: two logit vectors can differ and argmax the same way for many\nsteps, so a token test passes over a real numeric regression and then fails later\non something unrelated. Switching contract immediately surfaced two more\ndivergences the token tests had missed.\n\nBoth turned out to be reduction order where meTile is the more accurate side, so\nthey are bounded and documented rather than eliminated. Measured against float32\nat kernel level: MLX's f16 SwiGLU errs 18.05 from truth against meTile's 4.10 at\nhidden 2048 and inter 8192, and its f16 RMSNorm errs 0.00293 against 0.00185 at\nhidden 3072. Matching bit-for-bit there means adopting a measurably worse\nsummation order. Every pair not listed must be exactly equal, which is what\ncaught this kernel.\n\nThe Qwen3-VL xfail is retired. It reported XPASS(strict) once the cast landed,\nwhich is how that mechanism is meant to announce a fix.\n\n66 pass in the model matrix, 16 skipped; 596 with slow deselected. Vulture clean.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T18:07:31-07:00",
+          "tree_id": "5a1ab62ea7d439f1b00079780047b5950d65c3a7",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/c66cf80103a8f6af927bda232ffb2b9738a845e4"
+        },
+        "date": 1785373855021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 470.31,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4036.42,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 374.65,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1268.71,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 352.56,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1106.3,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 335.01,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 332.25,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 388.7,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 413.26,
             "unit": "us"
           }
         ]
