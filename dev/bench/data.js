@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785375227577,
+  "lastUpdate": 1785375621517,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -1701,6 +1701,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 318.84,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de2a7284adaa69c536c527b25899a746d20fe377",
+          "message": "Read back machine code, and prove statement order never reaches it (#21)\n\nThe scheduling pass measured flat, and a flat timing is a weak conclusion: it says the\nharness could not see a difference, not that there is none. Comparing the compiled __text\nsettles it outright, because two source forms that produce identical bytes cannot differ in\nspeed and no measurement is required to say so.\n\n`metile.target.agx.machine_code` returns a kernel's __text, reusing the binary-archive\nunwrapping that already backed the register reader. `benchmarks/agx_source_order.py` asks\nevery code-generation choice a compiler above MSL is in a position to make:\n\n  statement order    two independent fma chains written serially and written interleaved\n                     compile to the same 190 bytes. A load at its use and the same load\n                     hoisted compile to the same 218.\n  reassociation      a serial addition chain and a balanced tree over the same eight terms\n                     compile to the same 282 bytes.\n  live-range shape   eight to sixty-four values held live against consumed as they arrive:\n                     within one register, identical code size at every count.\n\nThree of three normalised away. Apple's backend rebuilds the schedule from the dataflow it\nis handed, so statement order is not an instruction, and nothing meTile can express in MSL\nmoves these bytes.\n\nThat is the real reason metile/compiler/scheduling.py is off, and it is a better reason than\nthe timings in the previous commit. It also retires the reassociation pass's supposed\ntrade-off from the other side: rebuilding a chain into a tree cannot buy the ILP it was\nwritten for, because the backend already emits the same instructions for both. The pass was\noff for costing bit-exactness to gain at most 9%; it turns out to gain nothing.\n\nThe conclusion is about where the boundary of our control sits, not about the passes. Above\nMSL the leverage is which algorithm, which tiling and which functional unit, and those are\nworth 2.4x to 3.7x against scheduling's 1.09x ceiling. Below MSL is where a scheduler would\nbite, and the binary-archive work established that meTile can write there.\n\nThe normalisation property is now a test rather than a note, because it is load bearing: the\npass is disabled on the assumption that it holds. If a toolchain update breaks it the test\nfails loudly and says to reconsider the default, instead of the assumption rotting quietly.\n\n611 pass. Lint and vulture clean.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T18:37:22-07:00",
+          "tree_id": "eccb112eb961d25d854d1f3aee0d0fd7d4c5eda8",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/de2a7284adaa69c536c527b25899a746d20fe377"
+        },
+        "date": 1785375620272,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 391.83,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 3109.55,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 377.9,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1203.75,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 346.94,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1251.87,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 272.63,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 293.63,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 285.23,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 340.6,
             "unit": "us"
           }
         ]
