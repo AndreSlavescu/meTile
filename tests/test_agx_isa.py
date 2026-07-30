@@ -122,7 +122,12 @@ def test_an_edited_archive_runs_the_edited_code():
 
 
 def test_a_rewrite_that_changes_length_is_refused():
-    """Shifting the bytes after the patch would move the metadata the driver reads."""
+    """Shifting the bytes after the patch would move the metadata the driver reads.
+
+    `_machine_code` is called for its skip, not its value: a device that will not serialize a
+    binary archive cannot run one either, and this test would otherwise fail there rather than
+    opt out. That is exactly what happened on CI.
+    """
     _machine_code()
     with pytest.raises(agx_isa.EncodingError, match="keep the length"):
         agx_isa.execute(CHAIN, "probe", [1.0], rewrite=lambda text: text[:-2])
@@ -144,7 +149,12 @@ def test_nopping_an_instruction_removes_exactly_its_effect():
         intact=31.0,
         removed=15.0,
     )
-    assert len(offsets) == 4, f"expected four fmas, found {[hex(o) for o in offsets]}"
+    assert len(offsets) == 4, (
+        f"expected four fmas, found {[hex(o) for o in offsets]}. The scan skips an offset whose "
+        f"patched kernel fails to dispatch, and heavy concurrent GPU work makes that happen to "
+        f"offsets that are perfectly valid, so run this without other GPU load before treating a "
+        f"short list as an ISA change."
+    )
     assert {b - a for a, b in itertools.pairwise(offsets)} == {agx_isa.FMA_LENGTH}
 
 

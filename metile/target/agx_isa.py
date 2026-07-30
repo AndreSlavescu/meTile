@@ -37,12 +37,18 @@ Established, in descending order of confidence:
                    emitted — a*3+0.5, a*1.5-2, a*7 with no addend, and -a*2+1 — each ran exactly
                    as predicted on four inputs.
 
-    flags          three bits of the compact fma control its arithmetic, each found by scanning
-                   all 256 values of its byte and then predicting the result of setting it
-                   across a chain on four inputs. Twelve predictions, all exact: byte 2 bit
-                   0x10 negates the product, byte 4 bit 0x10 negates the addend, byte 4 bit
-                   0x20 drops the addend entirely and leaves a multiply. So a compiled fma can
-                   be rewritten into `-a*m+d`, `a*m-d` or `a*m` without recompiling it.
+    flags          bits of the compact fma control its arithmetic, each found by scanning all 256
+                   values of its byte and then predicting the result of setting it across a chain
+                   on four inputs. Byte 2 bit 0x10 negates the product and byte 4 bit 0x10
+                   negates the addend, twelve exact predictions between them.
+
+                   Byte 4 bit 0x20 was first read as "include the addend", because clearing it
+                   turned a*m+d into a*m. That reading survived a prediction and was still wrong:
+                   it selects whether the addend slot is an immediate or a *register*, and the
+                   constant left in the slot named a register beyond the reachable range, which
+                   reads zero. The addend was never absent, it was zero. Naming the register form
+                   gives the register-plus-register add as `rd * 1 + rs`, verified across eighteen
+                   register pairs on four threads each.
 
     structure      `06 00` is a two-byte nop and `0e 00 00 00` ends a block. Blocks are padded
                    with nops to a 64-byte boundary. Giving an eight-byte instruction the nop's
@@ -87,9 +93,11 @@ BLOCK_ALIGNMENT = 64
 #      instruction of a run, so the compiler emits 0x2e throughout and 0x0e at the end. Bit
 #      0x01 turned `a*2+1` into `a*a`, producing 225 from an accumulator holding 15.
 #   3  multiplier immediate, in the format above.
-#   4  addend control. Bit 0x20 includes the addend, and clearing it leaves a plain multiply.
-#      Bit 0x10 negates it.
-#   5  addend immediate, same format with the low bit clear.
+#   4  addend control. Bit 0x20 selects an immediate in the addend slot; clear selects a register.
+#      Bit 0x10 negates the addend.
+#   5  the addend: an immediate in the format above with the low bit clear, or a register as
+#      `r << 1` when bit 0x20 of byte 4 is clear. There is no zero immediate, so a zero addend is
+#      a register index beyond the reachable range, which reads zero.
 #   6  bit 0x20 retires the instruction. Bits 0x40 and 0x80 change where the result goes; the
 #      low four bits made no difference to the result at all.
 #   7  register selection, like byte 1.
@@ -356,7 +364,15 @@ def execute(source, function, inputs, rewrite=None, workdir=".metile-agx"):
         [str(prober), str(metal), function, str(archive)], capture_output=True, text=True
     )
     if built.returncode != 0:
-        raise RuntimeError(built.stderr.strip()[:300])
+        message = built.stderr.strip()
+        # Same distinction `agx.machine_code` draws: a device that will not serialize an archive
+        # cannot run one either, and that is a capability the machine lacks rather than an error in
+        # the kernel, so callers get Unavailable and can skip.
+        if "MTLBinaryArchive" in message or "eligible to be serialized" in message:
+            raise agx.Unavailable(
+                f"this device does not serialize binary archives: {message[:200]}"
+            )
+        raise RuntimeError(message[:300])
 
     raw = archive.read_bytes()
     target = archive
