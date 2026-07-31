@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785441919540,
+  "lastUpdate": 1785494701391,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2589,6 +2589,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 506.64,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2815e70f38d08f6f69facfc443127a3464aa402c",
+          "message": "Add metile.compile(model): one call, structural detection, verified before it is kept (#33)\n\nThe integration worked but nobody could reach it. Accelerating a model meant importing from\nmetile.integrations.mlx_lm, choosing among eleven keyword flags, and knowing which combination\nwas safe for the architecture in hand. This is the Liger-shaped entry point:\n\n    import metile\n    print(metile.compile(model))\n\nTwo changes underneath it, both from failures this project has had rather than from taste.\n\nArchitectures are now matched by structure as well as by name. The patcher gated on a list of\nmodule and class names, which only ever covers what someone remembered to add: Qwen3.5, Qwen3.6\nand Qwen3-VL were all excluded by it, and their equivalence tests reported skips that read like\npasses. A class carrying gate_proj, up_proj and down_proj is now a candidate whether or not it\nhas been seen, which is what makes an unlisted model work today.\n\nStructure alone is not enough to act on, so compile verifies. A class can have the parts of a\ngated MLP and still scale the product or use a different activation, presenting identically. So\nit runs the model before and after, compares decode-step logits, and keeps only what reproduces\nMLX. Decode steps rather than prefill, because attention only engages at query length one and a\nprefill comparison reports agreement while never running the kernel. When the full set disagrees\nit bisects per feature instead of reverting everything, which is what keeps three of four\nfeatures on Llama-3.2-1B rather than none.\n\nComparison is exact by default and the report says what that costs. Llama-3.2-1B's quantized_mlp\nmoves a logit by 0.035 against a magnitude near 20, 2.3e-3 relative -- a summation-order\ndifference where meTile measured as the more accurate side, 4.10 against MLX's 18.05 versus a\nfloat32 reference. Declining it by default is the conservative call, and the report names the\nfeature, the absolute and relative size, and that 5e-3 tolerance would keep it, so the trade is\nvisible before it is taken rather than discovered later.\n\nThe report is falsy when nothing was replaced. That is the point of it. The dangerous outcome\nhere is not a crash but a silent no-op, and sixteen tests in this repository reported \"skipped\"\nfor models meTile was not touching for as long as it took someone to read the skip list.\n\nVerified on three real checkpoints: Qwen2.5-1.5B and Qwen3.5-4B take all four features with\nexactly matching logits, and Llama-3.2-1B takes three with the fourth declined and explained.\n\n693 pass. Lint and vulture clean.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T03:41:43-07:00",
+          "tree_id": "f9200c5af14dc29e99cf28f990e493e55bcae288",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/2815e70f38d08f6f69facfc443127a3464aa402c"
+        },
+        "date": 1785494699747,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 525.34,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4078.74,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 414.43,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1273.96,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 459.46,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1269.63,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 413.27,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 399.52,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 431.14,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 499.55,
             "unit": "us"
           }
         ]
