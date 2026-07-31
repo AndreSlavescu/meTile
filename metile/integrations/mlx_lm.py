@@ -173,9 +173,68 @@ def _attention_module(block):
     return None
 
 
-def _recognised(cls, registry):
-    """Whether meTile is allowed to replace this class's __call__."""
-    return (cls.__module__, cls.__name__) in registry
+# Attributes a class must carry to be a candidate for each replacement. Structure rather than name,
+# because a name list only ever covers the architectures someone remembered: Qwen3.5, Qwen3.6 and
+# Qwen3-VL were all excluded by one until it was noticed, and their equivalence tests reported skips that
+# read like passes.
+#
+# Structure is a weaker claim than the name list it supplements. `gate_proj`/`up_proj`/`down_proj` says a
+# class has the parts of a gated MLP, not that its __call__ combines them the way meTile's replacement
+# does -- a model scaling the product, or applying a different activation, presents identically. So a
+# structural match admits a candidate and nothing more; `metile.compile` runs the model and compares
+# against the unpatched result before keeping any of it.
+_GATED_MLP_ATTRIBUTES = ("gate_proj", "up_proj", "down_proj")
+_FUSED_BLOCK_ATTRIBUTES = ("input_layernorm", "post_attention_layernorm", "mlp")
+
+_STRUCTURE = {
+    id(_GATED_MLP_CLASSES): _GATED_MLP_ATTRIBUTES,
+    id(_FUSED_BLOCK_CLASSES): _FUSED_BLOCK_ATTRIBUTES,
+}
+
+
+def _structurally_matches(cls, registry):
+    """Whether a class carries the parts the registry's replacement needs.
+
+    Read off the class, so it works for architectures nobody enumerated. Requires __call__ to be defined
+    on the class itself rather than inherited, because a class that does not define one has nothing for
+    meTile to replace and `getattr` would hand back a fresh method-wrapper from the metaclass.
+    """
+    required = _STRUCTURE.get(id(registry))
+    if required is None:
+        return False
+    if not any("__call__" in vars(klass) for klass in cls.__mro__):
+        return False
+    if not all(
+        hasattr(cls, name) or name in getattr(cls, "__annotations__", {}) for name in required
+    ):
+        # Attributes are usually set in __init__ rather than declared, so fall back to the source of
+        # __call__: a replacement only works if the body actually reaches those names.
+        source = _call_source(cls)
+        return source is not None and all(name in source for name in required)
+    return True
+
+
+def _call_source(cls):
+    import inspect as _inspect
+
+    for klass in cls.__mro__:
+        if "__call__" in vars(klass):
+            try:
+                return _inspect.getsource(vars(klass)["__call__"])
+            except (OSError, TypeError):
+                return None
+    return None
+
+
+def _recognised(cls, registry, structural=True):
+    """Whether meTile is allowed to replace this class's __call__.
+
+    The named pairs are the combinations whose arithmetic has been checked against MLX in the model
+    matrix. Structural matches are candidates that `metile.compile` verifies at patch time.
+    """
+    if (cls.__module__, cls.__name__) in registry:
+        return True
+    return structural and _structurally_matches(cls, registry)
 
 
 def _registry_classes(registry):

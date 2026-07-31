@@ -31,6 +31,51 @@ You write the obvious three passes. The compiler notices the first two can be me
 one and rewrites them. That reads the input twice instead of three times and runs 1.28x
 faster, but only after checking that the merge is algebraically valid.
 
+## Accelerating an MLX-LM model
+
+One call. It patches what it recognises, checks the result against the unpatched model, and
+tells you what it did.
+
+```python
+import metile
+from mlx_lm import load
+
+model, tokenizer = load("mlx-community/Qwen2.5-1.5B-Instruct-4bit")
+print(metile.compile(model))
+```
+
+```
+meTile on qwen2
+  accelerating: attention, rms_norm, graph_fusion, quantized_mlp
+  surfaces replaced: mlp, input_layernorm, post_attention_layernorm, block
+  verification: logits match MLX exactly
+```
+
+Architectures are matched by structure rather than by a list of names, so a model with the
+usual gated MLP is a candidate whether or not anyone has seen it before. Structure is only a
+candidate test though: a class can have `gate_proj`, `up_proj` and `down_proj` and still
+combine them differently. So `compile` runs the model before and after, compares the logits,
+and keeps only what reproduces MLX. If the whole set disagrees it bisects and keeps the parts
+that pass:
+
+```
+meTile on llama
+  accelerating: attention, rms_norm, graph_fusion
+  verification: logits match MLX exactly
+  declined quantized_mlp: changed the logits by 0.0352, 2.3e-03 relative
+                          -- reduction-order scale, raise tolerance to keep it
+```
+
+That one is a summation-order difference where meTile is the *more* accurate side, so
+`metile.compile(model, tolerance=5e-3)` keeps it. The default is exact because the failure
+worth catching -- a structural match whose arithmetic differs -- lands far outside rounding.
+
+The report is falsy when nothing was replaced, so `if not metile.compile(model)` is a real
+check. That matters more than it sounds: the dangerous outcome is not a crash, it is a silent
+no-op, and this project shipped one for three model families before anyone read the skip list.
+
+Call `.restore()` on the report to put MLX-LM's own implementations back.
+
 ## Speed
 
 Everything below runs on one **Apple M5 (32 GB, MLX 0.32.0)** and compares meTile against

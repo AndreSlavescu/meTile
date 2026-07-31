@@ -1,3 +1,4 @@
+from metile.compile import CompileReport, compile
 from metile.compiler.graph_fusion import FusionTarget, ParallelEpilogueRule, plan_graph_fusion
 from metile.frontend.autotune import Config, autotune
 from metile.frontend.kernel import kernel
@@ -68,6 +69,7 @@ from metile.runtime.buffer import MtileBuffer as Buffer
 __all__ = [
     "BlockScaledWeight",
     "Buffer",
+    "CompileReport",
     "ComputeGraph",
     "Config",
     "FusionTarget",
@@ -88,6 +90,7 @@ __all__ = [
     "cast",
     "cdiv",
     "col_major",
+    "compile",
     "constexpr",
     "dot",
     "exp",
