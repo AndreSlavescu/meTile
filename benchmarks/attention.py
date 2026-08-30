@@ -11,7 +11,7 @@ import numpy as np
 from benchutils import bench_interleaved
 
 import metile
-from kernels import attention_decode
+from metile.kernels import attention_decode
 from metile.runtime.metal_device import MetalDevice
 
 COOLDOWN = 3.0

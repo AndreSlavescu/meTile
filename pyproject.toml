@@ -34,7 +34,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["kernels*", "metile*"]
+include = ["metile*"]
 
 [tool.ruff]
 line-length = 100

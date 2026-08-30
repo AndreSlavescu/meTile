@@ -9,25 +9,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import mlx.core as mx
 import numpy as np
-from benchutils import bench_interleaved
+from benchutils import bench_interleaved, print_table
 
 import metile
-from kernels.fft import fft_dispatch
+from metile.kernels.fft import fft_dispatch
 from metile.runtime.metal_device import MetalDevice
 
 COOLDOWN = 3.0
 
-COL_SIZE = 16
-COL_T = 12
-
 
 def _print_table(title, rows):
-    print(f"\n  {title}")
-    hdr = f"    {'size':>{COL_SIZE}}  {'metile (us)':>{COL_T}}  {'MLX (us)':>{COL_T}}"
-    print(hdr)
-    print("    " + "-" * (len(hdr) - 4))
-    for size_str, dt_mtile, dt_mlx in rows:
-        print(f"    {size_str:>{COL_SIZE}}  {dt_mtile:>{COL_T}.1f}  {dt_mlx:>{COL_T}.1f}")
+    print_table(title, rows, label_width=16)
 
 
 def main():

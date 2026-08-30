@@ -219,34 +219,6 @@ class TensorView:
         divided = self._layout.logical_divide(tiler)
         return TiledView(self, divided, tile_shape)
 
-    def as_buffer(self):
-        """Get an MtileBuffer aliasing this view's memory in the address space.
-
-        The returned buffer points directly into the address space's Metal
-        buffer — no copies. Writes by GPU kernels are visible in the address
-        space immediately.
-        """
-        from metile.runtime.buffer import MtileBuffer
-
-        buf = MtileBuffer.__new__(MtileBuffer)
-        buf.shape = self._shape
-        buf.dtype = self._dtype
-        buf.nbytes = self.nbytes
-        buf._source_array = None
-        buf._metal_buffer = self._space.metal_buffer
-        buf._ptr = self._space._ptr + self._byte_offset
-        # Create numpy view into the arena at our offset
-        import ctypes
-
-        arr_type = ctypes.c_byte * self.nbytes
-        buf_array = arr_type.from_address(buf._ptr)
-        import numpy as np
-
-        buf._np_view = np.frombuffer(buf_array, dtype=self._dtype).reshape(self._shape)
-        # Override metal_buffer property to include offset info
-        buf._byte_offset = self._byte_offset
-        return buf
-
     def with_layout(self, layout: Layout) -> TensorView:
         """Create a new view with a different layout over the same memory."""
         return TensorView(
@@ -380,36 +352,6 @@ class KernelPipeline:
     @property
     def stages(self) -> list[dict]:
         return self._stages
-
-    def dispatch_stage(self, stage_idx: int):
-        """Dispatch a single pipeline stage using address space offsets.
-
-        Uses the address space's single Metal buffer with per-tensor byte
-        offsets — true zero-copy producer/consumer.
-        """
-        stage = self._stages[stage_idx]
-        views = stage["inputs"] + stage["outputs"]
-        metal_dev = MetalDevice.get()
-
-        compiled = stage["compiled"]
-        buffers = []
-        offsets = []
-        for v in views:
-            buffers.append(v.metal_buffer)
-            offsets.append(v.byte_offset)
-        # Add scalar args
-        for buf in stage.get("scalar_bufs", []):
-            buffers.append(buf)
-            offsets.append(0)
-
-        tg = compiled.threadgroup_size
-        grid = stage["grid"]
-        if compiled.is_gemm:
-            grid_tg = (grid[0], grid[1] if len(grid) > 1 else 1, 1)
-            metal_dev.dispatch_threadgroups(compiled.pipeline, buffers, grid_tg, tg, offsets)
-        else:
-            total_threads = (grid[0] * tg[0], 1, 1)
-            metal_dev.dispatch_kernel(compiled.pipeline, buffers, total_threads, tg, offsets)
 
     def __repr__(self):
         names = [s["name"] for s in self._stages]

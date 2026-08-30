@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 
 import metile
-from kernels.gemm import matmul
-from kernels.mlp import matmul_gelu, matmul_silu
+from metile.kernels.gemm import matmul
+from metile.kernels.mlp import matmul_gelu, matmul_silu
 from metile.runtime.metal_device import MetalDevice
 
 # tensor_ops uses TF32 (reduced precision) — need wider tolerance

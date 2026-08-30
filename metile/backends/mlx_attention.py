@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import inspect
-import os
 import statistics
 import threading
 from dataclasses import dataclass
 
 import metile
-from kernels.attention import ATTENTION_FLASH_CONFIGS, attention_flash_kernel
 from metile.backends.mlx import (
     MLXAttentionConfig,
     _choose_framework_config,
@@ -17,7 +15,13 @@ from metile.backends.mlx import (
     batched_measure,
     calibrate_tournament_batch,
 )
-from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.kernels.attention import ATTENTION_FLASH_CONFIGS, attention_flash_kernel
+from metile.runtime.cache import (
+    cache_root,
+    read_cached_algorithm_config,
+    stable_digest,
+    write_cached_algorithm_config,
+)
 from metile.tuning import confirm_pairwise, round_robin
 
 _flash_kernel_cache = {}
@@ -215,31 +219,6 @@ def _persistent_key(query, key, scale, causal):
     )
 
 
-def _read_config(key):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return None
-    payload = read_json(_flash_cache_path, {}).get(key)
-    if not isinstance(payload, dict):
-        return None
-    return next(
-        (
-            config
-            for config in _FLASH_CONFIGS
-            if config.algorithm == payload.get("algorithm")
-            and config.block == payload.get("block", 0)
-        ),
-        None,
-    )
-
-
-def _write_config(key, config):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return
-    payload = read_json(_flash_cache_path, {})
-    payload[key] = {"algorithm": config.algorithm, "block": config.block}
-    atomic_write_json(_flash_cache_path, payload)
-
-
 def mlx_flash_attention(
     query,
     key,
@@ -277,14 +256,16 @@ def mlx_flash_attention(
             selected = _flash_schedule_cache.get(schedule_key)
             if selected is None:
                 persistent_key = _persistent_key(query, key, scale, causal)
-                selected = _read_config(persistent_key)
+                selected = read_cached_algorithm_config(
+                    _flash_cache_path, persistent_key, _FLASH_CONFIGS
+                )
             if selected is None:
                 selected = (
                     _tune_flash_attention(query, key, value, scale, causal)
                     if autotune
                     else MLXAttentionConfig("metile", 128)
                 )
-                _write_config(persistent_key, selected)
+                write_cached_algorithm_config(_flash_cache_path, persistent_key, selected)
             _flash_schedule_cache[schedule_key] = selected
 
     if selected.algorithm == "mlx":
@@ -299,16 +280,6 @@ def mlx_flash_attention(
         selected.block,
     )
     return kernel(query, key, value)
-
-
-def _causal_attention_bias(query, key):
-    import mlx.core as mx
-
-    rows, columns = query.shape[-2], key.shape[-2]
-    row = mx.arange(rows)[:, None]
-    column = mx.arange(columns)[None, :]
-    allowed = column <= row + columns - rows
-    return mx.where(allowed, 0.0, mx.array(float("-inf"), dtype=query.dtype))
 
 
 def mlx_flash_attention_dispatches():

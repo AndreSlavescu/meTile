@@ -1,14 +1,14 @@
 Decode Attention
 ================
 
-``kernels.attention_decode`` implements single-query MHA/GQA/MQA decode as composable
+``metile.kernels.attention_decode`` implements single-query MHA/GQA/MQA decode as composable
 meTile eDSL kernels. It never materializes the score matrix. Each SIMDgroup streams a
 subset of key/value tokens, maintains a numerically stable online-softmax recurrence in
 registers, and merges its maximum, denominator, and output partials.
 
 .. code-block:: python
 
-   from kernels import attention_decode
+   from metile.kernels import attention_decode
 
    dispatch = attention_decode[(batch, query_heads)].prepare(
        query,

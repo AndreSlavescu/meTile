@@ -1,5 +1,5 @@
 import metile
-from kernels.gemm import MATMUL_CONFIGS
+from metile.kernels.gemm import MATMUL_CONFIGS
 
 
 @metile.autotune(configs=MATMUL_CONFIGS, key=["M", "N", "K"], verbose=False)

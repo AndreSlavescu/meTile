@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import os
 import re
 import statistics
 import threading
@@ -11,12 +10,17 @@ from dataclasses import dataclass
 import numpy as np
 
 import metile
-from kernels.add_rmsnorm import add_rmsnorm
-from kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
-from kernels.rmsnorm import rmsnorm
 from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
 from metile.frontend.kernel import OutOfResources
-from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.kernels.add_rmsnorm import add_rmsnorm
+from metile.kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
+from metile.kernels.rmsnorm import rmsnorm
+from metile.runtime.cache import (
+    cache_root,
+    read_cached_algorithm_config,
+    stable_digest,
+    write_cached_algorithm_config,
+)
 from metile.tuning import confirm_pairwise, round_robin
 
 _mlx_kernel_cache = {}
@@ -341,31 +345,6 @@ def _persistent_key(query, key, scale, configs):
     )
 
 
-def _read_config(key, configs):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return None
-    payload = read_json(_mlx_cache_path, {}).get(key)
-    if not isinstance(payload, dict):
-        return None
-    return next(
-        (
-            config
-            for config in configs
-            if config.algorithm == payload.get("algorithm")
-            and config.block == payload.get("block", 0)
-        ),
-        None,
-    )
-
-
-def _write_config(key, config):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return
-    payload = read_json(_mlx_cache_path, {})
-    payload[key] = {"algorithm": config.algorithm, "block": config.block}
-    atomic_write_json(_mlx_cache_path, payload)
-
-
 def _rms_persistent_key(values, eps, configs):
     mx = _require_mlx()
     device = mx.device_info()
@@ -386,31 +365,6 @@ def _rms_persistent_key(values, eps, configs):
     )
 
 
-def _read_rms_config(key, configs):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return None
-    payload = read_json(_mlx_rms_cache_path, {}).get(key)
-    if not isinstance(payload, dict):
-        return None
-    return next(
-        (
-            config
-            for config in configs
-            if config.algorithm == payload.get("algorithm")
-            and config.block == payload.get("block", 0)
-        ),
-        None,
-    )
-
-
-def _write_rms_config(key, config):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return
-    payload = read_json(_mlx_rms_cache_path, {})
-    payload[key] = {"algorithm": config.algorithm, "block": config.block}
-    atomic_write_json(_mlx_rms_cache_path, payload)
-
-
 def _add_rms_persistent_key(values, eps, configs):
     mx = _require_mlx()
     device = mx.device_info()
@@ -429,31 +383,6 @@ def _add_rms_persistent_key(values, eps, configs):
             "tuner": 2,
         }
     )
-
-
-def _read_add_rms_config(key, configs):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return None
-    payload = read_json(_mlx_add_rms_cache_path, {}).get(key)
-    if not isinstance(payload, dict):
-        return None
-    return next(
-        (
-            config
-            for config in configs
-            if config.algorithm == payload.get("algorithm")
-            and config.block == payload.get("block", 0)
-        ),
-        None,
-    )
-
-
-def _write_add_rms_config(key, config):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return
-    payload = read_json(_mlx_add_rms_cache_path, {})
-    payload[key] = {"algorithm": config.algorithm, "block": config.block}
-    atomic_write_json(_mlx_add_rms_cache_path, payload)
 
 
 def _admissible(build):
@@ -685,14 +614,16 @@ def _select_mlx_attention(query, key, value, scale, autotune):
             selected = _mlx_schedule_cache.get(schedule_key)
             if selected is None:
                 persistent_key = _persistent_key(query, key, scale, _MLX_ATTENTION_CONFIGS)
-                selected = _read_config(persistent_key, _MLX_ATTENTION_CONFIGS)
+                selected = read_cached_algorithm_config(
+                    _mlx_cache_path, persistent_key, _MLX_ATTENTION_CONFIGS
+                )
             if selected is None:
                 selected = (
                     _tune_mlx_attention(query, key, value, scale, _MLX_ATTENTION_CONFIGS)
                     if autotune
                     else MLXAttentionConfig("metile", 256)
                 )
-                _write_config(persistent_key, selected)
+                write_cached_algorithm_config(_mlx_cache_path, persistent_key, selected)
             _mlx_schedule_cache[schedule_key] = selected
     return selected
 
@@ -767,14 +698,16 @@ def mlx_rms_norm(values, weight, eps, *, autotune=True):
             selected = _mlx_rms_schedule_cache.get(schedule_key)
             if selected is None:
                 persistent_key = _rms_persistent_key(values, eps, _MLX_RMSNORM_CONFIGS)
-                selected = _read_rms_config(persistent_key, _MLX_RMSNORM_CONFIGS)
+                selected = read_cached_algorithm_config(
+                    _mlx_rms_cache_path, persistent_key, _MLX_RMSNORM_CONFIGS
+                )
             if selected is None:
                 selected = (
                     _tune_mlx_rms_norm(values, weight, eps, _MLX_RMSNORM_CONFIGS)
                     if autotune
                     else MLXRMSNormConfig("metile", 256)
                 )
-                _write_rms_config(persistent_key, selected)
+                write_cached_algorithm_config(_mlx_rms_cache_path, persistent_key, selected)
             _mlx_rms_schedule_cache[schedule_key] = selected
 
     if selected.algorithm == "mlx":
@@ -807,7 +740,9 @@ def mlx_add_rms_norm(values, residual, weight, eps, *, autotune=True):
             selected = _mlx_add_rms_schedule_cache.get(schedule_key)
             if selected is None:
                 persistent_key = _add_rms_persistent_key(values, eps, _MLX_ADD_RMSNORM_CONFIGS)
-                selected = _read_add_rms_config(persistent_key, _MLX_ADD_RMSNORM_CONFIGS)
+                selected = read_cached_algorithm_config(
+                    _mlx_add_rms_cache_path, persistent_key, _MLX_ADD_RMSNORM_CONFIGS
+                )
             if selected is None:
                 selected = (
                     _tune_mlx_add_rms_norm(
@@ -820,7 +755,7 @@ def mlx_add_rms_norm(values, residual, weight, eps, *, autotune=True):
                     if autotune
                     else MLXAddRMSNormConfig("metile", 256)
                 )
-                _write_add_rms_config(persistent_key, selected)
+                write_cached_algorithm_config(_mlx_add_rms_cache_path, persistent_key, selected)
             _mlx_add_rms_schedule_cache[schedule_key] = selected
 
     if selected.algorithm == "mlx":

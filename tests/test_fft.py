@@ -1,6 +1,6 @@
 import numpy as np
 
-from kernels.fft import _fft_configs, fft
+from metile.kernels.fft import _fft_configs, fft
 
 
 def test_2048_search_space_includes_register_local_gather():

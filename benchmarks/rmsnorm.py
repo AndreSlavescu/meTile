@@ -9,10 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
-from benchutils import bench_interleaved
+from benchutils import bench_interleaved, print_table
 
 import metile
-from kernels.rmsnorm import rmsnorm
+from metile.kernels.rmsnorm import rmsnorm
 from metile.runtime.metal_device import MetalDevice
 
 RMSNORM_CONFIGS = [
@@ -31,17 +31,9 @@ autotuned_rmsnorm = metile.autotune(
 
 COOLDOWN = 3.0
 
-COL_SIZE = 12
-COL_T = 12
-
 
 def _print_table(title, rows):
-    print(f"\n  {title}")
-    hdr = f"    {'size':>{COL_SIZE}}  {'metile (us)':>{COL_T}}  {'MLX (us)':>{COL_T}}"
-    print(hdr)
-    print("    " + "-" * (len(hdr) - 4))
-    for size_str, dt_mtile, dt_mlx in rows:
-        print(f"    {size_str:>{COL_SIZE}}  {dt_mtile:>{COL_T}.1f}  {dt_mlx:>{COL_T}.1f}")
+    print_table(title, rows, label_width=12)
 
 
 def main():

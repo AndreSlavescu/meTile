@@ -6,6 +6,8 @@ import math
 from itertools import combinations
 from pathlib import Path
 
+from benchmarks import chartstyle as style
+
 MLX_COLOR = "#ffb000"
 METILE_COLOR = "#3f7ee8"
 _CHART_METRICS = (
@@ -297,20 +299,6 @@ def _chart_data(suite):
     }
 
 
-def _matplotlib():
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as pyplot
-    except ImportError as error:
-        raise ImportError(
-            "Rendering benchmark charts requires the 'benchmarks' extra: "
-            "pip install -e '.[benchmarks]'"
-        ) from error
-    return pyplot
-
-
 def _validate_text_layout(figure):
     from matplotlib.text import Text
 
@@ -362,7 +350,7 @@ def _label_paired_bars(axis, mlx_bars, metile_bars, label_format):
 
 def _render_throughput(suite, output):
     _validate_suite(suite)
-    pyplot = _matplotlib()
+    pyplot = style.matplotlib_pyplot()
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
     native_label, optimized_label, _ = _precision_labels(suite)
@@ -417,7 +405,7 @@ def _render_throughput(suite, output):
 
 def _render_latency(suite, output):
     _validate_suite(suite)
-    pyplot = _matplotlib()
+    pyplot = style.matplotlib_pyplot()
     data = _chart_data(suite)
     subtitle, footer = _suite_context(suite)
     native_label, optimized_label, _ = _precision_labels(suite)

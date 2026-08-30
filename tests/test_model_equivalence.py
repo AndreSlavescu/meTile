@@ -29,6 +29,8 @@ from pathlib import Path
 
 import pytest
 
+from metile.compile import _decode_logits
+
 
 @pytest.fixture(autouse=True)
 def _release_gpu_memory():
@@ -336,27 +338,6 @@ def test_decode_matches_mlx_token_for_token(case, feature_name, request):
         )
 
 
-def _decode_logits(model, tokens, steps=6):
-    """Prefill, take `steps` decode steps, return the final step's logits as f32.
-
-    Decode steps, not prefill. meTile's attention only engages when the query length is 1,
-    so a prefill comparison reports bit-exactness while never running the kernel: true and
-    meaningless. This measured everything as exact until that was noticed.
-    """
-    import mlx.core as mx
-    from mlx_lm.models.cache import make_prompt_cache
-
-    cache = make_prompt_cache(model)
-    out = model(tokens, cache=cache)
-    mx.eval(out)
-    nxt = mx.argmax(out[:, -1, :], axis=-1)
-    for _ in range(steps):
-        out = model(nxt[None, :], cache=cache)
-        mx.eval(out)
-        nxt = mx.argmax(out[:, -1, :], axis=-1)
-    return out[:, -1, :].astype(mx.float32)
-
-
 @pytest.mark.slow
 @pytest.mark.parametrize("feature_name", sorted(FEATURE_SETS))
 @pytest.mark.parametrize("case", MODEL_CASES, ids=lambda c: c.name)
@@ -383,9 +364,9 @@ def test_decode_logits_are_bit_exact(case, feature_name):
         pytest.skip(f"{feature_name} patches nothing on {case.name}")
 
     tokens = mx.array([tokenizer.encode(PROMPT)])
-    reference = _decode_logits(model, tokens)
+    reference = _decode_logits(model, tokens, steps=6)
     with apply_metile_to_mlx_lm(model=model, **features):
-        actual = _decode_logits(model, tokens)
+        actual = _decode_logits(model, tokens, steps=6)
     mx.eval(reference, actual)
 
     difference = float(mx.max(mx.abs(actual - reference)).item())

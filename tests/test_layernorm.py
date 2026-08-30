@@ -1,7 +1,7 @@
 import numpy as np
 
 import metile
-from kernels.layernorm import layernorm
+from metile.kernels.layernorm import layernorm
 from metile.runtime.metal_device import MetalDevice
 
 

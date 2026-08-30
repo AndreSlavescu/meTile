@@ -15,7 +15,7 @@ Basic Usage
 .. code-block:: python
 
    import metile
-   from kernels.gemm import matmul
+   from metile.kernels.gemm import matmul
 
    autotuned_matmul = metile.autotune(
        configs=[

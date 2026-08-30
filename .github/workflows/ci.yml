@@ -20,12 +20,12 @@ jobs:
           python-version: "3.12"
       - run: pip install ruff vulture
       - name: Format check
-        run: ruff format --check metile/ tests/ benchmarks/ kernels/
+        run: ruff format --check metile/ tests/ benchmarks/
       - name: Lint
-        run: ruff check metile/ tests/ benchmarks/ kernels/
+        run: ruff check metile/ tests/ benchmarks/
       - name: Dead code detection
         run: |
-          vulture metile/ kernels/ --min-confidence 90 \
+          vulture metile/ --min-confidence 90 \
             --exclude "metile/ir/printer.py" \
             --ignore-names "result_type,to_msl,to_msl_mut"
 

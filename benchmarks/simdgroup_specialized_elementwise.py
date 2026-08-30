@@ -17,10 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import mlx.core as mx
 import numpy as np
-from benchutils import bench_interleaved
+from benchutils import bench_interleaved, print_table
 
 import metile
-from kernels.simdgroup_specialized_elementwise import (
+from metile.kernels.simdgroup_specialized_elementwise import (
     exp_kernel,
     exp_sqrt_kernel,
     geglu_kernel,
@@ -36,9 +36,6 @@ BLOCK = 256
 COOLDOWN = 1.0
 SIZES = [256 * 1024, 1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024, 64 * 1024 * 1024]
 
-COL_N = 5
-COL_T = 12
-
 
 def _n_str(n):
     if n >= 1024 * 1024:
@@ -48,12 +45,7 @@ def _n_str(n):
 
 def _print_table(title, mlx_label, rows):
     """Print a 3-column table: N, metile (us), MLX (us)."""
-    print(f"\n  {title}")
-    hdr = f"    {'N':>{COL_N}}  {'metile (us)':>{COL_T}}  {mlx_label + ' (us)':>{COL_T}}"
-    print(hdr)
-    print("    " + "-" * (len(hdr) - 4))
-    for n_str, dt_mtile, dt_mlx in rows:
-        print(f"    {n_str:>{COL_N}}  {dt_mtile:>{COL_T}.1f}  {dt_mlx:>{COL_T}.1f}")
+    print_table(title, rows, label_width=5, label_header="N", baseline=mlx_label)
 
 
 def _bench_1in_1out(kernel, mlx_fn_factory, mlx_label):
