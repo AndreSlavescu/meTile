@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785494701391,
+  "lastUpdate": 1788106931047,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2663,6 +2663,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 499.55,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18671c74f710d7ff42a5fa4645f067b9fea76e62",
+          "message": "Split the four monoliths along their real dependency layers, and delete the code that was repeated (#35)\n\nThe largest file was 4,963 lines and the integration module had 98 top-level functions with no\nsection markers. Splitting those by concern is the obvious move and it is also the wrong one: the\nfirst attempt at mlx_lm produced eleven import cycles. The symbol graph says why it should have\nworked -- 107 symbols in 100 strongly-connected components, the largest of size two, so the module\nis very nearly a DAG and a clean split has to exist. The partition was cutting across its layering.\n\nWhat the layering actually is: _mlx_lm_plan_key calls apply_metile_to_mlx_lm, because tuning works\nby applying a configuration and measuring it. apply is therefore a mid-layer primitive rather than\nthe entry point everything else sits above, and once it is placed there the assignment comes out\nwith zero ordering violations. Each of the four splits was solved the same way -- build the graph,\nfind the strongly-connected components that must stay together, then run a fixpoint that pushes\ncallers above callees -- rather than chosen by name.\n\nImport paths are unchanged. Every split module re-exports what it used to expose, including the\nprivate names the tests reach for.\n\nThe duplication that came out was mostly one shape: eighteen _read_config/_write_config pairs\nacross seven backends, differing only in a cache path. Their real bodies collapse to two\nserialisation schemes, so they became six helpers on metile.runtime.cache, verified for round trip,\ncache miss, changed config shape, and the disable-cache environment variable. Eight compressed\ncalibration functions and two ninety-one line group tuners went the same way, the tuners only after\nnormalising both and confirming they were identical.\n\nTwo clone groups were left alone. The _persistent_key functions and the *_dispatches family are\ncache identity and reporting code, where sharing would add injection points that silently restore\nanother kernel's tuned configuration. That failure mode costs more than the duplication does.\n\nSplitting the packages broke thirty tests that patched a name on the module and relied on caller\nand callee sharing one namespace. The patch targets were not rewritten by hand: twenty-three of the\nforty-four names are bound in more than one module now, and patching the wrong one leaves a test\nthat passes without exercising anything. tests/module_patching.py replaces every binding instead,\nwhich is also the only correct thing to do for shared mutable state whose writers and readers now\nsit in different modules.\n\nAlso: kernels/ moves under metile/ so installing the package no longer claims the top-level\nkernels name; validate_pass_order is wired into the pass pipeline and its stale constraint\ncorrected; the spent precision-label backfill is deleted.\n\nLargest file 4,963 -> 1,604. Clone groups 29 -> 25. Dead symbols 0. 738 passed, 57 skipped.\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-30T12:18:42-04:00",
+          "tree_id": "5027df175dc22e74314a2b919333f8221ef4197e",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/18671c74f710d7ff42a5fa4645f067b9fea76e62"
+        },
+        "date": 1788106929457,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 532.14,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4237.92,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 490.68,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1454.69,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 470.05,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1419.98,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 426.49,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 454.44,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 479.17,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 505.51,
             "unit": "us"
           }
         ]
