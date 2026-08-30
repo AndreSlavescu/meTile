@@ -258,11 +258,11 @@
         <article role="main" id="furo-main-content">
           <section id="decode-attention">
 <h1>Decode Attention<a class="headerlink" href="#decode-attention" title="Link to this heading">¶</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">kernels.attention_decode</span></code> implements single-query MHA/GQA/MQA decode as composable
+<p><code class="docutils literal notranslate"><span class="pre">metile.kernels.attention_decode</span></code> implements single-query MHA/GQA/MQA decode as composable
 meTile eDSL kernels. It never materializes the score matrix. Each SIMDgroup streams a
 subset of key/value tokens, maintains a numerically stable online-softmax recurrence in
 registers, and merges its maximum, denominator, and output partials.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">kernels</span><span class="w"> </span><span class="kn">import</span> <span class="n">attention_decode</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile.kernels</span><span class="w"> </span><span class="kn">import</span> <span class="n">attention_decode</span>
 
 <span class="n">dispatch</span> <span class="o">=</span> <span class="n">attention_decode</span><span class="p">[(</span><span class="n">batch</span><span class="p">,</span> <span class="n">query_heads</span><span class="p">)]</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span>
     <span class="n">query</span><span class="p">,</span>

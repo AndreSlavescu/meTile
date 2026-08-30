@@ -260,7 +260,7 @@
 <h1>MLX-LM Backend<a class="headerlink" href="#mlx-lm-backend" title="Link to this heading">¶</a></h1>
 <p>meTile can embed generated Metal bodies in MLX’s lazy graph without copying through
 NumPy or a separate <code class="docutils literal notranslate"><span class="pre">MTLBuffer</span></code>. Install the optional integration dependencies:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[mlx-lm]&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[mlx-lm]"</span>
 </pre></div>
 </div>
 <p>Apply the reversible model patch after or before loading an MLX-LM model:</p>
@@ -276,7 +276,7 @@ NumPy or a separate <code class="docutils literal notranslate"><span class="pre"
     <span class="n">prepare_mlx_lm_dense_mlp</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;mlx-community/Llama-3.2-1B-Instruct-4bit&quot;</span><span class="p">)</span>
+<span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">"mlx-community/Llama-3.2-1B-Instruct-4bit"</span><span class="p">)</span>
 <span class="n">affine_prefill</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_affine_prefill</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 <span class="n">patch</span> <span class="o">=</span> <span class="n">apply_metile_to_mlx_lm</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">affine_prefill</span><span class="o">=</span><span class="n">affine_prefill</span><span class="p">)</span>
 
@@ -289,7 +289,7 @@ NumPy or a separate <code class="docutils literal notranslate"><span class="pre"
 independently. Affine prefill is explicit because it creates an additional packed view of
 the prepared projections.</p>
 <p>For a dense checkpoint, prepare the exact gate/up backend instead:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">&quot;mlx-community/Qwen2.5-1.5B-Instruct-bf16&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">"mlx-community/Qwen2.5-1.5B-Instruct-bf16"</span><span class="p">)</span>
 <span class="n">dense_mlp</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_dense_mlp</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 <span class="n">patch</span> <span class="o">=</span> <span class="n">apply_metile_to_mlx_lm</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">dense_mlp</span><span class="o">=</span><span class="n">dense_mlp</span><span class="p">)</span>
 </pre></div>
@@ -299,11 +299,11 @@ the model-level tuner retain native BF16 whenever the candidate misses a fidelit
 guard:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">mlx.core</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">mx</span>
 
-<span class="n">compressed_down</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_down</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;affine8&quot;</span><span class="p">)</span>
+<span class="n">compressed_down</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_down</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">"affine8"</span><span class="p">)</span>
 <span class="n">compressed_gate_up</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_gate_up</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 <span class="n">compressed_vocab</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_vocab</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
 <span class="n">compressed_attention</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_compressed_attention</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
-<span class="n">sample_tokens</span> <span class="o">=</span> <span class="n">mx</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;Explain tiled matrix multiplication.&quot;</span><span class="p">)])</span>
+<span class="n">sample_tokens</span> <span class="o">=</span> <span class="n">mx</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">"Explain tiled matrix multiplication."</span><span class="p">)])</span>
 <span class="n">plan</span> <span class="o">=</span> <span class="n">autotune_metile_for_mlx_lm</span><span class="p">(</span>
     <span class="n">model</span><span class="p">,</span>
     <span class="n">sample_tokens</span><span class="p">,</span>
@@ -473,7 +473,7 @@ workload as a native autoregressive decode trajectory.</p>
     <span class="n">mlx_block_scaled_matmul</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="n">weight</span> <span class="o">=</span> <span class="n">MLXBlockScaledWeight</span><span class="o">.</span><span class="n">quantize</span><span class="p">(</span><span class="n">dense_k_by_n</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;mxfp8&quot;</span><span class="p">)</span>
+<span class="n">weight</span> <span class="o">=</span> <span class="n">MLXBlockScaledWeight</span><span class="o">.</span><span class="n">quantize</span><span class="p">(</span><span class="n">dense_k_by_n</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">"mxfp8"</span><span class="p">)</span>
 <span class="n">output</span> <span class="o">=</span> <span class="n">mlx_block_scaled_matmul</span><span class="p">(</span><span class="n">activations</span><span class="p">,</span> <span class="n">weight</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -571,7 +571,7 @@ faster kernel, and plotting the two side by side would invite exactly that misre
 speedups are medians of paired ratios, while chart bars are absolute medians. The raw result is committed at
 <code class="docutils literal notranslate"><span class="pre">benchmarks/results/m5-mlx-lm-models.json</span></code>.</p>
 <p>Reproduce the complete suite and regenerate both figures:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[benchmarks]&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[benchmarks]"</span>
 
 python<span class="w"> </span>benchmarks/mlx_lm_suite.py<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--prompt-tokens<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>

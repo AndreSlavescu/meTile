@@ -267,7 +267,7 @@ measured at one degree of program-level parallelism from leaking into another.</
 <section id="basic-usage">
 <h2>Basic Usage<a class="headerlink" href="#basic-usage" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">kernels.gemm</span><span class="w"> </span><span class="kn">import</span> <span class="n">matmul</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.kernels.gemm</span><span class="w"> </span><span class="kn">import</span> <span class="n">matmul</span>
 
 <span class="n">autotuned_matmul</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">autotune</span><span class="p">(</span>
     <span class="n">configs</span><span class="o">=</span><span class="p">[</span>
@@ -275,7 +275,7 @@ measured at one degree of program-level parallelism from leaking into another.</
         <span class="n">metile</span><span class="o">.</span><span class="n">Config</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>  <span class="n">WM</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">WN</span><span class="o">=</span><span class="mi">4</span><span class="p">),</span>
         <span class="n">metile</span><span class="o">.</span><span class="n">Config</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">WM</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">WN</span><span class="o">=</span><span class="mi">4</span><span class="p">),</span>
     <span class="p">],</span>
-    <span class="n">key</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">,</span> <span class="s2">&quot;N&quot;</span><span class="p">,</span> <span class="s2">&quot;K&quot;</span><span class="p">],</span>
+    <span class="n">key</span><span class="o">=</span><span class="p">[</span><span class="s2">"M"</span><span class="p">,</span> <span class="s2">"N"</span><span class="p">,</span> <span class="s2">"K"</span><span class="p">],</span>
 <span class="p">)(</span><span class="n">matmul</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -291,8 +291,8 @@ the autotuner re-benchmarks all configs.</p>
 <h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">¶</a></h2>
 <p>The grid must be a callable that computes the grid shape from the config:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">M</span><span class="o">=</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="o">=</span><span class="n">N</span><span class="p">:</span> <span class="p">(</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;BLOCK_M&quot;</span><span class="p">]),</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">&quot;BLOCK_N&quot;</span><span class="p">]),</span>
+    <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"BLOCK_M"</span><span class="p">]),</span>
+    <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"BLOCK_N"</span><span class="p">]),</span>
 <span class="p">)</span>
 
 <span class="n">autotuned_matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
@@ -341,7 +341,7 @@ Subsequent calls (same M, N, K):
     <span class="n">WM</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
     <span class="n">WN</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
     <span class="n">K_UNROLL</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">SWIZZLE</span><span class="o">=</span><span class="s2">&quot;hilbert&quot;</span><span class="p">,</span>
+    <span class="n">SWIZZLE</span><span class="o">=</span><span class="s2">"hilbert"</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -429,7 +429,7 @@ shape bucket.</p>
 <h2>Tuning Parameters<a class="headerlink" href="#tuning-parameters" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">metile</span><span class="o">.</span><span class="n">autotune</span><span class="p">(</span>
     <span class="n">configs</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
-    <span class="n">key</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;M&quot;</span><span class="p">,</span> <span class="s2">&quot;N&quot;</span><span class="p">,</span> <span class="s2">&quot;K&quot;</span><span class="p">],</span>
+    <span class="n">key</span><span class="o">=</span><span class="p">[</span><span class="s2">"M"</span><span class="p">,</span> <span class="s2">"N"</span><span class="p">,</span> <span class="s2">"K"</span><span class="p">],</span>
     <span class="n">warmup</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>      <span class="c1"># warmup iterations per config (default: 5)</span>
     <span class="n">rep</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>         <span class="c1"># timed iterations per config (default: 20)</span>
     <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>   <span class="c1"># print results (default: True)</span>

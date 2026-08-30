@@ -333,7 +333,7 @@ past the end of the array.</p>
 <section id="shared-threadgroup-memory">
 <h2>Shared (Threadgroup) Memory<a class="headerlink" href="#shared-threadgroup-memory" title="Link to this heading">¶</a></h2>
 <p>For kernels that need inter-thread communication within a threadgroup, use shared memory:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">buf</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">shared</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">&quot;f32&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">buf</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">shared</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
 <span class="n">metile</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>   <span class="c1"># synchronize all threads in the threadgroup</span>
 </pre></div>
 </div>
