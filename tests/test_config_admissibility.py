@@ -37,7 +37,7 @@ def test_the_attention_kernel_reports_out_of_resources_rather_than_a_bare_error(
     import numpy as np
 
     import metile
-    from kernels.attention import attention_decode_kernel
+    from metile.kernels.attention import attention_decode_kernel
 
     heads, tokens, dimension = 2, 32, 256
     rng = np.random.default_rng(0)

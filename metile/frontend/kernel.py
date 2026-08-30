@@ -21,6 +21,7 @@ from metile.compiler.passes import (
     split_elementwise_loops,
     split_k_loop,
     swizzle_shared_memory,
+    validate_pass_order,
     vectorize_elementwise,
     vectorize_loads,
 )
@@ -531,6 +532,17 @@ class KernelLauncher:
                 _dump(os.path.join(_debug_dir, "metal_ir", f"{metal_ir.name}.pre_opt.txt"), ir_text)
 
         # Step 3: Apply optimization passes
+        #
+        # Every pass goes through _run_pass so the ordering invariants in
+        # metile.compiler.passes are checked against the passes that actually ran, not against a
+        # hand-maintained list that can drift from this code. The name is read off the function
+        # object, so a call recorded here cannot disagree with the pass it invoked.
+        applied: list[str] = []
+
+        def _run_pass(fn, ir, *args, **kwargs):
+            applied.append(fn.__name__)
+            return fn(ir, *args, **kwargs)
+
         is_gemm = metal_ir.kernel_type in ("gemm", "persistent_gemm")
         is_tensor_ops = metal_ir.kernel_type == "tensor_ops_gemm"
         is_specialized = metal_ir.kernel_type == "specialized_gemm"
@@ -539,31 +551,31 @@ class KernelLauncher:
             # Tensor_ops kernels use register-resident cooperative_tensors —
             # no threadgroup memory passes needed. K-loop unrolling and
             # barrier removal are handled at lowering time.
-            metal_ir = optimize_tile_schedules(metal_ir)
-            metal_ir = decompose_nax_fragments(metal_ir)
+            metal_ir = _run_pass(optimize_tile_schedules, metal_ir)
+            metal_ir = _run_pass(decompose_nax_fragments, metal_ir)
         elif is_specialized:
             # Specialized GEMM: double-buffered + padded in lowering
             # Only apply vectorize and serpentine
-            metal_ir = vectorize_loads(metal_ir, vec_size=4)
-            metal_ir = serpentine_mma(metal_ir)
+            metal_ir = _run_pass(vectorize_loads, metal_ir, vec_size=4)
+            metal_ir = _run_pass(serpentine_mma, metal_ir)
         elif is_gemm:
             if use_swizzle:
-                metal_ir = swizzle_shared_memory(metal_ir)
+                metal_ir = _run_pass(swizzle_shared_memory, metal_ir)
             else:
-                metal_ir = pad_shared_memory(metal_ir)
-            metal_ir, did_db = double_buffer_k_loop(metal_ir)
+                metal_ir = _run_pass(pad_shared_memory, metal_ir)
+            metal_ir, did_db = _run_pass(double_buffer_k_loop, metal_ir)
             if not did_db:
-                metal_ir = split_k_loop(metal_ir)
-            metal_ir = vectorize_loads(metal_ir, vec_size=4)
-            metal_ir = serpentine_mma(metal_ir)
-            metal_ir = preload_mma_tiles(metal_ir)
-            metal_ir = block_swizzle(metal_ir)
+                metal_ir = _run_pass(split_k_loop, metal_ir)
+            metal_ir = _run_pass(vectorize_loads, metal_ir, vec_size=4)
+            metal_ir = _run_pass(serpentine_mma, metal_ir)
+            metal_ir = _run_pass(preload_mma_tiles, metal_ir)
+            metal_ir = _run_pass(block_swizzle, metal_ir)
         else:
-            metal_ir = split_elementwise_loops(metal_ir)
-            metal_ir = vectorize_elementwise(metal_ir, vec_size=4)
+            metal_ir = _run_pass(split_elementwise_loops, metal_ir)
+            metal_ir = _run_pass(vectorize_elementwise, metal_ir, vec_size=4)
 
         # Constant folding (all kernel types)
-        metal_ir = fold_constants(metal_ir)
+        metal_ir = _run_pass(fold_constants, metal_ir)
 
         # Instruction scheduling, off by default and last in the pipeline when on, so that it
         # sees the operations that actually get emitted.
@@ -582,7 +594,12 @@ class KernelLauncher:
         if os.environ.get("METILE_SCHEDULE") == "1":
             from metile.compiler.scheduling import reorder_for_latency
 
-            metal_ir = reorder_for_latency(metal_ir)
+            metal_ir = _run_pass(reorder_for_latency, metal_ir)
+
+        # Checked once the whole pipeline has run, so `applied` is the complete sequence. A
+        # violation means the passes above would emit wrong code, so fail the compile rather
+        # than hand back a bad kernel.
+        validate_pass_order(applied)
 
         if _debug_all or "metal_ir_opt" in _debug_flags:
             from metile.ir.printer import print_metal_ir

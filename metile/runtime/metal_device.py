@@ -180,10 +180,6 @@ class MetalDevice:
         name_ns = _send_ptr(self.device, "name")
         return _nsstring_to_str(name_ns)
 
-    @cached_property
-    def max_threads_per_threadgroup(self) -> int:
-        return _send_uint64(self.device, "maxThreadsPerThreadgroup")
-
     def compile_msl(self, source: str, function_name: str):
         """Compile MSL source and return (library, function, pipeline_state)."""
         source_ns = _nsstring(source)
@@ -473,11 +469,6 @@ class MetalDevice:
                 argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int64],
             )
         )
-
-    @property
-    def block_scaling_backend(self) -> str:
-        """Report the active block-scaling implementation."""
-        return "fused_mpp" if self.supports_tensor_ops else "unsupported"
 
     def new_buffer(self, data: bytes, length: int) -> ctypes.c_void_p:
         """Create a Metal buffer from bytes data."""
@@ -838,60 +829,5 @@ class MetalDevice:
             MTLSize(threadgroups[0], threadgroups[1], threadgroups[2]),
             MTLSize(threadgroup_size[0], threadgroup_size[1], threadgroup_size[2]),
         )
-
-        self._finish_encoder(cmd_buffer, encoder)
-
-    def dispatch_batch_threadgroups(
-        self,
-        pipeline,
-        batch_buffer_sets: list[list[tuple[ctypes.c_void_p, int]]],
-        threadgroups: tuple[int, int, int],
-        threadgroup_size: tuple[int, int, int],
-    ):
-        """Batch multiple dispatches into one command buffer with buffer offsets.
-
-        Each entry in batch_buffer_sets is a list of (metal_buffer, byte_offset) pairs.
-        All dispatches use the same pipeline and grid/threadgroup dimensions.
-        Eliminates per-dispatch command buffer overhead.
-        """
-        self.flush()
-        cmd_buffer = _send_ptr(self.command_queue, "commandBuffer")
-        encoder = _send_ptr(cmd_buffer, "computeCommandEncoder")
-
-        _send_ptr(
-            encoder,
-            "setComputePipelineState:",
-            pipeline,
-            argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p],
-        )
-
-        tg_grid = MTLSize(threadgroups[0], threadgroups[1], threadgroups[2])
-        tg_size = MTLSize(threadgroup_size[0], threadgroup_size[1], threadgroup_size[2])
-
-        dispatch_sel = _objc.sel_registerName(b"dispatchThreadgroups:threadsPerThreadgroup:")
-        dispatch_func_type = ctypes.CFUNCTYPE(
-            None,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            MTLSize,
-            MTLSize,
-        )
-        dispatch_func = dispatch_func_type(ctypes.cast(_msg, ctypes.c_void_p).value)
-
-        set_buf_sel = _objc.sel_registerName(b"setBuffer:offset:atIndex:")
-        set_buf_func_type = ctypes.CFUNCTYPE(
-            None,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_uint64,
-            ctypes.c_uint64,
-        )
-        set_buf_func = set_buf_func_type(ctypes.cast(_msg, ctypes.c_void_p).value)
-
-        for buffer_set in batch_buffer_sets:
-            for idx, (buf, offset) in enumerate(buffer_set):
-                set_buf_func(encoder, set_buf_sel, buf, offset, idx)
-            dispatch_func(encoder, dispatch_sel, tg_grid, tg_size)
 
         self._finish_encoder(cmd_buffer, encoder)

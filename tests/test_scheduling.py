@@ -396,8 +396,8 @@ import hashlib, sys
 import numpy as np
 import metile
 from metile.runtime.metal_device import MetalDevice
-from kernels.rmsnorm import rmsnorm
-from kernels.softmax import softmax
+from metile.kernels.rmsnorm import rmsnorm
+from metile.kernels.softmax import softmax
 
 width, rows = 4096, 8
 data = np.random.default_rng(7).standard_normal((rows, width), dtype=np.float32)

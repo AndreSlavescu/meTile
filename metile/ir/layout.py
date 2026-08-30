@@ -235,14 +235,6 @@ class Layout:
         """Split into tile + grid-of-tiles: L / T = L o (T, T*_{|L|})."""
         return _logical_divide(self, tiler)
 
-    def logical_product(self, other: Layout) -> Layout:
-        """Product: (self, self* o other)."""
-        return _logical_product(self, Layout(other) if not isinstance(other, Layout) else other)
-
-    def right_inverse(self) -> Layout:
-        """Right pseudo-inverse: offsets -> coordinates."""
-        return _right_inverse(self.coalesce())
-
     # -- Pretty printing --
 
     def __repr__(self):
@@ -471,58 +463,6 @@ def _logical_divide(layout: Layout, tiler) -> Layout:
     tile_part = layout.compose(tiler)
     rest_part = layout.compose(comp)
     return Layout((tile_part.shape, rest_part.shape), (tile_part.stride, rest_part.stride))
-
-
-def _logical_product(a: Layout, b: Layout) -> Layout:
-    """Logical product: (A, A* o B).
-
-    Mode 0 is the original layout A, mode 1 is A's complement composed with B.
-    """
-    comp = a.complement()
-    rest = comp.compose(b) if comp.size > 1 else b
-    return Layout((a.shape, rest.shape), (a.stride, rest.stride))
-
-
-def _right_inverse(layout: Layout) -> Layout:
-    """Right pseudo-inverse: offsets -> coordinates.
-
-    For injective layout L, L^dag satisfies L(L^dag(k)) = k for k in image(L).
-    """
-    coal = layout.coalesce()
-    flat_s = _flatten(coal.shape)
-    flat_d = _flatten(coal.stride)
-
-    # For each mode with stride d_i, the inverse maps offset -> coordinate
-    # by dividing by d_i and taking mod s_i
-    # Build inverse: for offset o, coordinate_i = (o // d_i) % s_i
-    # This is itself a Layout with shape = cobound, stride = inverse mapping
-
-    # Simple case: build by sorting modes by stride and constructing inverse
-    pairs = sorted(zip(flat_d, flat_s), key=lambda p: abs(p[0]))
-
-    inv_shapes = []
-    inv_strides = []
-    current = 1
-
-    for d, s in pairs:
-        if d == 0:
-            continue
-        abs_d = abs(d)
-        if abs_d > current:
-            # Gap: elements mapped to same coordinate (broadcast)
-            gap = abs_d // current
-            inv_shapes.append(gap)
-            inv_strides.append(0)  # stride 0 = broadcast
-            current = abs_d
-        inv_shapes.append(s)
-        inv_strides.append(current)
-        current *= s
-
-    if not inv_shapes:
-        return Layout(1, 0)
-    if len(inv_shapes) == 1:
-        return Layout(inv_shapes[0], inv_strides[0])
-    return Layout(tuple(inv_shapes), tuple(inv_strides))
 
 
 def make_layout(shape, stride=None) -> Layout:

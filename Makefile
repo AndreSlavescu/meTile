@@ -4,17 +4,17 @@ PYTHON ?= python3
 .PHONY: lint format check test bench code-qual ci docs
 
 lint:
-	ruff check metile/ tests/ benchmarks/ kernels/
+	ruff check metile/ tests/ benchmarks/
 
 format:
-	ruff format metile/ tests/ benchmarks/ kernels/
-	ruff check --fix metile/ tests/ benchmarks/ kernels/
+	ruff format metile/ tests/ benchmarks/
+	ruff check --fix metile/ tests/ benchmarks/
 
 check: lint
-	ruff format --check metile/ tests/ benchmarks/ kernels/
+	ruff format --check metile/ tests/ benchmarks/
 
 code-qual:
-	vulture metile/ kernels/ --min-confidence 90 \
+	vulture metile/ --min-confidence 90 \
 		--exclude "metile/ir/printer.py" \
 		--ignore-names "result_type,to_msl,to_msl_mut"
 

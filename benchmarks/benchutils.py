@@ -179,3 +179,33 @@ def bench_interleaved(fn_a, fn_b, sync=None, warmup_ms=50, rep_ms=200):
             gc.enable()
 
     return _trimmed_median(times_a), _trimmed_median(times_b)
+
+
+def print_table(
+    title,
+    rows,
+    *,
+    label_width,
+    label_header="size",
+    unit="us",
+    precision=1,
+    baseline="MLX",
+    time_width=12,
+):
+    """Print a 3-column comparison table: row label, meTile time, baseline time.
+
+    Each row is (label, metile_time, baseline_time). `unit` only labels the
+    header — callers pass times already scaled to it.
+    """
+    print(f"\n  {title}")
+    hdr = (
+        f"    {label_header:>{label_width}}  "
+        f"{f'metile ({unit})':>{time_width}}  {f'{baseline} ({unit})':>{time_width}}"
+    )
+    print(hdr)
+    print("    " + "-" * (len(hdr) - 4))
+    for label, dt_metile, dt_baseline in rows:
+        print(
+            f"    {label:>{label_width}}  "
+            f"{dt_metile:>{time_width}.{precision}f}  {dt_baseline:>{time_width}.{precision}f}"
+        )

@@ -1,7 +1,7 @@
 import numpy as np
 
 import metile
-from kernels.softmax import softmax
+from metile.kernels.softmax import softmax
 from metile.runtime.metal_device import MetalDevice
 
 

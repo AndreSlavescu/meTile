@@ -1092,7 +1092,13 @@ def _dce_constants(ops: list[mir.MOp]) -> list[mir.MOp]:
 
 # Known ordering constraints between passes. Each entry is (before, after).
 _PASS_ORDER_CONSTRAINTS = [
-    ("split_k_loop", "double_buffer_k_loop"),
+    # double_buffer_k_loop is attempted first and reports whether it applied; split_k_loop is
+    # the fallback for when it declines the K-loop (doubling the threadgroup allocation would
+    # exceed max_tg_bytes). Running the fallback first would split the kb loop that
+    # double_buffer_k_loop then looks for, so the attempt has to come first.
+    ("double_buffer_k_loop", "split_k_loop"),
+    # split_k_loop rewrites the kb loop into aligned interior + tail; vectorize_loads must see
+    # that final loop structure to widen the right loads.
     ("split_k_loop", "vectorize_loads"),
 ]
 

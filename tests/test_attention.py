@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import metile
-from kernels.attention import attention_decode_kernel
+from metile.kernels.attention import attention_decode_kernel
 from metile.runtime import attention as attention_runtime
 from metile.runtime.attention import AttentionDecodeConfig, _prepare_two_pass, attention_decode
 from metile.runtime.metal_device import MetalDevice

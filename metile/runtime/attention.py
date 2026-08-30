@@ -8,14 +8,14 @@ from dataclasses import asdict, dataclass
 from math import prod
 
 import metile
-from kernels.attention import (
+from metile.compiler.schedule_search import choose_mdl_tie
+from metile.kernels.attention import (
     ATTENTION_PARTIAL_CONFIGS,
     attention_decode_kernel,
     attention_decode_merge_kernel,
     attention_decode_partial_kernel,
     attention_decode_single_pass,
 )
-from metile.compiler.schedule_search import choose_mdl_tie
 from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
 from metile.runtime.metal_device import MetalDevice, completion_spin_budget_ns
 

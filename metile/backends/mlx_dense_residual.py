@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import os
 import statistics
 import threading
 from dataclasses import dataclass
@@ -16,7 +15,12 @@ from metile.codegen import msl_emitter
 from metile.codegen.msl_emitter import emit
 from metile.compiler.dense import lower_dense_residual_qmv
 from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
-from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.runtime.cache import (
+    cache_root,
+    read_cached_config,
+    stable_digest,
+    write_cached_config,
+)
 from metile.tuning import round_robin, select_fastest
 
 _kernel_cache = {}
@@ -171,23 +175,6 @@ def _persistent_key(rows, reduction, output_features, dtype, configs):
     )
 
 
-def _read_config(key, configs):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return None
-    payload = read_json(_cache_path, {}).get(key)
-    if not isinstance(payload, dict):
-        return None
-    return next((config for config in configs if vars(config) == payload), None)
-
-
-def _write_config(key, config):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return
-    payload = read_json(_cache_path, {})
-    payload[key] = vars(config)
-    atomic_write_json(_cache_path, payload)
-
-
 def _choose_config(results):
     native = next(result for result in results if result[2].algorithm == "mlx")[2]
     return select_fastest(results, native, lambda _config: _SWITCH_MARGIN, tie_break=choose_mdl_tie)
@@ -297,14 +284,14 @@ def mlx_dense_residual_qmv(values, weight, residual, *, autotune=True):
             selected = _schedule_cache.get(schedule_key)
             if selected is None:
                 key = _persistent_key(*schedule_key, configs)
-                selected = _read_config(key, configs)
+                selected = read_cached_config(_cache_path, key, configs)
                 if selected is None:
                     selected = (
                         _tune_config(values, weight, residual, configs, rows)
                         if autotune
                         else next(config for config in configs if config.algorithm == "metile")
                     )
-                    _write_config(key, selected)
+                    write_cached_config(_cache_path, key, selected)
                 _schedule_cache[schedule_key] = selected
 
     if selected.algorithm == "mlx":

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import os
 import threading
 from dataclasses import dataclass
 
@@ -22,7 +21,12 @@ from metile.compiler.schedule_search import (
     compressed_description_bits,
     optimize_tile_schedules,
 )
-from metile.runtime.cache import atomic_write_json, cache_root, read_json, stable_digest
+from metile.runtime.cache import (
+    cache_root,
+    read_cached_config,
+    stable_digest,
+    write_cached_config,
+)
 from metile.tuning import confirm_pairwise, pessimistic, round_robin, select_fastest
 
 _kernel_cache = {}
@@ -253,23 +257,6 @@ def _persistent_key(rows, weight, dtype, configs):
     )
 
 
-def _read_config(key, configs):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return None
-    payload = read_json(_cache_path, {}).get(key)
-    if not isinstance(payload, dict):
-        return None
-    return next((config for config in configs if vars(config) == payload), None)
-
-
-def _write_config(key, config):
-    if os.environ.get("METILE_DISABLE_DISK_CACHE") == "1":
-        return
-    payload = read_json(_cache_path, {})
-    payload[key] = vars(config)
-    atomic_write_json(_cache_path, payload)
-
-
 def _accuracy_compatible(actual, reference):
     import mlx.core as mx
 
@@ -381,7 +368,7 @@ def mlx_affine_matmul(values, weight, *, autotune=True):
             selected = _schedule_cache.get(schedule_key)
             if selected is None:
                 key = _persistent_key(rows, weight, values.dtype, configs)
-                selected = _read_config(key, configs)
+                selected = read_cached_config(_cache_path, key, configs)
             if selected is None:
                 selected = (
                     _tune_config(values, weight, configs)
@@ -391,7 +378,7 @@ def mlx_affine_matmul(values, weight, *, autotune=True):
                         configs[0],
                     )
                 )
-                _write_config(key, selected)
+                write_cached_config(_cache_path, key, selected)
             _schedule_cache[schedule_key] = selected
 
     if selected.algorithm == "mlx":

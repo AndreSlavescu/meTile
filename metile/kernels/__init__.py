@@ -1,14 +1,14 @@
-from kernels.affine_qmv import affine_qmv, affine_swiglu_qmv
-from kernels.attention import (
+from metile.kernels.affine_qmv import affine_qmv, affine_swiglu_qmv
+from metile.kernels.attention import (
     ATTENTION_DECODE_CONFIGS,
     ATTENTION_PARTIAL_CONFIGS,
 )
-from kernels.gemm import MATMUL_CONFIGS, matmul, matmul_relu, matmul_swizzled
-from kernels.layernorm import layernorm
-from kernels.mlp import matmul_gelu, matmul_silu
-from kernels.reduce import REDUCE_KERNELS, reduce_2, reduce_4, reduce_8, reduce_16
-from kernels.rmsnorm import rmsnorm
-from kernels.simdgroup_specialized_elementwise import (
+from metile.kernels.gemm import MATMUL_CONFIGS, matmul, matmul_relu, matmul_swizzled
+from metile.kernels.layernorm import layernorm
+from metile.kernels.mlp import matmul_gelu, matmul_silu
+from metile.kernels.reduce import REDUCE_KERNELS, reduce_2, reduce_4, reduce_8, reduce_16
+from metile.kernels.rmsnorm import rmsnorm
+from metile.kernels.simdgroup_specialized_elementwise import (
     exp_kernel,
     exp_sqrt_kernel,
     geglu_kernel,
@@ -18,7 +18,7 @@ from kernels.simdgroup_specialized_elementwise import (
     silu_kernel,
     sqrt_abs_kernel,
 )
-from kernels.softmax import softmax
+from metile.kernels.softmax import softmax
 
 
 def __getattr__(name):

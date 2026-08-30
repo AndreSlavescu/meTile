@@ -31,7 +31,7 @@ def _bench(dispatch):
 
 def bench_gemm():
     """Benchmark GEMM at representative sizes."""
-    from kernels.gemm import matmul
+    from metile.kernels.gemm import matmul
 
     results = {}
     for M, N, K in [(256, 256, 256), (1024, 1024, 1024)]:
@@ -47,7 +47,7 @@ def bench_gemm():
 
 def bench_softmax():
     """Benchmark softmax."""
-    from kernels.softmax import softmax
+    from metile.kernels.softmax import softmax
 
     results = {}
     for nrows, hidden in [(256, 1024), (1024, 4096)]:
@@ -61,7 +61,7 @@ def bench_softmax():
 
 def bench_layernorm():
     """Benchmark layernorm."""
-    from kernels.layernorm import layernorm
+    from metile.kernels.layernorm import layernorm
 
     results = {}
     for nrows, hidden in [(256, 1024), (1024, 4096)]:
@@ -77,7 +77,7 @@ def bench_layernorm():
 
 def bench_fft():
     """Benchmark FFT."""
-    from kernels.fft import fft_dispatch
+    from metile.kernels.fft import fft_dispatch
 
     results = {}
     for batch, N in [(1, 256), (32, 256), (1, 1024), (128, 1024)]:

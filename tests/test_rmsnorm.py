@@ -1,7 +1,7 @@
 import numpy as np
 
 import metile
-from kernels.rmsnorm import rmsnorm
+from metile.kernels.rmsnorm import rmsnorm
 from metile.runtime.metal_device import MetalDevice
 
 

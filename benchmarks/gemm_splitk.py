@@ -8,11 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import mlx.core as mx
 import numpy as np
-from benchutils import bench_interleaved
+from benchutils import bench_interleaved, print_table
 
 import metile
-from kernels.gemm import matmul
-from kernels.reduce import REDUCE_KERNELS
+from metile.kernels.gemm import matmul
+from metile.kernels.reduce import REDUCE_KERNELS
 from metile.runtime.metal_device import MetalDevice
 
 GEMM_CONFIGS = [
@@ -45,17 +45,9 @@ autotuned_matmul = metile.autotune(
 
 COOLDOWN = 3.0
 
-COL_SIZE = 22
-COL_T = 12
-
 
 def _print_table(title, rows):
-    print(f"\n  {title}")
-    hdr = f"    {'size':>{COL_SIZE}}  {'metile (ms)':>{COL_T}}  {'MLX (ms)':>{COL_T}}"
-    print(hdr)
-    print("    " + "-" * (len(hdr) - 4))
-    for size_str, dt_mtile, dt_mlx in rows:
-        print(f"    {size_str:>{COL_SIZE}}  {dt_mtile:>{COL_T}.2f}  {dt_mlx:>{COL_T}.2f}")
+    print_table(title, rows, label_width=22, unit="ms", precision=2)
 
 
 def main():
