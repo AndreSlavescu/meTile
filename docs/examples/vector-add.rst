@@ -1,7 +1,8 @@
 Vector Addition
 ===============
 
-The simplest meTile kernel: add two arrays element by element.
+Each program adds one tile of two contiguous float32 arrays. Tensor views
+provide the bounds checks, including the partial tile at the end.
 
 .. code-block:: python
 
@@ -9,37 +10,34 @@ The simplest meTile kernel: add two arrays element by element.
    import metile
 
    @metile.kernel
-   def add(X, Y, Out, N, BLOCK: metile.constexpr):
-       pid = metile.program_id(0)
-       offs = pid * BLOCK + metile.arange(0, BLOCK)
-       mask = offs < N
-       x = metile.load(X + offs, mask=mask)
-       y = metile.load(Y + offs, mask=mask)
-       metile.store(Out + offs, x + y, mask=mask)
+   def add(left_ptr, right_ptr, output_ptr, count, BLOCK: metile.constexpr):
+       left = metile.tensor(left_ptr, shape=(count,), access="read")
+       right = metile.tensor(right_ptr, shape=(count,), access="read")
+       output = metile.tensor(output_ptr, shape=(count,), access="write")
+       positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
+       output.store((positions,), left.load((positions,)) + right.load((positions,)))
 
+   count = 100_003
+   rng = np.random.default_rng(0)
+   left_data = rng.standard_normal(count).astype(np.float32)
+   right_data = rng.standard_normal(count).astype(np.float32)
+   left_buffer = metile.Buffer(data=left_data)
+   right_buffer = metile.Buffer(data=right_data)
+   output_buffer = metile.Buffer.zeros((count,), dtype=np.float32)
 
-   N = 100_000
-   x = metile.Buffer(data=np.random.randn(N).astype(np.float32))
-   y = metile.Buffer(data=np.random.randn(N).astype(np.float32))
-   out = metile.Buffer.zeros((N,))
+   block = 256
+   add[(metile.cdiv(count, block),)](
+       left_buffer, right_buffer, output_buffer, count, BLOCK=block
+   )
+   np.testing.assert_allclose(
+       output_buffer.numpy(), left_data + right_data, rtol=1e-6, atol=1e-6
+   )
 
-   BLOCK = 256
-   grid = (metile.cdiv(N, BLOCK),)
-   add[grid](x, y, out, N, BLOCK=BLOCK)
+``Buffer(data=...)`` copies each input into shared Metal storage. Reading
+``output_buffer.numpy()`` waits for the GPU and returns a view of the output
+allocation. An extra ``sync()`` is unnecessary here.
 
-   # Verify
-   from metile.runtime.metal_device import MetalDevice
-   MetalDevice.get().sync()
-   np.testing.assert_allclose(out.numpy(), x.numpy() + y.numpy(), rtol=1e-5)
-   print("passed!")
-
-
-Concepts Introduced
--------------------
-
-- ``@metile.kernel``: compile a Python function to Metal
-- ``metile.program_id``: which program instance am I?
-- ``metile.arange``: tile of consecutive indices
-- ``metile.load`` / ``metile.store``: masked memory access
-- ``metile.Buffer``: zero-copy GPU memory
-- ``kernel[grid]()``: launch with a grid of instances
+The grid counts program instances, not elements. ``cdiv(count, block)`` makes
+room for every element; the declared tensor shape prevents the last program
+from storing beyond ``count``. See :doc:`/getting-started/first-kernel` for a
+step-by-step explanation and :doc:`/guide/memory` for raw pointer access.

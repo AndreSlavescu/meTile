@@ -1,123 +1,78 @@
-Fused Activations & Simdgroup Roles
-=====================================
+Fused Activations and SIMDgroup Roles
+=======================================
 
-This example shows two patterns: simple element-wise activations, and using ``simdgroup_role``
-to run different computations on different simdgroup subsets within a single kernel.
+Pointwise fusion keeps related arithmetic in one kernel. This example computes
+a gated activation from two float32 arrays:
 
+``output = gelu_approx(gate) * up``, with
+``gelu_approx(value) = value / (1 + exp(-1.702 * value))``.
 
-Simple Activations
-------------------
-
-Element-wise kernels follow the same pattern as vector add (load, compute, store):
+This sigmoid approximation is sometimes called QuickGELU. It differs from
+both the exact Gaussian-error-function GELU and its common tanh approximation.
+Use the same definition when checking against a model or reference library.
 
 .. code-block:: python
 
+   import numpy as np
    import metile
 
    @metile.kernel
-   def gelu(X, Out, N, BLOCK: metile.constexpr):
-       pid = metile.program_id(0)
-       offs = pid * BLOCK + metile.arange(0, BLOCK)
-       mask = offs < N
-       x = metile.load(X + offs, mask=mask)
-       # GELU approximation: x / (1 + exp(-1.702 * x))
-       out = x / (1.0 + metile.exp(-1.702 * x))
-       metile.store(Out + offs, out, mask=mask)
+   def geglu(gate_ptr, up_ptr, output_ptr, count, BLOCK: metile.constexpr):
+       gates = metile.tensor(gate_ptr, shape=(count,), access="read")
+       ups = metile.tensor(up_ptr, shape=(count,), access="read")
+       outputs = metile.tensor(output_ptr, shape=(count,), access="write")
+       positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
+       gate = gates.load((positions,))
+       up = ups.load((positions,))
+       activated = gate / (1.0 + metile.exp(-1.702 * gate))
+       outputs.store((positions,), activated * up)
 
-   @metile.kernel
-   def silu(X, Out, N, BLOCK: metile.constexpr):
-       pid = metile.program_id(0)
-       offs = pid * BLOCK + metile.arange(0, BLOCK)
-       mask = offs < N
-       x = metile.load(X + offs, mask=mask)
-       # SiLU (Swish): x / (1 + exp(-x))
-       out = x / (1.0 + metile.exp(-x))
-       metile.store(Out + offs, out, mask=mask)
+   count = 1003
+   rng = np.random.default_rng(0)
+   gate_data = rng.standard_normal(count).astype(np.float32)
+   up_data = rng.standard_normal(count).astype(np.float32)
+   gate_buffer = metile.Buffer(data=gate_data)
+   up_buffer = metile.Buffer(data=up_data)
+   output_buffer = metile.Buffer.zeros((count,), dtype=np.float32)
+   geglu[(metile.cdiv(count, 256),)](
+       gate_buffer, up_buffer, output_buffer, count, BLOCK=256
+   )
+   reference = gate_data / (1.0 + np.exp(-1.702 * gate_data)) * up_data
+   np.testing.assert_allclose(output_buffer.numpy(), reference, rtol=1e-5, atol=1e-6)
 
+Each lane computes the activation and product before storing once. No program
+needs to read another program's partially computed output. For SiLU, use
+``value / (1.0 + metile.exp(-value))``.
 
-Fused GEMM + Activation
-------------------------
+GEMM epilogues
+--------------
 
-When an activation follows a ``dot`` operation, the compiler fuses it into the GEMM epilogue.
-The activation runs on register-resident data, no global memory round-trip:
+A supported pointwise expression after a ``dot`` recurrence can be fused
+into its epilogue. The :doc:`matmul` example includes a complete GEMM-plus-ReLU
+kernel; the same mechanism supports expressions such as this QuickGELU
+approximation when they satisfy the compiler's epilogue constraints.
 
-.. code-block:: python
+Fusion avoids an intermediate device-memory round trip. It does not make the
+activation free: exponentials, divides, and extra live values still affect
+execution time. Use ``dispatch.explain()`` and the generated MSL to inspect
+the selected implementation.
 
-   @metile.kernel
-   def matmul_gelu(A, B, C, M, N, K,
-                   BLOCK_M: metile.constexpr, BLOCK_N: metile.constexpr,
-                   BLOCK_K: metile.constexpr):
-       pid_m = metile.program_id(0)
-       pid_n = metile.program_id(1)
-       acc = metile.zeros((BLOCK_M, BLOCK_N), dtype="f32")
-       for k in metile.tile_range(0, K, BLOCK_K):
-           a = metile.tile_load(A, pid_m * BLOCK_M, k, K, (BLOCK_M, BLOCK_K))
-           b = metile.tile_load(B, k, pid_n * BLOCK_N, N, (BLOCK_K, BLOCK_N))
-           acc = metile.dot(a, b, acc)
-       # Fused GELU epilogue, runs on accumulator registers
-       acc = acc / (1.0 + metile.exp(-1.702 * acc))
-       metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
+When to use SIMDgroup roles
+-----------------------------
 
+``metile.simdgroup_role(role, num_roles=2, num_sgs=0)`` records a region
+assigned to a subset of the threadgroup's 32-thread SIMDgroups. This is a
+lower-level tool for specialized kernels, not a dependency or synchronization
+mechanism.
 
-Simdgroup Roles
----------------
+Role regions appear in Python source order, but that does not make one role
+finish before another starts. A producer writing values that a consumer reads
+needs an appropriate memory and synchronization design. Threadgroup barriers
+must be reached by every participating thread; placing a barrier inside only
+one role can deadlock.
 
-Apple GPUs organize threads into 32-thread **simdgroups**. A threadgroup can contain
-multiple simdgroups. With ``simdgroup_role``, you can assign different work to different
-simdgroup subsets, useful for computing multiple outputs in a single dispatch:
-
-.. code-block:: python
-
-   @metile.kernel
-   def exp_sqrt(X, out_exp, out_sqrt, N, BLOCK: metile.constexpr):
-       pid = metile.program_id(0)
-       offs = pid * BLOCK + metile.arange(0, BLOCK)
-       mask = offs < N
-
-       with metile.simdgroup_role(role=0, num_roles=2):
-           # First half of simdgroups compute exp
-           x = metile.load(X + offs, mask=mask)
-           metile.store(out_exp + offs, metile.exp(x), mask=mask)
-
-       with metile.simdgroup_role(role=1, num_roles=2):
-           # Second half compute sqrt(abs(x))
-           x = metile.load(X + offs, mask=mask)
-           metile.store(out_sqrt + offs, metile.sqrt(metile.abs(x)), mask=mask)
-
-With ``num_roles=2``, the threadgroup's simdgroups are split in half. Role 0 computes
-exponentials while role 1 computes square roots, simultaneously, in the same kernel launch.
-
-
-GEGLU (Gated GELU)
--------------------
-
-A practical use of simdgroup roles for computing the gate and up projections of GEGLU
-in parallel:
-
-.. code-block:: python
-
-   @metile.kernel
-   def geglu(X_gate, X_up, Out, N, BLOCK: metile.constexpr):
-       pid = metile.program_id(0)
-       offs = pid * BLOCK + metile.arange(0, BLOCK)
-       mask = offs < N
-
-       with metile.simdgroup_role(role=0, num_roles=2):
-           gate = metile.load(X_gate + offs, mask=mask)
-           gate = gate / (1.0 + metile.exp(-1.702 * gate))
-           metile.store(Out + offs, gate, mask=mask)
-
-       with metile.simdgroup_role(role=1, num_roles=2):
-           up = metile.load(X_up + offs, mask=mask)
-           gate = metile.load(Out + offs, mask=mask)
-           metile.store(Out + offs, gate * up, mask=mask)
-
-
-Concepts Introduced
--------------------
-
-- Element-wise activation patterns
-- ``metile.exp`` for activation functions
-- Fused GEMM epilogues: zero-cost post-GEMM operations
-- ``metile.simdgroup_role``: split work across simdgroup subsets
-- Multiple outputs from a single kernel
+For this gated activation, all dependent operations belong to the same lane,
+so ordinary pointwise fusion is sufficient. Independent outputs are a better
+starting point for role specialization. Study
+``kernels/src/metile_kernels/simdgroup_specialized_elementwise.py`` and verify the
+generated indexing before introducing communication between roles.

@@ -1,197 +1,181 @@
-Tile Operations & Hardware Mapping
-===================================
+Tile Operations and Hardware Mapping
+====================================
 
-meTile's tile operations are the bridge between your Python code and Apple GPU hardware.
-This page explains how ``dot``, ``tile_load``, and ``tile_store`` map to the actual
-hardware instructions.
+A matrix tile describes a piece of the computation, not a fixed set of GPU
+instructions. The compiler chooses how threads load that tile, hold its
+accumulators, and perform ``dot``. Tile sizes, dtype, device capabilities,
+and schedule requirements all constrain that choice.
 
+Start with :doc:`/examples/matmul` for a runnable example. New kernels should
+declare ``metile.tensor(..., block_shape=...)`` views so the compiler knows
+their dimensions, bounds, and memory layouts. The older ``tile_load`` and
+``tile_store`` interface remains available for existing kernels.
 
-The Two Backends
+Matrix backends
+---------------
+
+**SIMDgroup matrix operations** use ``simdgroup_matrix<..., 8, 8>`` fragments.
+Threads cooperate to stage inputs in threadgroup memory, and each 32-thread
+SIMDgroup computes matrix fragments. Several fragments and SIMDgroups cover a
+larger program-owned output tile.
+
+**Metal 4 tensor operations** use ``matmul2d`` and ``cooperative_tensor``.
+meTile checks both the runtime GPU family and whether the selected offline
+compiler accepts the required Metal 4 headers and language standard. The
+standard GEMM planner selects direct device loads for this path. Explicit
+threadgroup-staging requirements select the SIMDgroup matrix path instead.
+
+**NAX fragment lowering** expresses the direct tensor-ops path as smaller
+Metal IR operations. It is tuned for the M5 workloads measured in this
+repository. Its current matrix schedule requires 32-by-32 output fragments
+per SIMDgroup, a reduction tile of 16, and aligned output-column and reduction
+dimensions. It is not a fallback for arbitrary ragged matrices.
+
+Automatic selection chooses an admissible lowering; it does not benchmark
+every backend during an ordinary kernel launch. Use autotuning to compare
+candidate schedules, or ``SCHEDULE=metile.Schedule(...)`` to request a
+specific supported plan. See :doc:`execution-schedules`.
+
+How tiling works
 ----------------
-
-meTile automatically selects the best backend for your hardware when compiling GEMM kernels:
-
-**Simdgroup Matrix**
-   Uses ``simdgroup_matrix<float, 8, 8>``, Apple's 8x8 matrix multiply-accumulate
-   primitive. Each simdgroup (32 threads) collaboratively computes an 8x8 tile.
-   The compiler tiles the output across multiple simdgroups and uses threadgroup
-   (shared) memory to stage data.
-
-**Metal 4 Tensor Ops**
-   Uses ``matmul2d`` with ``cooperative_tensor``, Metal 4's hardware matrix multiply
-   descriptors. On supported GPU/toolchain combinations, each simdgroup can load
-   data from device memory into register-resident cooperative tensors and run the MMA.
-   The tuned M5 path also supports explicit NAX fragment load/MMA/store operations.
-
-You write the same kernel code for both. The ``lower()`` function in the compiler inspects
-your hardware and chooses the right path.
-
-
-How Tiling Works
-----------------
-
-A GEMM kernel tiles the computation into blocks. Each program instance computes
-one output tile, iterating over K to accumulate partial products:
 
 .. image:: /_static/tiling-overview.svg
-   :alt: Output matrix tiled into blocks, with K-loop detail showing tile_load and dot accumulation
+   :alt: Programs own output tiles and accumulate products from paired tiles along the reduction axis
    :width: 100%
 
-.. code-block:: python
+A program owns one ``BLOCK_M``-by-``BLOCK_N`` output tile. It initializes
+a float32 accumulator, then iterates over the reduction dimension in
+``BLOCK_K`` steps. Each ``dot`` adds a left/right tile product to that
+accumulator. The completed tile is stored once after the loop.
 
-   acc = metile.zeros((BLOCK_M, BLOCK_N))
-   for k in metile.tile_range(0, K, BLOCK_K):
-       a = metile.tile_load(A, row, k, K, (BLOCK_M, BLOCK_K))
-       b = metile.tile_load(B, k, col, N, (BLOCK_K, BLOCK_N))
-       acc = metile.dot(a, b, acc)    # acc += a @ b
-
-
-Compiler Constexprs
--------------------
-
-The tile sizes are compile-time constants that control how the hardware is used:
+Tensor descriptors supply logical bounds for partial loads and stores.
+Current matrix lowering requires matching float32 or float16 input/output
+storage and supported contiguous row-major layouts. The output must use a
+separate allocation from the inputs. Declaring arbitrary strides does not
+make them valid for every backend, and the caller must provide the storage
+described by the declared bounds.
 
 .. list-table::
    :header-rows: 1
+   :widths: 20 50 30
 
-   * - Constexpr
+   * - Setting
      - Meaning
-     - Typical Values
+     - Example values
    * - ``BLOCK_M``
-     - Output tile rows
-     - 64, 128
-   * - ``BLOCK_N``
-     - Output tile columns
-     - 64, 128
-   * - ``BLOCK_K``
-     - K-loop step size
+     - Output rows owned by a program
      - 32, 64, 128
-   * - ``WM``
-     - Simdgroup grid rows (tensor_ops only)
-     - 2, 4
-   * - ``WN``
-     - Simdgroup grid cols (tensor_ops only)
-     - 2, 4
+   * - ``BLOCK_N``
+     - Output columns owned by a program
+     - 32, 64, 128
+   * - ``BLOCK_K``
+     - Reduction tile width
+     - 16, 32, 64
+   * - ``WM``, ``WN``
+     - Requested SIMDgroup grid over the output tile
+     - 2-by-2 or 4-by-4
 
-``WM`` and ``WN`` control how many simdgroups tile the output block. With ``WM=4, WN=4``,
-16 simdgroups each handle a ``(BLOCK_M/WM) x (BLOCK_N/WN)`` = 32x32 subtile:
+These values are examples, not freely interchangeable options. The planner
+checks thread count, matrix fragment geometry, shared memory, and backend
+constraints. With a 128-by-128 output tile and a 4-by-4 tensor-ops SIMDgroup
+grid, each of the 16 SIMDgroups owns a 32-by-32 subtile:
 
 .. image:: /_static/simdgroup-layout.svg
-   :alt: 4x4 simdgroup grid layout, 16 simdgroups each handling a 32x32 subtile
+   :alt: Sixteen SIMDgroups divide a 128 by 128 output tile into 32 by 32 subtiles
    :width: 100%
 
+Float16 input storage can reduce bandwidth and register use while retaining
+float32 accumulation on supported paths. Float32 tensor-ops configurations
+may request relaxed precision. The accumulation dtype alone does not promise
+bitwise agreement with a CPU or another backend; validate the selected path
+against the accuracy requirements of the application.
 
-Fused Epilogues
----------------
+Pointwise epilogues
+---------------------
 
-The compiler detects element-wise operations applied to the accumulator after the GEMM loop
-and fuses them into the kernel. No extra memory traffic:
+Supported arithmetic after the reduction loop can be applied before the
+output store. ReLU, scaling, and suitable GELU or SiLU expressions can thereby
+avoid an intermediate device-memory write/read and a second kernel launch.
 
-.. code-block:: python
+The descriptor epilogue extractor follows the stored expression's dependency
+graph. It supports selected unary, arithmetic, comparison, selection, and cast
+operations rooted in the float32 accumulator, with independent scalar
+coefficients. Extra memory accesses, reductions, incompatible tile types,
+and unsupported control flow are outside this contract.
 
-   acc = metile.dot(a, b, acc)
+Fusion still costs arithmetic and registers. Whether it is faster depends
+on the complete kernel. Inspect ``dispatch.explain()`` and measure the
+fused candidate rather than treating every epilogue as free. The complete
+contract is in :doc:`execution-schedules`.
 
-   # These are fused into the GEMM, no global memory round-trip
-   acc = metile.where(acc > 0, acc, 0)      # ReLU
-   acc = acc * scale                          # scale
-   acc = metile.exp(acc)                      # unary
+Tile traversal
+--------------
 
-Supported epilogues: ``where`` (ReLU), ``exp``, ``log``, ``sqrt``, ``abs``, ``tanh``,
-scalar multiply, scalar add.
-
-
-Tile Scheduling
----------------
-
-For 2D grids, the order in which tiles are assigned to threadgroups affects L2 cache locality.
-meTile supports several scheduling patterns:
+Changing the mapping from threadgroups to output coordinates can improve
+reuse of input regions in cache. It does not guarantee the order in which
+the GPU physically executes threadgroups.
 
 .. image:: /_static/morton-swizzle.svg
-   :alt: Morton Z-order vs linear tile scheduling, showing how 2x2 blocks share L2 cache
+   :alt: Linear and Morton mappings visit output tiles in different coordinate orders
    :width: 100%
 
-**Diagonal**:
-   Column assignment is rotated by the row index. Distributes memory traffic.
+The supported patterns include:
 
-**Linear**:
-   Simple row-major assignment. No locality optimization.
+* ``linear``: a simple baseline mapping.
+* ``diagonal``: rotate a column coordinate according to its row.
+* ``grouped2``, ``grouped4``, ``grouped8``: traverse small groups of
+  neighboring output-row tiles before moving across columns.
+* ``morton``: traverse complete 2-by-2 panels in Z order.
+* ``hilbert``: traverse complete 4-by-4 panels with a Hilbert mapping.
 
-**Grouped-2/4/8**:
-   Visits a short group of neighboring M tiles before advancing N, increasing reuse
-   of the same B region for shapes where that order wins.
-
-**Morton**:
-   Visits complete 2x2 panels in Z order.
-
-**Hilbert**:
-   Visits complete 4x4 panels along a Hilbert curve with unit-distance steps
-   inside each panel.
-
-The compiler represents each schedule as a finite permutation, removes candidates
-that are equivalent under shape-preserving symmetries, and searches the remaining
-representatives. You can override it:
+Inside a matrix kernel, an explicit request looks like this:
 
 .. code-block:: python
 
-   pid_m, pid_n = metile.tile_swizzle(
+   tile_row, tile_column = metile.tile_swizzle(
        metile.program_id(0), metile.program_id(1),
        pattern="morton", block_size=2,
    )
 
+Use ``block_size=4`` for Hilbert. Morton and Hilbert requests fall back to
+a valid traversal when the grid cannot be divided into their required panels.
+With ``pattern="auto"``, schedule algebra compares finite permutations and
+removes equivalent candidates before selection. This compiler search is
+distinct from timing candidates on the GPU.
 
-Composable NAX Fragment Lowering
---------------------------------
+Fragment operations and live values
+-----------------------------------
 
-The M5 register path does not emit a whole GEMM template. Initial lowering produces
-compact NAX setup, reduction, epilogue, and store operations. The
-``decompose_nax_fragments`` Metal IR pass expands them into independently transformable
-operations for tile/lane layout, accumulator initialization, vector fragment loads,
-cooperative-tensor packing, native ``matmul2d`` MMA, per-fragment element-wise apply,
-and fragment stores. GELU, SiLU, ReLU, and other detected chains therefore remain
-register-resident on the direct NAX path rather than forcing a slower lowering family.
+The ``decompose_nax_fragments`` pass expands NAX setup, reduction,
+epilogue, and store operations into smaller pieces: tile/lane layout,
+accumulator initialization, vector fragment loads, cooperative-tensor
+packing, matrix multiply, pointwise apply, and fragment stores. Passes can
+then transform those pieces without substituting an entire shader template.
 
-The autotuner can therefore vary reduction epochs and preload two adjacent K fragments
-before issuing their MMAs without changing the frontend kernel. Epoch pointers reduce
-address arithmetic, static aligned dimensions remove scalar buffer bindings, and the
-runtime measures one- and two-fragment representations per problem shape. A separate
-candidate skips only the redundant first epoch barrier while preserving the fences that
-bound compiler scheduling and register live ranges between epochs. Another candidate
-moves those fences to the tails of non-final epochs, which gives the Metal compiler a
-different but equivalent live-range boundary for sustained reductions. The preload
-form is retained only for dense GEMM; measurements show that applying it to fused MXFP
-decode increases register pressure. Block-scaled lowering instead keeps decoded weights
-single-step-live while optionally pairing two K steps and reusing their common E8M0
-scale fragments. This reduces scale traffic and loop overhead without retaining both
-decoded weight fragments across an MMA.
+Dense GEMM candidates vary reduction epochs and may preload two adjacent
+reduction fragments before their matrix operations. Other candidates move
+epoch fences or omit a redundant initial fence. These choices change address
+arithmetic and the lifetimes of values, so their benefit depends on the shape
+and target. They belong to the measured search policy, not to the mathematical
+definition of ``dot``.
 
+Packed-weight paths
+-------------------
 
-Block-Scaled Register Fragments
--------------------------------
+MXFP4 and MXFP8 lowering decodes E2M1/E4M3 values and E8M0 scales as fragments
+are consumed. It can compare threadgroup staging with direct fragment
+execution without materializing the full dense weight matrix in device
+memory. Candidate fragment representations and paired reduction steps trade
+scale reuse against register pressure.
 
-MXFP4 and MXFP8 matmul lowering is composed from Metal IR operations for schedule
-selection, vectorized E2M1/E4M3 plus E8M0 decoding, fragment MMA, and stores. The
-autotuner compares conventional threadgroup staging with a direct M5 path that keeps
-decoded fragments and accumulators in registers. No dense weight tensor is
-materialized in global memory. Float and bfloat right-fragment representations
-are both measured because bfloat lowers register footprint on sustained M5 workloads
-while float can remain faster for launch-limited shapes. One- and two-step reduction
-forms are measured independently because paired scale reuse wins at small and medium K
-but can reduce occupancy on larger problems.
+Affine uint4 lowering uses the same fragment IR. Scale/bias loads are reused
+over supported 64-value reduction groups, and packed nibbles are decoded into
+half-precision matrix inputs. SwiGLU can combine gate and up accumulators
+while they are live. A sequential variant spills and reloads an intermediate
+fragment through threadgroup scratch to shorten overlapping lifetimes.
 
-Affine Uint4 Register Fragments
--------------------------------
-
-Affine weight-only lowering uses the same fragment IR rather than a dedicated whole-kernel
-template. ``MNaxLoadAffineParameters`` reuses one FP16 scale/bias vector across a 64-value
-K group, ``MNaxLoadAffineFragment`` decodes K-major uint4 nibbles directly into half
-cooperative-tensor inputs, and masked left loads/stores specialize the one-row decode case.
-``MNaxBinaryFragment`` composes gate and up accumulators with SwiGLU while they remain in
-registers. The MLX backend can therefore compare scalar output-major execution, native MLX,
-and this NAX representation without changing fusion legality or the frontend model graph.
-
-One-row gated projections can instead select a sequential fragment lifetime. The lowering
-uses ``MNaxSpillFragment`` and ``MNaxReloadFragment`` around
-``MNaxAccumulatorReset`` rather than owning a second kernel template. Per-lane fragments are
-transposed in threadgroup scratch as ``element * 32 + lane`` so every SIMDgroup memory
-instruction reaches all 32 banks without conflict. Only the two live output fragments are
-computed; the masked rows that cannot contribute to a one-token result never receive an MMA.
+These specialized paths have format, shape, and toolchain restrictions.
+The public block-scaled runtime currently requires output dimensions divisible
+by 64 and a reduction dimension divisible by 32, plus Metal 4 tensor-ops
+support. See :doc:`/api/reference` for its entry points and
+:doc:`mlx-backend` for model-level integration.

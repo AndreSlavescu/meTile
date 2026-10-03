@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif">
   <title id="title">Unified memory on Apple Silicon</title>
-  <desc id="description">A white academic diagram showing Python and NumPy on the CPU and a Metal compute kernel on the Apple GPU reading and writing the same unified physical memory through a meTile Buffer. No host-to-device copy occurs. After a GPU write, the CPU synchronizes before reading a direct NumPy view.</desc>
+  <desc id="description">Constructing a meTile Buffer copies NumPy input into shared Metal storage. CPU and GPU then access that buffer allocation. After a GPU write, numpy() waits for completion and returns a direct view of the shared buffer.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 1L8 5L0 9Z" fill="#273142"/>
@@ -33,7 +33,7 @@
   <text x="49" y="184" class="caps">CPU</text>
   <text x="49" y="211" class="label">Python / NumPy</text>
   <rect x="49" y="228" width="156" height="30" rx="2" class="inner"/>
-  <text x="61" y="248" class="mono">Buffer.from_numpy(arr)</text>
+  <text x="61" y="248" class="mono">Buffer(data=arr)</text>
   <rect x="49" y="268" width="156" height="25" rx="2" class="inner"/>
   <text x="61" y="285" class="mono">out.numpy()</text>
 
@@ -41,12 +41,12 @@
   <rect x="286" y="126" width="328" height="218" rx="3" fill="#e3f2ec" class="box"/>
   <text x="304" y="151" class="caps">UNIFIED PHYSICAL MEMORY</text>
   <text x="304" y="180" class="label">One shared allocation</text>
-  <text x="304" y="201" class="body">CPU and GPU use the same physical address.</text>
+  <text x="304" y="201" class="body">CPU and GPU access the same buffer storage.</text>
   <rect x="304" y="220" width="292" height="52" rx="2" fill="#ffffff" class="inner"/>
   <text x="320" y="242" class="mono">metile.Buffer(data=np_array)</text>
-  <text x="320" y="260" class="small">existing NumPy storage, wrapped without a transfer</text>
+  <text x="320" y="260" class="small">copies input into shared Metal storage</text>
   <rect x="304" y="289" width="292" height="35" rx="2" fill="#fff4cf" class="inner"/>
-  <text x="320" y="311" class="label">No host ↔ device copy</text>
+  <text x="320" y="311" class="label">Shared storage after allocation</text>
 
   <!-- GPU client -->
   <rect x="678" y="160" width="190" height="150" rx="3" fill="#ece5f6" class="box"/>
@@ -73,8 +73,8 @@
 
   <path d="M270 437H326" class="flow"/>
   <rect x="328" y="408" width="238" height="58" rx="3" fill="#fff4cf" class="box"/>
-  <text x="345" y="431" class="label">2 · Synchronize</text>
-  <text x="345" y="450" class="mono">MetalDevice.get().sync()</text>
+  <text x="345" y="431" class="label">2 · Wait for completion</text>
+  <text x="345" y="450" class="mono">numpy() synchronizes first</text>
 
   <path d="M566 437H622" class="flow"/>
   <rect x="624" y="408" width="244" height="58" rx="3" fill="#e7effa" class="box"/>
@@ -82,6 +82,6 @@
   <text x="641" y="450" class="mono">result = out.numpy()</text>
 
   <line x1="32" y1="493" x2="868" y2="493" stroke="#d0d5dd" stroke-width="1"/>
-  <text x="32" y="510" class="tiny">Synchronization orders access; it does not copy the allocation.</text>
+  <text x="32" y="510" class="tiny">Construction copies input; later views share buffer storage.</text>
   <text x="868" y="510" text-anchor="end" class="tiny"><tspan class="mono">metile.shared</tspan> is separate threadgroup-local storage.</text>
 </svg>
