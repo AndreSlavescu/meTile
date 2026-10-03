@@ -1,0 +1,509 @@
+{
+  "kind": "frozen_register_tiling_selection",
+  "recorded_at": "2026-10-02T18:44:42.366590+00:00",
+  "training_process_id": 81341,
+  "training_seed": 1741,
+  "validation_seed": 9473,
+  "compiler_implementation_sha256": "f255b038cc297ff6ba053b68cc787f7e16d855c0b665ab82b8d5ea33c463f8be",
+  "benchmark_source_sha256": "47a379ae8881b98ece7df1f415afed0c5f2b189f9459bf34a14198a22d112675",
+  "baseline_export_sha256": "ddda22c512e09d77a855c6cbbd49b6f1bac26d5db71197d8c05b0e4f0ff257f9",
+  "tuning_report_sha256": "46e22bc7e34901d8ff4c3532a4c96fa0a171f84264065eb9a8d9c0a94e27dca5",
+  "tuning_report": "/Users/andreslavescu/Documents/projects/meTile/benchmarks/results/m5-rmsnorm-tiling-tuning.json",
+  "gate_policy": {
+    "aligned_throughput_gpu_speedup_minimum": 1.1,
+    "aligned_throughput_batches": [
+      32,
+      256
+    ],
+    "every_case_wall_latency_ratio_maximum": 1.03,
+    "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+    "reference": "frozen prechange static-width register4 striped kernel",
+    "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+  },
+  "precision_comparison": {
+    "class": "same_storage_precision",
+    "same_weight_representation": true,
+    "bitwise_exact": false,
+    "primary_policy": "identical storage dtype, FP32 sum/normalization/weight multiply, final output cast",
+    "primary_mlx_comparator": "mx.compile explicit full-FP32 graph then final output cast",
+    "mlx_fast_caveat": "secondary only: FP16 normalization rounds to storage before weight multiply; checked against its own rounding reference",
+    "mlx_fast_source": "https://github.com/ml-explore/mlx/blob/v0.32.0/mlx/backend/metal/kernels/rms_norm.metal",
+    "relaxed_precision": false
+  },
+  "cases": [
+    {
+      "name": "float16_1x1009",
+      "dtype": "float16",
+      "batches": 1,
+      "width": 1009
+    },
+    {
+      "name": "float16_32x1009",
+      "dtype": "float16",
+      "batches": 32,
+      "width": 1009
+    },
+    {
+      "name": "float16_256x1009",
+      "dtype": "float16",
+      "batches": 256,
+      "width": 1009
+    },
+    {
+      "name": "float16_1x1024",
+      "dtype": "float16",
+      "batches": 1,
+      "width": 1024
+    },
+    {
+      "name": "float16_32x1024",
+      "dtype": "float16",
+      "batches": 32,
+      "width": 1024
+    },
+    {
+      "name": "float16_256x1024",
+      "dtype": "float16",
+      "batches": 256,
+      "width": 1024
+    },
+    {
+      "name": "float32_1x1009",
+      "dtype": "float32",
+      "batches": 1,
+      "width": 1009
+    },
+    {
+      "name": "float32_32x1009",
+      "dtype": "float32",
+      "batches": 32,
+      "width": 1009
+    },
+    {
+      "name": "float32_256x1009",
+      "dtype": "float32",
+      "batches": 256,
+      "width": 1009
+    },
+    {
+      "name": "float32_1x1024",
+      "dtype": "float32",
+      "batches": 1,
+      "width": 1024
+    },
+    {
+      "name": "float32_32x1024",
+      "dtype": "float32",
+      "batches": 32,
+      "width": 1024
+    },
+    {
+      "name": "float32_256x1024",
+      "dtype": "float32",
+      "batches": 256,
+      "width": 1024
+    }
+  ],
+  "variants": [
+    {
+      "name": "register4_striped",
+      "elements_per_thread": 4,
+      "layout": "striped"
+    },
+    {
+      "name": "register4_blocked4",
+      "elements_per_thread": 4,
+      "layout": "blocked4"
+    },
+    {
+      "name": "register8_striped",
+      "elements_per_thread": 8,
+      "layout": "striped"
+    },
+    {
+      "name": "register8_blocked4",
+      "elements_per_thread": 8,
+      "layout": "blocked4"
+    },
+    {
+      "name": "register16_striped",
+      "elements_per_thread": 16,
+      "layout": "striped"
+    },
+    {
+      "name": "register16_blocked4",
+      "elements_per_thread": 16,
+      "layout": "blocked4"
+    },
+    {
+      "name": "register32_striped",
+      "elements_per_thread": 32,
+      "layout": "striped"
+    },
+    {
+      "name": "register32_blocked4",
+      "elements_per_thread": 32,
+      "layout": "blocked4"
+    },
+    {
+      "name": "register2_striped",
+      "elements_per_thread": 2,
+      "layout": "striped"
+    }
+  ],
+  "selection": {
+    "scope": "one layout/count policy for every dtype, width and batch size",
+    "rule": "minimize training wall/ragged guard failures, then maximize worst aligned batch32/256 GPU speedup, then its geometric mean; ties follow declared variant order",
+    "selected": {
+      "name": "register4_striped",
+      "elements_per_thread": 4,
+      "layout": "striped"
+    },
+    "scores": [
+      {
+        "variant": {
+          "name": "register4_striped",
+          "elements_per_thread": 4,
+          "layout": "striped"
+        },
+        "eligible": true,
+        "regression_guard_failures": 0,
+        "minimum_aligned_throughput_gpu_speedup": 1.0086978283172867,
+        "geomean_aligned_throughput_gpu_speedup": 1.045561445420347,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": []
+        }
+      },
+      {
+        "variant": {
+          "name": "register4_blocked4",
+          "elements_per_thread": 4,
+          "layout": "blocked4"
+        },
+        "eligible": true,
+        "regression_guard_failures": 6,
+        "minimum_aligned_throughput_gpu_speedup": 0.9237474428973753,
+        "geomean_aligned_throughput_gpu_speedup": 0.9718185576864061,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": [
+            "float16_1x1009",
+            "float16_32x1009",
+            "float16_256x1009",
+            "float32_1x1009",
+            "float32_32x1009",
+            "float32_256x1009"
+          ]
+        }
+      },
+      {
+        "variant": {
+          "name": "register8_striped",
+          "elements_per_thread": 8,
+          "layout": "striped"
+        },
+        "eligible": true,
+        "regression_guard_failures": 2,
+        "minimum_aligned_throughput_gpu_speedup": 0.9882831778336025,
+        "geomean_aligned_throughput_gpu_speedup": 1.0321442986083251,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": [
+            "float16_1x1009",
+            "float32_1x1009"
+          ]
+        }
+      },
+      {
+        "variant": {
+          "name": "register8_blocked4",
+          "elements_per_thread": 8,
+          "layout": "blocked4"
+        },
+        "eligible": true,
+        "regression_guard_failures": 6,
+        "minimum_aligned_throughput_gpu_speedup": 0.8814602420184451,
+        "geomean_aligned_throughput_gpu_speedup": 0.9208678007594686,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": [
+            "float16_1x1009",
+            "float16_32x1009",
+            "float16_256x1009",
+            "float32_1x1009",
+            "float32_32x1009",
+            "float32_256x1009"
+          ]
+        }
+      },
+      {
+        "variant": {
+          "name": "register16_striped",
+          "elements_per_thread": 16,
+          "layout": "striped"
+        },
+        "eligible": true,
+        "regression_guard_failures": 4,
+        "minimum_aligned_throughput_gpu_speedup": 0.9542795309833677,
+        "geomean_aligned_throughput_gpu_speedup": 1.00466326240963,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": [
+            "float16_1x1009",
+            "float16_32x1009",
+            "float32_1x1009",
+            "float32_32x1009"
+          ]
+        }
+      },
+      {
+        "variant": {
+          "name": "register16_blocked4",
+          "elements_per_thread": 16,
+          "layout": "blocked4"
+        },
+        "eligible": true,
+        "regression_guard_failures": 6,
+        "minimum_aligned_throughput_gpu_speedup": 0.766666666588103,
+        "geomean_aligned_throughput_gpu_speedup": 0.8232797524681654,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": [
+            "float16_1x1009",
+            "float16_32x1009",
+            "float16_256x1009",
+            "float32_1x1009",
+            "float32_32x1009",
+            "float32_256x1009"
+          ]
+        }
+      },
+      {
+        "variant": {
+          "name": "register32_striped",
+          "elements_per_thread": 32,
+          "layout": "striped"
+        },
+        "eligible": true,
+        "regression_guard_failures": 4,
+        "minimum_aligned_throughput_gpu_speedup": 0.8381200151101741,
+        "geomean_aligned_throughput_gpu_speedup": 0.9307341209660918,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": [
+            "float16_1x1009",
+            "float16_32x1009",
+            "float32_1x1009",
+            "float32_32x1009"
+          ]
+        }
+      },
+      {
+        "variant": {
+          "name": "register32_blocked4",
+          "elements_per_thread": 32,
+          "layout": "blocked4"
+        },
+        "eligible": true,
+        "regression_guard_failures": 8,
+        "minimum_aligned_throughput_gpu_speedup": 0.5679061317298304,
+        "geomean_aligned_throughput_gpu_speedup": 0.727493385335174,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [
+            "float16_1x1009",
+            "float32_1x1009"
+          ],
+          "failed_ragged_gpu_cases": [
+            "float16_1x1009",
+            "float16_32x1009",
+            "float16_256x1009",
+            "float32_1x1009",
+            "float32_32x1009",
+            "float32_256x1009"
+          ]
+        }
+      },
+      {
+        "variant": {
+          "name": "register2_striped",
+          "elements_per_thread": 2,
+          "layout": "striped"
+        },
+        "eligible": true,
+        "regression_guard_failures": 1,
+        "minimum_aligned_throughput_gpu_speedup": 1.017094119129839,
+        "geomean_aligned_throughput_gpu_speedup": 1.0256124991977755,
+        "training_gate": {
+          "passed": false,
+          "policy": {
+            "aligned_throughput_gpu_speedup_minimum": 1.1,
+            "aligned_throughput_batches": [
+              32,
+              256
+            ],
+            "every_case_wall_latency_ratio_maximum": 1.03,
+            "every_ragged_case_gpu_latency_ratio_maximum": 1.03,
+            "reference": "frozen prechange static-width register4 striped kernel",
+            "promotion": "opt-in unless every heldout guard passes; no automatic default changes"
+          },
+          "failed_aligned_throughput_gpu_cases": [
+            "float16_32x1024",
+            "float16_256x1024",
+            "float32_32x1024",
+            "float32_256x1024"
+          ],
+          "failed_wall_cases": [],
+          "failed_ragged_gpu_cases": [
+            "float16_256x1009"
+          ]
+        }
+      }
+    ],
+    "heldout_results_used": false
+  }
+}
