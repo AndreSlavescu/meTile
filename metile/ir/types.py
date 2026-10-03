@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from metile.ir.ownership import ThreadLayout
+
 
 @dataclass(frozen=True)
 class ScalarType:
@@ -21,9 +23,35 @@ class ScalarType:
 
 
 @dataclass(frozen=True)
+class VectorType:
+    dtype: str
+    width: int = 4
+
+    def __post_init__(self):
+        if self.dtype not in {"f16", "f32"}:
+            raise ValueError("vector memory values require f16 or f32 elements")
+        if type(self.width) is not int or self.width != 4:
+            raise ValueError("vector memory values require exactly four elements")
+
+    def to_msl(self) -> str:
+        return f"{ScalarType(self.dtype).to_msl()}{self.width}"
+
+    def __repr__(self):
+        return f"vector<{self.width}, {self.dtype}>"
+
+
+@dataclass(frozen=True)
 class TileType:
     shape: tuple[int, ...]
     dtype: str
+    layout: ThreadLayout | None = None
+
+    def __post_init__(self):
+        if self.layout is not None:
+            if not isinstance(self.layout, ThreadLayout):
+                raise TypeError("tile execution layout must be a ThreadLayout")
+            if self.shape != (self.layout.size,):
+                raise ValueError("thread layout requires a one-dimensional tile of matching size")
 
     @property
     def numel(self) -> int:
@@ -37,7 +65,26 @@ class TileType:
 
     def __repr__(self):
         shape_str = "x".join(str(s) for s in self.shape)
-        return f"tile<{shape_str}, {self.dtype}>"
+        ownership = f", layout={self.layout!r}" if self.layout is not None else ""
+        return f"tile<{shape_str}, {self.dtype}{ownership}>"
+
+
+def merge_tile_layouts(*types) -> ThreadLayout | None:
+    """Check pointwise ownership while preserving unconstrained legacy tile types."""
+    tiles = [value_type for value_type in types if isinstance(value_type, TileType)]
+    explicit = [value_type.layout for value_type in tiles if value_type.layout is not None]
+    if not explicit:
+        return None
+    layout = explicit[0]
+    if any(value_type.shape != (layout.size,) for value_type in tiles):
+        raise ValueError("thread layouts require matching one-dimensional tile shapes")
+    if any(value_type.layout is not None and value_type.layout != layout for value_type in tiles):
+        raise ValueError("tile thread layouts differ; use convert_layout before combining values")
+    if any(value_type.layout is None for value_type in tiles) and (
+        layout.elements_per_thread != 1 or layout != ThreadLayout.identity(layout.size)
+    ):
+        raise ValueError("tile thread layouts differ; use convert_layout before combining values")
+    return layout
 
 
 @dataclass(frozen=True)

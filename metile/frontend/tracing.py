@@ -4,6 +4,7 @@ import threading
 from contextlib import contextmanager
 
 from metile.ir import tile_ir as tir
+from metile.ir.ownership import ThreadLayout
 from metile.ir.types import PtrType
 
 
@@ -612,13 +613,16 @@ def tile_swizzle(
     return pid_m, pid_n
 
 
-def arange(start, end) -> TracingProxy:
+def arange(start, end, *, layout: ThreadLayout | None = None) -> TracingProxy:
     """Create a tile of sequential indices [start, start+size).
 
     `end` must be a compile-time constant int (the tile size).
     `start` can be a TracingProxy or int.
+    `layout` optionally assigns each logical tile element to a physical thread.
     """
     ctx = _get_ctx()
+    if not isinstance(start, (int, TracingProxy)) or isinstance(start, bool):
+        raise TypeError("arange origins must be integer scalars")
     if isinstance(end, int) and isinstance(start, int):
         size = end - start
         start_val = _to_value(start) if start != 0 else None
@@ -636,8 +640,15 @@ def arange(start, end) -> TracingProxy:
     else:
         start_val = None
 
-    op = tir.Arange(start=start_val, size=size)
+    op = tir.Arange(start=start_val, size=size, layout=layout)
     result = ctx.add_op(op)
+    return TracingProxy(result)
+
+
+def convert_layout(value, layout: ThreadLayout) -> TracingProxy:
+    """Redistribute a tile's physical thread ownership without changing its values."""
+    ctx = _get_ctx()
+    result = ctx.add_op(tir.ConvertLayout(value=_to_value(value), layout=layout))
     return TracingProxy(result)
 
 

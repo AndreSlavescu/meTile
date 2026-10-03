@@ -6,6 +6,9 @@ from metile.compiler.lowering.common import (
     _MSL_TYPES,
     LoweringError,
 )
+from metile.compiler.lowering.ownership import lower_layout_conversion, lower_owned_arange
+from metile.compiler.lowering.registers import RegisterLowering
+from metile.compiler.ownership import validate_thread_layouts
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
 from metile.ir.types import I32, PtrType, ScalarType
@@ -36,12 +39,22 @@ class _ElementwiseLoweringContext:
         # Track shared memory allocations: tile IR value name -> threadgroup array name
         self._shared_allocs: dict[str, str] = {}
         self._loop_post_refs: dict[int, set[str]] = {}
+        self.mfunc.value_layouts = validate_thread_layouts(func)
+        self._ownership_scratch: dict[str, str] = {}
+        self._ownership_names = {parameter.name for parameter in func.params} | {
+            operation.result.name for operation in func.ops if operation.result is not None
+        }
+        self._register_lowering = (
+            RegisterLowering(self)
+            if self.mfunc.value_layouts and self.mfunc.value_layouts[0].elements_per_thread > 1
+            else None
+        )
         self._index_loop_post_refs(self.func.ops)
 
     def lower(self) -> mir.MFunction:
         self._lower_params()
 
-        if self._has_reduce() or self._has_shared():
+        if self.func.tensors or self._has_reduce() or self._has_shared():
             self._mode = "row_parallel"
             self._setup_row_parallel()
         elif self._has_arange():
@@ -97,6 +110,11 @@ class _ElementwiseLoweringContext:
             self.value_map[p.name] = mv
 
     def _lower_ops(self):
+        if self.func.tensors:
+            for op in self.func.ops:
+                self.mfunc.ops.extend(self._lower_op(op) or [])
+            return
+
         # Collect all ops that are inside if-blocks (stores with masks)
         # First pass: identify mask values and the if-block pattern
         mask_value = None
@@ -143,8 +161,26 @@ class _ElementwiseLoweringContext:
                 self.mfunc.ops.append(m_op)
 
     def _lower_op(self, op: tir.Op) -> list[mir.MOp] | None:
+        if self._register_lowering is not None:
+            return self._register_lowering.lower(op)
+        return self._lower_scalar_op(op)
+
+    def _lower_scalar_op(self, op: tir.Op) -> list[mir.MOp] | None:
         """Lower a single Tile IR op to Metal IR op(s). Returns list or None."""
         if isinstance(op, tir.ProgramId):
+            if self.func.tensors:
+                if op.axis not in (0, 1, 2):
+                    raise LoweringError("program_id axis must be 0, 1 or 2")
+                group = self.tgp_id
+                if op.axis:
+                    group = self.mfunc.add_op(
+                        mir.ThreadgroupPositionInGrid(axis=op.axis),
+                        f"tgp_id_{'xyz'[op.axis]}",
+                    )
+                cast = mir.MCast(value=group, target_dtype="i32")
+                cast.result = mir.MValue(op.result.name, I32, cast)
+                self.value_map[op.result.name] = cast.result
+                return [cast]
             if self._mode == "row_parallel":
                 self.value_map[op.result.name] = self.tgp_id
             elif self._mode == "elementwise":
@@ -169,12 +205,31 @@ class _ElementwiseLoweringContext:
             return [m_op]
 
         elif isinstance(op, tir.Arange):
+            if self.mfunc.value_layouts:
+                return lower_owned_arange(self, op)
+            if self.func.tensors:
+                if self.block_size is not None and self.block_size != op.size:
+                    raise LoweringError("tensor indexing requires equal arange sizes")
+                self.block_size = op.size
+                lane = mir.MCast(value=self.lid_value, target_dtype="i32")
+                lane.result = mir.MValue(f"lane_{op.result.name}", I32, lane)
+                if op.start is None:
+                    self.value_map[op.result.name] = lane.result
+                    return [lane]
+                origin = self._resolve(op.start)
+                index = mir.MBinOp(op="add", lhs=lane.result, rhs=origin)
+                index.result = mir.MValue(op.result.name, I32, index)
+                self.value_map[op.result.name] = index.result
+                return [lane, index]
             self.block_size = op.size
             if self._mode == "row_parallel":
                 self.value_map[op.result.name] = self.lid_value
             else:
                 self.value_map[op.result.name] = self.tid_value
             return None
+
+        elif isinstance(op, tir.ConvertLayout):
+            return lower_layout_conversion(self, op)
 
         elif isinstance(op, tir.Reduce):
             return self._lower_reduce(op)
@@ -407,12 +462,18 @@ class _ElementwiseLoweringContext:
         if self._is_shared_ptr(base):
             array_name = self._shared_allocs[base.name]
             m_op = mir.MThreadgroupLoad(array_name=array_name, index=index, dtype=dtype)
+            if self.func.tensors:
+                m_op.mask = self._resolve(op.mask) if op.mask is not None else None
+                m_op.other = self._resolve(op.other) if op.other is not None else None
             mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
             m_op.result = mv
             self.value_map[op.result.name] = mv
             return [m_op]
 
         m_op = mir.DeviceLoad(ptr=base, index=index, dtype=dtype)
+        if self.func.tensors:
+            m_op.mask = self._resolve(op.mask) if op.mask is not None else None
+            m_op.other = self._resolve(op.other) if op.other is not None else None
         mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
         m_op.result = mv
         self.value_map[op.result.name] = mv
@@ -432,9 +493,13 @@ class _ElementwiseLoweringContext:
         if self._is_shared_ptr(base):
             array_name = self._shared_allocs[base.name]
             m_op = mir.MThreadgroupStore(array_name=array_name, index=index, value=value)
+            if self.func.tensors:
+                m_op.mask = self._resolve(op.mask) if op.mask is not None else None
             return [m_op]
 
         m_op = mir.DeviceStore(ptr=base, index=index, value=value)
+        if self.func.tensors:
+            m_op.mask = self._resolve(op.mask) if op.mask is not None else None
         return [m_op]
 
     def _lower_unary(self, op: tir.Unary) -> list[mir.MOp]:
@@ -449,11 +514,26 @@ class _ElementwiseLoweringContext:
         cond = self._resolve(op.condition)
         true_v = self._resolve(op.true_val)
         false_v = self._resolve(op.false_val)
+        operations = []
+        if not isinstance(op.result.type, PtrType):
+            promoted_type = ScalarType(op.result.type.dtype)
+            branches = []
+            for branch, value in (("true", true_v), ("false", false_v)):
+                if value.type != promoted_type:
+                    conversion = mir.MCast(value=value, target_dtype=promoted_type.dtype)
+                    converted = mir.MValue(
+                        f"select_{branch}_{op.result.name}", promoted_type, conversion
+                    )
+                    conversion.result = converted
+                    operations.append(conversion)
+                    value = converted
+                branches.append(value)
+            true_v, false_v = branches
         m_op = mir.MSelect(condition=cond, true_val=true_v, false_val=false_v)
         mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
         m_op.result = mv
         self.value_map[op.result.name] = mv
-        return [m_op]
+        return [*operations, m_op]
 
     def _resolve(self, val: tir.Value) -> mir.MValue:
         """Resolve a Tile IR value to its Metal IR equivalent."""
@@ -535,7 +615,7 @@ class _ElementwiseLoweringContext:
 
         # Pre-pass: detect mask in body (for row-parallel mode)
         body_mask_name = None
-        if self._mode == "row_parallel":
+        if self._mode == "row_parallel" and not self.func.tensors:
             for body_op in op.body:
                 if isinstance(body_op, tir.Load) and getattr(body_op, "mask", None) is not None:
                     body_mask_name = body_op.mask.name

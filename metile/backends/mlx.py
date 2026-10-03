@@ -12,9 +12,6 @@ import numpy as np
 import metile
 from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
 from metile.frontend.kernel import OutOfResources
-from metile.kernels.add_rmsnorm import add_rmsnorm
-from metile.kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
-from metile.kernels.rmsnorm import rmsnorm
 from metile.runtime.cache import (
     cache_root,
     read_cached_algorithm_config,
@@ -22,6 +19,9 @@ from metile.runtime.cache import (
     write_cached_algorithm_config,
 )
 from metile.tuning import confirm_pairwise, round_robin
+from metile_kernels.add_rmsnorm import add_rmsnorm
+from metile_kernels.attention import ATTENTION_DECODE_CONFIGS, attention_decode_kernel
+from metile_kernels.rmsnorm import rmsnorm
 
 _mlx_kernel_cache = {}
 _mlx_schedule_cache = {}

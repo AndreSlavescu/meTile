@@ -23,10 +23,12 @@ docs = [
 ]
 mlx = [
     "mlx>=0.31",
+    "metile-kernels==0.0.1",
 ]
 mlx-lm = [
     "mlx>=0.31",
     "mlx-lm>=0.31",
+    "metile-kernels==0.0.1",
 ]
 
 [build-system]
@@ -34,7 +36,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["metile*"]
+include = ["metile", "metile.*"]
 
 [tool.ruff]
 line-length = 100
@@ -64,10 +66,11 @@ ignore = [
 # closure built in a sweep loop never outlives the iteration that built it. Binding each
 # captured tensor as a default argument would only obscure what is being measured.
 "benchmarks/*.py" = ["E402", "B023"]
+"benchmarks/**/*.py" = ["E402", "B023"]
 "examples/*.py" = ["E402"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["metile"]
+known-first-party = ["metile", "metile_kernels"]
 
 [tool.ruff.format]
 quote-style = "double"

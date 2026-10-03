@@ -6,8 +6,8 @@ target, not of any benchmark: a pass that wants to know whether a schedule can s
 whether reordering instructions could possibly pay, should ask here.
 
 Provenance matters as much as the values, so each is recorded with how it was obtained and
-what it ruled in or out. Re-measure with `benchmarks/agx_registers.py` and
-`benchmarks/agx_ilp_ceiling.py` on new hardware; nothing below is derived from a datasheet.
+what it ruled in or out. Re-measure with `benchmarks/hardware/agx_registers.py` and
+`benchmarks/hardware/agx_ilp_ceiling.py` on new hardware; nothing below is derived from a datasheet.
 """
 
 import re
@@ -37,7 +37,7 @@ SCALAR_PEAK_TFLOPS = {"f32": 4.1, "f16": 6.5}
 MATRIX_PEAK_TFLOPS = 15.33
 STREAMING_READ_GBPS = 120.6
 
-# Read bandwidth as a function of working-set size, measured by benchmarks/agx_memory_hierarchy.py.
+# Read bandwidth as a function of working-set size, measured by benchmarks/hardware/agx_memory_hierarchy.py.
 # One number for bandwidth is badly wrong here: a working set the fast level holds is served twenty times
 # faster than one that streams, and that ratio is larger than every other factor in this file.
 #
@@ -76,7 +76,7 @@ GROUPS_FOR_RESIDENT_BANDWIDTH = {
     16 * 1024 * 1024: 1024,
 }
 
-# Threadgroup memory, measured by benchmarks/agx_threadgroup_bandwidth.py against a resident device read
+# Threadgroup memory, measured by benchmarks/hardware/agx_threadgroup_bandwidth.py against a resident device read
 # over the same 32 KB, so this compares staging with a cache hit rather than with DRAM.
 #
 # It is faster, but only just, and only when read contiguously: 3361 GB/s against the device arm's 2749,
@@ -129,10 +129,10 @@ def spills(registers):
 def read_bandwidth_gbps(working_set_bytes):
     """Expected read bandwidth for a working set of this size, in GB/s.
 
-    For a pass deciding a tile size. Interpolating between measured points would invent a smooth curve
-    the hardware does not have -- the drop from 2 MB to 4 MB is a factor of four -- so this reports the
-    measurement for the smallest size at least as large as the request, which is the conservative
-    direction: a tile is served no faster than the next size up was measured at.
+    For a pass deciding a tile size. Interpolating between measured points would invent an unmeasured
+    curve, so this reports the measurement for the smallest size at least as large as the request,
+    which is the conservative direction: a tile is served no faster than the next size up was measured
+    at.
     """
     if working_set_bytes <= 0:
         raise ValueError("a working set must be positive")
@@ -166,8 +166,8 @@ def threadgroup_conflicts(stride_bytes):
 def tiling_gain(working_set_bytes):
     """How much bandwidth a tiling wins by fitting this working set instead of streaming.
 
-    The figure worth putting beside the other ratios in this file. Fitting under 2 MB is worth about
-    19x, where choosing the matrix unit over scalar is worth 2.4x to 3.7x and instruction scheduling is
+    The figure worth putting beside the other ratios in this file. Fitting within 16 MB is worth about
+    20x, where choosing the matrix unit over scalar is worth 2.4x to 3.7x and instruction scheduling is
     worth at most 1.09x and unreachable in practice.
 
     Available to a pass only where there is reuse, which is the part worth checking before reaching for
@@ -249,29 +249,17 @@ def _table_fields(blob, table):
         return
     for index in range((vtable_bytes - 4) // 2):
         at = vtable + 4 + index * 2
-        if at + 2 > len(blob):
-            return
         relative = struct.unpack_from("<H", blob, at)[0]
         if relative and table + relative < len(blob):
             yield index, table + relative
 
 
-def _compiled(source, function, workdir):
-    """Compile one MSL kernel and unwrap to the GPU Mach-O inside the binary archive.
-
-    Three unwraps. An MTLBinaryArchive serializes to a fat file whose applegpu_* slice is the
-    GPU code; that slice's __compute section is itself a Mach-O; inside it __GPU_METADATA is a
-    FlatBuffer and __text is the machine code.
-
-    Costs a Metal compile per call, on the order of a second, so this is for offline analysis
-    and never for a dispatch path.
-    """
+def _compile_archive(source, function, workdir, basename="kernel"):
+    """Compile one MSL kernel into a binary archive, returning its source and archive paths."""
     workdir = Path(workdir)
     binary = _harness(workdir)
-    metal = workdir / "kernel.metal"
-    archive = workdir / "kernel.bin"
-    thin = workdir / "kernel.gpu"
-    nested = workdir / "kernel.inner"
+    metal = workdir / f"{basename}.metal"
+    archive = workdir / f"{basename}.bin"
     metal.write_text(source)
 
     built = subprocess.run(
@@ -286,6 +274,15 @@ def _compiled(source, function, workdir):
         if "MTLBinaryArchive" in message or "eligible to be serialized" in message:
             raise Unavailable(f"this device does not serialize binary archives: {message[:200]}")
         raise RuntimeError(message[:300])
+    return metal, archive
+
+
+def _extract_archive(archive, workdir):
+    """Unwrap an existing archive to its nested GPU Mach-O without compiling it again."""
+    archive = Path(archive)
+    workdir = Path(workdir)
+    thin = workdir / f"{archive.stem}.gpu"
+    nested = workdir / f"{archive.stem}.inner"
 
     subprocess.run(
         ["xcrun", "metal-lipo", str(archive), "-thin", _gpu_arch(archive), "-output", str(thin)],
@@ -294,6 +291,20 @@ def _compiled(source, function, workdir):
     )
     nested.write_bytes(_section(thin, None))
     return nested
+
+
+def _compiled(source, function, workdir):
+    """Compile one MSL kernel and unwrap to the GPU Mach-O inside the binary archive.
+
+    Three unwraps. An MTLBinaryArchive serializes to a fat file whose applegpu_* slice is the
+    GPU code; that slice's __compute section is itself a Mach-O; inside it __GPU_METADATA is a
+    FlatBuffer and __text is the machine code.
+
+    Costs a Metal compile per call, on the order of a second, so this is for offline analysis
+    and never for a dispatch path.
+    """
+    _, archive = _compile_archive(source, function, workdir)
+    return _extract_archive(archive, workdir)
 
 
 def machine_code(source, function, workdir=".metile-agx"):
@@ -306,7 +317,7 @@ def machine_code(source, function, workdir=".metile-agx"):
     Used that way it established that Apple's backend normalises statement order completely:
     two independent fma chains written serially and written interleaved produce byte-identical
     machine code, as do a load placed at its use and the same load hoisted. That is why
-    meTile's own scheduling pass is off by default. See benchmarks/agx_source_order.py.
+    meTile's own scheduling pass is off by default. See benchmarks/hardware/agx_source_order.py.
     """
     return _section(_compiled(source, function, workdir), None, "__text")
 

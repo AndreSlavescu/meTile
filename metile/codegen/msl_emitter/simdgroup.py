@@ -256,6 +256,41 @@ def _emit_simdgroup_store(op, lines, indent, func):
         lines.append(
             f"{pad}        simdgroup_store({op.acc_name}[{op.mi}][{op.ni}], {ptr} + _or * {stride} + _oc, {stride});"
         )
+    scratch_elements = (func.threadgroup_size[0] // 32) * 64
+    scratch = next(
+        (
+            allocation.alloc_name
+            for allocation in func.ops
+            if isinstance(allocation, mir.MThreadgroupAlloc)
+            and allocation.elem_type == op.out_type
+            and allocation.size >= scratch_elements
+        ),
+        None,
+    )
+    if scratch is None:
+        raise ValueError("SIMDgroup GEMM requires enough shared memory for bounded output stores")
+    lines.append(f"{pad}    }} else if (_or < uint({M}) && _oc < uint({N})) {{")
+    source = f"{op.acc_name}[{op.mi}][{op.ni}]"
+    if op.out_type == "half" and op.acc_type == "float":
+        lines.append(f"{pad}        simdgroup_matrix<half, 8, 8> _tail;")
+        for element in range(2):
+            lines.append(
+                f"{pad}        _tail.thread_elements()[{element}] = "
+                f"half({source}.thread_elements()[{element}]);"
+            )
+        source = "_tail"
+    lines.append(f"{pad}        simdgroup_store({source}, {scratch} + sgid * 64u, 8);")
+    lines.append(f"{pad}        simdgroup_barrier(mem_flags::mem_threadgroup);")
+    lines.append(f"{pad}        for (uint _element = slid; _element < 64u; _element += 32u) {{")
+    lines.append(f"{pad}            uint _row = _or + _element / 8u;")
+    lines.append(f"{pad}            uint _column = _oc + _element % 8u;")
+    lines.append(f"{pad}            if (_row < uint({M}) && _column < uint({N})) {{")
+    lines.append(
+        f"{pad}                {ptr}[_row * {stride} + _column] = {scratch}[sgid * 64u + _element];"
+    )
+    lines.append(f"{pad}            }}")
+    lines.append(f"{pad}        }}")
+    lines.append(f"{pad}        simdgroup_barrier(mem_flags::mem_threadgroup);")
     lines.append(f"{pad}    }}")
     lines.append(f"{pad}}}")
 
@@ -509,6 +544,26 @@ def _emit_coop_tensor_load(op, lines, indent):
 def _emit_coop_tensor_store(op, lines, indent):
     """Emit cooperative_tensor store to output slice."""
     pad = "    " * indent
+    if op.output_type is not None:
+        if getattr(op, "_needs_bounds_guard", False):
+            lines.append(f"{pad}if (_valid_tile) {{")
+            pad += "    "
+        lines.append(f"{pad}#pragma clang loop unroll(full)")
+        lines.append(
+            f"{pad}for (uint16_t _index = 0; _index < {op.ct_name}.get_capacity(); ++_index) {{"
+        )
+        lines.append(f"{pad}    if ({op.ct_name}.is_valid_element(_index)) {{")
+        lines.append(
+            f"{pad}        auto _coordinate = {op.ct_name}.get_multidimensional_index(_index);"
+        )
+        lines.append(
+            f"{pad}        {op.output_slice}[_coordinate] = {op.output_type}({op.ct_name}[_index]);"
+        )
+        lines.append(f"{pad}    }}")
+        lines.append(f"{pad}}}")
+        if getattr(op, "_needs_bounds_guard", False):
+            lines.append(f"{'    ' * indent}}}")
+        return
     if getattr(op, "_needs_bounds_guard", False):
         lines.append(f"{pad}if (_valid_tile) {op.ct_name}.store({op.output_slice});")
     else:

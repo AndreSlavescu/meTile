@@ -1,7 +1,9 @@
 from metile.compile import CompileReport, compile
 from metile.compiler.graph_fusion import FusionTarget, ParallelEpilogueRule, plan_graph_fusion
+from metile.compiler.options import Schedule
 from metile.frontend.autotune import Config, autotune
 from metile.frontend.kernel import kernel
+from metile.frontend.tensor import tensor
 from metile.frontend.tracing import (
     TensorDescriptor,
     abs,
@@ -10,6 +12,7 @@ from metile.frontend.tracing import (
     cast,
     cdiv,
     constexpr,
+    convert_layout,
     dot,
     exp,
     fast_exp,
@@ -53,6 +56,7 @@ from metile.ir.layout import (
     row_major,
     simdgroup_layout_8x8,
 )
+from metile.ir.ownership import ThreadLayout
 from metile.runtime.address_space import (
     GlobalAddressSpace,
     KernelPipeline,
@@ -78,9 +82,11 @@ __all__ = [
     "KernelPipeline",
     "Layout",
     "ParallelEpilogueRule",
+    "Schedule",
     "TensorDescriptor",
     "TensorSpec",
     "TensorView",
+    "ThreadLayout",
     "TiledView",
     "abs",
     "arange",
@@ -92,6 +98,7 @@ __all__ = [
     "col_major",
     "compile",
     "constexpr",
+    "convert_layout",
     "dot",
     "exp",
     "fast_exp",
@@ -125,6 +132,7 @@ __all__ = [
     "store",
     "sum",
     "tanh",
+    "tensor",
     "thread_id",
     "tile_load",
     "tile_range",

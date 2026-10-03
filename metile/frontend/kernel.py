@@ -9,7 +9,9 @@ import sys
 import numpy as np
 
 from metile.codegen.msl_emitter import emit
+from metile.compiler.execution_report import execution_report, validate_materialized_schedule
 from metile.compiler.lowering import lower
+from metile.compiler.options import Schedule
 from metile.compiler.passes import (
     block_swizzle,
     decompose_nax_fragments,
@@ -33,12 +35,12 @@ from metile.ir.types import I32, PtrType, ScalarType
 from metile.runtime.buffer import MtileBuffer
 from metile.runtime.metal_device import MetalDevice, MTLSize, NSRange
 
-# Global kernel cache: (func_name, constexprs_tuple, dtypes_tuple) -> CompiledKernel
+# Global kernel cache: (name, function, code, constexprs, dtypes, compiler flags) -> CompiledKernel
 _kernel_cache: dict = {}
 # Scalar buffer cache: (value, format_char) -> metal_buffer
 _scalar_buffer_cache: dict = {}
 
-_ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4, "uchar": 1}
+_ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4, "uchar": 1, "bool": 1}
 
 
 class OutOfResources(RuntimeError):
@@ -85,6 +87,7 @@ class CompiledKernel:
         prefer_ordered: bool = False,
         output_indices: tuple[int, ...] = (),
         argument_indices: tuple[int, ...] | None = None,
+        execution_report=None,
     ):
         self.pipeline = pipeline
         self.msl_source = msl_source
@@ -95,6 +98,15 @@ class CompiledKernel:
         self.output_indices = output_indices
         self.argument_indices = argument_indices
         self.description_bits = compressed_description_bits(msl_source)
+        self.execution_report = execution_report
+        self.schedule_plan = execution_report.plan if execution_report is not None else None
+
+    def explain(self) -> str:
+        return (
+            self.execution_report.format()
+            if self.execution_report is not None
+            else "No schedule report available."
+        )
 
 
 def kernel(fn):
@@ -122,34 +134,7 @@ class KernelFunction:
         """
         launcher = KernelLauncher(self, (1,))
         launcher(*args, **kwargs)
-
-        # Build cache key
-        sig = self._sig
-        sig_names = set(sig.parameters.keys())
-        constexprs = {}
-        dtypes = []
-        for name, param in sig.parameters.items():
-            if param.annotation is constexpr and name in kwargs:
-                val = kwargs[name]
-                constexprs[name] = val._value if isinstance(val, constexpr) else val
-        for name, val in kwargs.items():
-            if name not in sig_names and name not in constexprs:
-                constexprs[name] = val._value if isinstance(val, constexpr) else val
-
-        for a in args:
-            if isinstance(a, (MtileBuffer, np.ndarray)):
-                dtypes.append(_numpy_to_dtype(a.dtype))
-            elif isinstance(a, int):
-                dtypes.append("i32")
-            elif isinstance(a, float):
-                dtypes.append("f32")
-
-        cache_key = (
-            self.name,
-            tuple(sorted(constexprs.items())),
-            tuple(dtypes),
-        )
-        return _kernel_cache[cache_key]
+        return launcher._last_compiled
 
 
 class FastDispatcher:
@@ -172,6 +157,7 @@ class FastDispatcher:
         "_dev",
         "_dispatch_fn",
         "_dispatch_sel",
+        "_execution_report",
         "_grid",
         "_input_resources",
         "_output_resources",
@@ -202,6 +188,7 @@ class FastDispatcher:
         self._concurrent = not compiled.is_gemm and not compiled.prefer_ordered
         self._dev = dev
         self._description_bits = compiled.description_bits
+        self._execution_report = compiled.execution_report
         self._completion_spin_ns = max(0, int(completion_spin_ns))
         buffer_values = tuple(
             buffer.value if isinstance(buffer, ctypes.c_void_p) else int(buffer)
@@ -308,6 +295,21 @@ class FastDispatcher:
     def description_bits(self) -> int:
         return self._description_bits
 
+    @property
+    def execution_report(self):
+        return self._execution_report
+
+    @property
+    def schedule_plan(self):
+        return self._execution_report.plan if self._execution_report is not None else None
+
+    def explain(self) -> str:
+        return (
+            self._execution_report.format()
+            if self._execution_report is not None
+            else "No schedule report available."
+        )
+
 
 class KernelLauncher:
     def __init__(self, kernel_fn: KernelFunction, grid: tuple):
@@ -342,6 +344,11 @@ class KernelLauncher:
 
         bound_kwargs = {name: value for name, value in kwargs.items() if name in sig_names}
         bound = sig.bind_partial(*args, **bound_kwargs)
+        constexprs["_SCALAR_ALIGNMENT_32"] = tuple(
+            (name, int(value) % 32)
+            for name, value in bound.arguments.items()
+            if isinstance(value, (int, np.integer)) and name not in constexprs
+        )
         for axis in ("M", "N", "K"):
             block = constexprs.get(f"BLOCK_{axis}")
             value = bound.arguments.get(axis)
@@ -351,7 +358,14 @@ class KernelLauncher:
         k_value = bound.arguments.get("K")
         if nax_outer_k is not None and isinstance(k_value, (int, np.integer)):
             constexprs["_ALIGNED_NAX_OUTER_K"] = int(k_value) % int(nax_outer_k) == 0
-        if constexprs.get("NAX_FRAGMENTS", False):
+        if constexprs.get("NAX_FRAGMENTS", False) or isinstance(
+            constexprs.get("SCHEDULE"), Schedule
+        ):
+            constexprs["_RUNTIME_SCALARS"] = tuple(
+                (name, int(value))
+                for name, value in bound.arguments.items()
+                if isinstance(value, (int, np.integer)) and name not in constexprs
+            )
             for axis in ("M", "N", "K"):
                 value = bound.arguments.get(axis)
                 if isinstance(value, (int, np.integer)):
@@ -380,8 +394,12 @@ class KernelLauncher:
         # Cache key
         cache_key = (
             self.kernel_fn.name,
+            self.kernel_fn.fn,
+            getattr(self.kernel_fn.fn, "__code__", None),
             tuple(sorted(constexprs.items())),
             tuple(dtypes),
+            os.environ.get("METILE_ONLINE_SOFTMAX") != "0",
+            os.environ.get("METILE_SCHEDULE") == "1",
         )
 
         if cache_key not in _kernel_cache:
@@ -521,6 +539,11 @@ class KernelLauncher:
 
         # Step 2: Lower to Metal IR (handles both element-wise and GEMM)
         metal_ir = lower(tile_ir)
+        plan = metal_ir.schedule_plan
+
+        if (_debug_all or "schedule" in _debug_flags) and plan is not None:
+            print(f"\n=== Schedule plan: {tile_ir.name} ===", file=sys.stderr)
+            print(plan.format(), file=sys.stderr)
 
         if _debug_all or "metal_ir" in _debug_flags:
             from metile.ir.printer import print_metal_ir
@@ -547,6 +570,8 @@ class KernelLauncher:
         is_tensor_ops = metal_ir.kernel_type == "tensor_ops_gemm"
         is_specialized = metal_ir.kernel_type == "specialized_gemm"
         use_swizzle = constexprs.get("SWIZZLE_SMEM", False)
+        vector_width = plan.vector_width if plan is not None else None
+        double_buffer = plan.double_buffer if plan is not None else None
         if is_tensor_ops:
             # Tensor_ops kernels use register-resident cooperative_tensors —
             # no threadgroup memory passes needed. K-loop unrolling and
@@ -556,23 +581,28 @@ class KernelLauncher:
         elif is_specialized:
             # Specialized GEMM: double-buffered + padded in lowering
             # Only apply vectorize and serpentine
-            metal_ir = _run_pass(vectorize_loads, metal_ir, vec_size=4)
+            if vector_width != 1:
+                metal_ir = _run_pass(vectorize_loads, metal_ir, vec_size=4)
             metal_ir = _run_pass(serpentine_mma, metal_ir)
         elif is_gemm:
             if use_swizzle:
                 metal_ir = _run_pass(swizzle_shared_memory, metal_ir)
             else:
                 metal_ir = _run_pass(pad_shared_memory, metal_ir)
-            metal_ir, did_db = _run_pass(double_buffer_k_loop, metal_ir)
-            if not did_db:
+            did_db = False
+            if double_buffer is not False and vector_width != 4:
+                metal_ir, did_db = _run_pass(double_buffer_k_loop, metal_ir)
+            if not did_db and (plan is None or plan.outer_bounds_proven):
                 metal_ir = _run_pass(split_k_loop, metal_ir)
-            metal_ir = _run_pass(vectorize_loads, metal_ir, vec_size=4)
+            if vector_width != 1:
+                metal_ir = _run_pass(vectorize_loads, metal_ir, vec_size=4)
             metal_ir = _run_pass(serpentine_mma, metal_ir)
             metal_ir = _run_pass(preload_mma_tiles, metal_ir)
             metal_ir = _run_pass(block_swizzle, metal_ir)
         else:
             metal_ir = _run_pass(split_elementwise_loops, metal_ir)
-            metal_ir = _run_pass(vectorize_elementwise, metal_ir, vec_size=4)
+            if vector_width != 1:
+                metal_ir = _run_pass(vectorize_elementwise, metal_ir, vec_size=4)
 
         # Constant folding (all kernel types)
         metal_ir = _run_pass(fold_constants, metal_ir)
@@ -586,7 +616,7 @@ class KernelLauncher:
         # byte-identical MSL against itself and spread by 0.6% to 7.6% between runs. The reason
         # is structural rather than a shortcoming of the pass: Apple's backend does its own
         # scheduling and allocation from the MSL it receives, so statement order is a
-        # suggestion. See benchmarks/agx_schedule_effect.py.
+        # suggestion. See benchmarks/hardware/agx_schedule_effect.py.
         #
         # It stays because it is correct, tested, and the thing that would become load bearing
         # if meTile emitted below MSL, which the binary-archive work established is possible.
@@ -614,6 +644,25 @@ class KernelLauncher:
 
         # Validate threadgroup memory fits within hardware limit
         _validate_threadgroup_memory(metal_ir)
+        from metile.compiler.ownership import (
+            validate_layout_exchanges,
+            validate_register_reductions,
+        )
+        from metile.compiler.register_memory import validate_register_memory
+        from metile.compiler.staging import validate_staging
+
+        validate_layout_exchanges(metal_ir)
+        validate_register_reductions(metal_ir)
+        validate_register_memory(metal_ir)
+        validate_staging(metal_ir)
+        validate_materialized_schedule(metal_ir)
+        report = execution_report(metal_ir, applied)
+
+        if _debug_all or "schedule" in _debug_flags:
+            print(f"\n=== Materialized schedule: {tile_ir.name} ===", file=sys.stderr)
+            print(report.format(), file=sys.stderr)
+            if _debug_dir:
+                _dump(os.path.join(_debug_dir, "schedule", f"{tile_ir.name}.json"), report.format())
 
         # Step 4: Generate MSL
         msl_source = emit(metal_ir)
@@ -655,6 +704,7 @@ class KernelLauncher:
                 index for index, param in enumerate(metal_ir.params) if param.is_output
             ),
             argument_indices=argument_indices,
+            execution_report=report,
         )
 
     def _dispatch(self, compiled: CompiledKernel, args):

@@ -30,11 +30,11 @@ from metile.compiler.schedule_search import (
     choose_mdl_tie,
     compressed_description_bits,
 )
-from metile.kernels.affine_qmv import (
+from metile.runtime.cache import atomic_write_json, read_json, stable_digest
+from metile_kernels.affine_qmv import (
     affine_qmv,
     affine_residual_qmv,
 )
-from metile.runtime.cache import atomic_write_json, read_json, stable_digest
 
 
 @dataclass(frozen=True)

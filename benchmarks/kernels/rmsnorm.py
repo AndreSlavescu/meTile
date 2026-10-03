@@ -1,0 +1,78 @@
+import sys
+import time
+from pathlib import Path
+
+_root = str(Path(__file__).resolve().parents[2])
+sys.path.insert(0, _root)
+
+from benchmarks.common.checkout import activate_checkout
+
+activate_checkout(_root)
+
+import mlx.core as mx
+import mlx.nn as nn
+import numpy as np
+
+import metile
+from benchmarks.common.benchutils import bench_interleaved, print_table
+from metile.runtime.metal_device import MetalDevice
+from metile_kernels.rmsnorm import rmsnorm
+
+RMSNORM_CONFIGS = [
+    metile.Config(BLOCK=64),
+    metile.Config(BLOCK=128),
+    metile.Config(BLOCK=256),
+    metile.Config(BLOCK=512),
+    metile.Config(BLOCK=1024),
+]
+
+autotuned_rmsnorm = metile.autotune(
+    configs=RMSNORM_CONFIGS,
+    key=["N"],
+    verbose=True,
+)(rmsnorm)
+
+COOLDOWN = 3.0
+
+
+def _print_table(title, rows):
+    print_table(title, rows, label_width=12)
+
+
+def main():
+    print("=== RMSNorm (autotuned) ===\n")
+
+    dev = MetalDevice.get()
+    rows = []
+
+    for nrows, hidden in [(128, 512), (256, 1024), (512, 2048), (1024, 4096)]:
+        X_np = np.random.randn(nrows, hidden).astype(np.float32)
+        W_np = np.random.randn(hidden).astype(np.float32)
+
+        X_buf = metile.Buffer(data=X_np.ravel())
+        W_buf = metile.Buffer(data=W_np.ravel())
+        Out_buf = metile.Buffer.zeros((nrows * hidden,))
+
+        grid = (nrows,)
+        dispatch = autotuned_rmsnorm[grid].prepare(X_buf, W_buf, Out_buf, hidden, 1e-5)
+
+        dev.sync()
+
+        rmsnorm_mlx = nn.RMSNorm(hidden)
+        rmsnorm_mlx.weight = mx.array(W_np)
+        X_mx = mx.array(X_np)
+
+        def mlx_fn(norm=rmsnorm_mlx, x=X_mx):
+            mx.eval(norm(x))
+
+        time.sleep(COOLDOWN)
+        dt_mtile, dt_mlx = bench_interleaved(dispatch, mlx_fn, dev.sync)
+
+        rows.append((f"{nrows}x{hidden}", dt_mtile * 1e6, dt_mlx * 1e6))
+
+    _print_table("rmsnorm vs MLX", rows)
+    print()
+
+
+if __name__ == "__main__":
+    main()

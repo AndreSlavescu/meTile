@@ -98,8 +98,9 @@ def _emit_nax_accumulator_reset(op, lines, indent):
 
 def _emit_nax_matmul2d_decl(op, lines, indent):
     pad = "    " * indent
+    relaxed = "true" if op.relaxed else "false"
     lines.append(f"{pad}constexpr auto nax_desc = matmul2d_descriptor(")
-    lines.append(f"{pad}    {op.m}, {op.n}, {op.k}, false, false, true,")
+    lines.append(f"{pad}    {op.m}, {op.n}, {op.k}, false, false, {relaxed},")
     lines.append(f"{pad}    matmul2d_descriptor::mode::multiply_accumulate);")
     lines.append(f"{pad}matmul2d<nax_desc, execution_simdgroup> nax_mma;")
     lines.append(

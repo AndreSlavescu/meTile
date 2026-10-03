@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from metile.ir.types import BOOL, I32, U32, PtrType, ScalarType, TileType
+from metile.ir.ownership import ThreadLayout
+from metile.ir.types import BOOL, I32, U32, PtrType, ScalarType, TileType, merge_tile_layouts
 
 
 @dataclass
@@ -15,6 +16,18 @@ class Value:
 
     def __repr__(self):
         return f"%{self.name}: {self.type}"
+
+
+@dataclass
+class TensorMemory:
+    """A logical tensor view over an existing allocation, with element strides."""
+
+    ptr: Value
+    shape: tuple[Value, ...]
+    strides: tuple[Value, ...]
+    access: str = "readwrite"
+    address_space: str = "device"
+    block_shape: tuple[int, ...] | None = None
 
 
 @dataclass
@@ -77,7 +90,7 @@ class Cast(Op):
 
     def result_type(self):
         if isinstance(self.value.type, TileType):
-            return TileType(self.value.type.shape, self.dtype)
+            return TileType(self.value.type.shape, self.dtype, self.value.type.layout)
         return ScalarType(self.dtype)
 
 
@@ -87,9 +100,25 @@ class Arange(Op):
 
     start: Value = None
     size: int = 0  # compile-time constant (determines tile shape)
+    layout: ThreadLayout | None = None
 
     def result_type(self) -> TileType:
-        return TileType((self.size,), "i32")
+        return TileType((self.size,), "i32", self.layout)
+
+
+@dataclass
+class ConvertLayout(Op):
+    """Redistribute a tile while preserving every logical element's value."""
+
+    value: Value = None
+    layout: ThreadLayout | None = None
+
+    def result_type(self) -> TileType:
+        if not isinstance(self.value.type, TileType):
+            raise TypeError("convert_layout requires a tile value")
+        if not isinstance(self.layout, ThreadLayout):
+            raise TypeError("convert_layout requires a ThreadLayout destination")
+        return TileType(self.value.type.shape, self.value.type.dtype, self.layout)
 
 
 @dataclass
@@ -101,11 +130,12 @@ class BinOp(Op):
     rhs: Value = None
 
     def result_type(self):
+        layout = merge_tile_layouts(self.lhs.type, self.rhs.type)
         # If either operand is a tile, result is a tile
         if isinstance(self.lhs.type, TileType):
-            return self.lhs.type
+            return TileType(self.lhs.type.shape, self.lhs.type.dtype, layout)
         if isinstance(self.rhs.type, TileType):
-            return self.rhs.type
+            return TileType(self.rhs.type.shape, self.rhs.type.dtype, layout)
         return self.lhs.type
 
 
@@ -118,6 +148,8 @@ class Unary(Op):
 
     def result_type(self):
         if self.op == "reverse_bits":
+            if isinstance(self.operand.type, TileType) and self.operand.type.layout is not None:
+                return TileType(self.operand.type.shape, "u32", self.operand.type.layout)
             return U32
         return self.operand.type
 
@@ -201,7 +233,29 @@ class Select(Op):
     false_val: Value = None
 
     def result_type(self):
-        return self.true_val.type
+        true_type = self.true_val.type
+        false_type = self.false_val.type
+        layout = merge_tile_layouts(self.condition.type, true_type, false_type)
+        if isinstance(true_type, PtrType) or isinstance(false_type, PtrType):
+            if true_type != false_type or isinstance(self.condition.type, TileType):
+                raise TypeError(
+                    "pointer selection requires matching pointer types and a scalar condition"
+                )
+            return true_type
+        tile_shapes = {
+            operand.type.shape
+            for operand in (self.condition, self.true_val, self.false_val)
+            if isinstance(operand.type, TileType)
+        }
+        if len(tile_shapes) > 1:
+            raise ValueError("select operands must have matching tile shapes")
+        priority = {"bool": 0, "u8": 1, "i32": 2, "u32": 3, "bf16": 4, "f16": 4, "f32": 5}
+        dtype = max((true_type.dtype, false_type.dtype), key=priority.__getitem__)
+        if {true_type.dtype, false_type.dtype} == {"bf16", "f16"}:
+            dtype = "f32"
+        if tile_shapes:
+            return TileType(tile_shapes.pop(), dtype, layout)
+        return ScalarType(dtype)
 
 
 @dataclass
@@ -213,10 +267,11 @@ class Compare(Op):
     rhs: Value = None
 
     def result_type(self):
+        layout = merge_tile_layouts(self.lhs.type, self.rhs.type)
         if isinstance(self.lhs.type, TileType):
-            return TileType(self.lhs.type.shape, "bool")
+            return TileType(self.lhs.type.shape, "bool", layout)
         if isinstance(self.rhs.type, TileType):
-            return TileType(self.rhs.type.shape, "bool")
+            return TileType(self.rhs.type.shape, "bool", layout)
         return BOOL
 
 
@@ -227,11 +282,17 @@ class Load(Op):
     ptr: Value = None
     offsets: Value = None
     mask: Value | None = None
+    other: Value | None = None
+    tensor: TensorMemory | None = None
 
     def result_type(self):
         assert isinstance(self.ptr.type, PtrType)
+        layout = merge_tile_layouts(
+            self.offsets.type,
+            *(value.type for value in (self.mask, self.other) if value is not None),
+        )
         if isinstance(self.offsets.type, TileType):
-            return TileType(self.offsets.type.shape, self.ptr.type.dtype)
+            return TileType(self.offsets.type.shape, self.ptr.type.dtype, layout)
         # Scalar offset → scalar load
         return ScalarType(self.ptr.type.dtype)
 
@@ -244,8 +305,14 @@ class Store(Op):
     offsets: Value = None
     value: Value = None
     mask: Value | None = None
+    tensor: TensorMemory | None = None
 
     def result_type(self):
+        merge_tile_layouts(
+            self.offsets.type,
+            self.value.type,
+            *(value.type for value in (self.mask,) if value is not None),
+        )
         return None
 
 
@@ -294,6 +361,7 @@ class TileLoad(Op):
     col_offset: Value = None
     stride: Value = None  # leading dimension
     tile_shape: tuple[int, int] = (32, 32)
+    tensor: TensorMemory | None = None
 
     def result_type(self) -> TileType:
         assert isinstance(self.ptr.type, PtrType)
@@ -310,6 +378,7 @@ class TileStore(Op):
     stride: Value = None
     value: Value = None
     tile_shape: tuple[int, int] = (32, 32)
+    tensor: TensorMemory | None = None
 
     def result_type(self):
         return None
@@ -394,6 +463,7 @@ class Function:
     constexprs: dict[str, int] = field(default_factory=dict)
     swizzle_pattern: str | None = None  # Set by tile_swizzle(); None = compiler infers
     swizzle_block_size: int = 2
+    tensors: list[TensorMemory] = field(default_factory=list)
 
     def add_op(self, op: Op, name: str | None = None) -> Value | None:
         rt = op.result_type() if hasattr(op, "result_type") else None

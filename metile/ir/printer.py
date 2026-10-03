@@ -11,18 +11,55 @@ def print_tile_ir(func: tir.Function) -> str:
         ce = ", ".join(f"{k}={v}" for k, v in func.constexprs.items())
         lines.append(f"  // constexprs: {ce}")
 
+    tensor_names = {id(memory): f"tensor{index}" for index, memory in enumerate(func.tensors)}
+    for memory in func.tensors:
+        block = f", block_shape={memory.block_shape}" if memory.block_shape is not None else ""
+        lines.append(
+            f"  tensor @{tensor_names[id(memory)]}(%{memory.ptr.name}, "
+            f"shape={_format_tensor_dimensions(memory.shape)}, "
+            f"strides={_format_tensor_dimensions(memory.strides)}, "
+            f"access={memory.access}, address_space={memory.address_space}{block})"
+        )
+
     for op in func.ops:
-        _format_tile_op(op, lines, indent=1)
+        _format_tile_op(op, lines, indent=1, tensor_names=tensor_names)
 
     lines.append("}")
     return "\n".join(lines)
 
 
-def _format_tile_op(op: tir.Op, lines: list[str], indent: int = 1):
+def _format_tensor_dimensions(dimensions: tuple[tir.Value, ...]) -> str:
+    values = [
+        str(dimension.defining_op.value)
+        if isinstance(dimension.defining_op, tir.Constant)
+        else f"%{dimension.name}"
+        for dimension in dimensions
+    ]
+    return f"({', '.join(values)}{',' if len(values) == 1 else ''})"
+
+
+def _memory_attributes(op) -> str:
+    attributes = ""
+    if getattr(op, "mask", None) is not None:
+        attributes += f", mask=%{op.mask.name}"
+    if getattr(op, "other", None) is not None:
+        attributes += f", other=%{op.other.name}"
+    return attributes
+
+
+def _format_tile_op(
+    op: tir.Op, lines: list[str], indent: int = 1, tensor_names: dict[int, str] | None = None
+):
     pad = "  " * indent
     result = op.result
     prefix = f"%{result.name} = " if result else ""
     suffix = f" : {result.type}" if result else ""
+    memory = getattr(op, "tensor", None)
+    tensor = (
+        f", tensor=@{tensor_names[id(memory)]}"
+        if memory is not None and tensor_names is not None and id(memory) in tensor_names
+        else ""
+    )
 
     if isinstance(op, tir.ProgramId):
         lines.append(f"{pad}{prefix}program_id(axis={op.axis}){suffix}")
@@ -35,6 +72,8 @@ def _format_tile_op(op: tir.Op, lines: list[str], indent: int = 1):
     elif isinstance(op, tir.Arange):
         start = f"%{op.start.name}" if op.start else "0"
         lines.append(f"{pad}{prefix}arange({start}, {start}+{op.size}){suffix}")
+    elif isinstance(op, tir.ConvertLayout):
+        lines.append(f"{pad}{prefix}convert_layout(%{op.value.name}, {op.layout}){suffix}")
     elif isinstance(op, tir.BinOp):
         lines.append(f"{pad}{prefix}{op.op}(%{op.lhs.name}, %{op.rhs.name}){suffix}")
     elif isinstance(op, tir.Unary):
@@ -48,11 +87,15 @@ def _format_tile_op(op: tir.Op, lines: list[str], indent: int = 1):
     elif isinstance(op, tir.Compare):
         lines.append(f"{pad}{prefix}cmp_{op.predicate}(%{op.lhs.name}, %{op.rhs.name}){suffix}")
     elif isinstance(op, tir.Load):
-        mask = f", mask=%{op.mask.name}" if op.mask else ""
-        lines.append(f"{pad}{prefix}load(%{op.ptr.name}, %{op.offsets.name}{mask}){suffix}")
+        attributes = _memory_attributes(op)
+        lines.append(
+            f"{pad}{prefix}load(%{op.ptr.name}, %{op.offsets.name}{attributes}{tensor}){suffix}"
+        )
     elif isinstance(op, tir.Store):
-        mask = f", mask=%{op.mask.name}" if op.mask else ""
-        lines.append(f"{pad}store(%{op.ptr.name}, %{op.offsets.name}, %{op.value.name}{mask})")
+        attributes = _memory_attributes(op)
+        lines.append(
+            f"{pad}store(%{op.ptr.name}, %{op.offsets.name}, %{op.value.name}{attributes}{tensor})"
+        )
     elif isinstance(op, tir.PtrOffset):
         lines.append(f"{pad}{prefix}ptr_offset(%{op.ptr.name}, %{op.offsets.name}){suffix}")
     elif isinstance(op, tir.Zeros):
@@ -62,13 +105,13 @@ def _format_tile_op(op: tir.Op, lines: list[str], indent: int = 1):
     elif isinstance(op, tir.TileLoad):
         lines.append(
             f"{pad}{prefix}tile_load(%{op.ptr.name}, %{op.row_offset.name}, "
-            f"%{op.col_offset.name}, stride=%{op.stride.name}, shape={op.tile_shape}){suffix}"
+            f"%{op.col_offset.name}, stride=%{op.stride.name}, shape={op.tile_shape}{tensor}){suffix}"
         )
     elif isinstance(op, tir.TileStore):
         lines.append(
             f"{pad}tile_store(%{op.ptr.name}, %{op.row_offset.name}, "
             f"%{op.col_offset.name}, stride=%{op.stride.name}, %{op.value.name}, "
-            f"shape={op.tile_shape})"
+            f"shape={op.tile_shape}{tensor})"
         )
     elif isinstance(op, tir.SharedAlloc):
         lines.append(f"{pad}{prefix}shared_alloc(size={op.size}, dtype={op.dtype}){suffix}")
@@ -85,17 +128,17 @@ def _format_tile_op(op: tir.Op, lines: list[str], indent: int = 1):
         end = f"%{op.end.name}" if hasattr(op.end, "name") else str(op.end)
         lines.append(f"{pad}for %{op.iv.name} in range({start}, {end}, step={op.step}) {{")
         for body_op in op.body:
-            _format_tile_op(body_op, lines, indent + 1)
+            _format_tile_op(body_op, lines, indent + 1, tensor_names=tensor_names)
         lines.append(f"{pad}}}")
     elif isinstance(op, tir.PersistentRange):
         lines.append(f"{pad}persistent_range(total={op.total}) {{")
         for body_op in op.body:
-            _format_tile_op(body_op, lines, indent + 1)
+            _format_tile_op(body_op, lines, indent + 1, tensor_names=tensor_names)
         lines.append(f"{pad}}}")
     elif isinstance(op, tir.SimdgroupRole):
         lines.append(f"{pad}simdgroup_role(role={op.role}/{op.num_roles}) {{")
         for body_op in op.body:
-            _format_tile_op(body_op, lines, indent + 1)
+            _format_tile_op(body_op, lines, indent + 1, tensor_names=tensor_names)
         lines.append(f"{pad}}}")
     else:
         lines.append(f"{pad}{prefix}{type(op).__name__}(...){suffix}")
@@ -124,10 +167,15 @@ def _val(v):
     return f"%{v.name}"
 
 
+def _vector_values(values):
+    return f"({', '.join(_val(value) if value is not None else 'none' for value in values)})"
+
+
 def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
     pad = "  " * indent
     result = getattr(op, "result", None)
     prefix = f"%{result.name} = " if result else ""
+    suffix = f" : {result.type}" if result else ""
 
     # Thread position ops
     if isinstance(op, mir.ThreadPositionInGrid):
@@ -158,18 +206,42 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}cmp_{op.predicate}({_val(op.lhs)}, {_val(op.rhs)})")
 
     # Memory ops
+    elif isinstance(op, mir.MVectorLoad):
+        lines.append(
+            f"{pad}{prefix}vector_load({_val(op.ptr)}, dtype={op.dtype}, width=4, "
+            f"indices={_vector_values(op.indices)}, masks={_vector_values(op.masks)}, "
+            f"fills={_vector_values(op.others)}){suffix}"
+        )
+    elif isinstance(op, mir.MVectorExtract):
+        lines.append(f"{pad}{prefix}vector_extract({_val(op.value)}, lane={op.lane}){suffix}")
+    elif isinstance(op, mir.MVectorStore):
+        lines.append(
+            f"{pad}vector_store({_val(op.ptr)}, dtype={op.dtype}, width=4, "
+            f"indices={_vector_values(op.indices)}, values={_vector_values(op.values)}, "
+            f"masks={_vector_values(op.masks)})"
+        )
     elif isinstance(op, mir.DeviceLoad):
-        lines.append(f"{pad}{prefix}device_load({_val(op.ptr)}, {_val(op.index)})")
+        lines.append(
+            f"{pad}{prefix}device_load({_val(op.ptr)}, {_val(op.index)}{_memory_attributes(op)})"
+        )
     elif isinstance(op, mir.DeviceStore):
-        lines.append(f"{pad}device_store({_val(op.ptr)}, {_val(op.index)}, {_val(op.value)})")
+        lines.append(
+            f"{pad}device_store({_val(op.ptr)}, {_val(op.index)}, "
+            f"{_val(op.value)}{_memory_attributes(op)})"
+        )
     elif isinstance(op, mir.MPointerOffset):
         lines.append(f"{pad}{prefix}pointer_offset({_val(op.ptr)}, {op.offset})")
     elif isinstance(op, mir.MThreadgroupAlloc):
         lines.append(f"{pad}threadgroup_alloc({op.alloc_name}, {op.elem_type}, size={op.size})")
     elif isinstance(op, mir.MThreadgroupLoad):
-        lines.append(f"{pad}{prefix}threadgroup_load({op.array_name}, {_val(op.index)})")
+        lines.append(
+            f"{pad}{prefix}threadgroup_load({op.array_name}, {_val(op.index)}{_memory_attributes(op)})"
+        )
     elif isinstance(op, mir.MThreadgroupStore):
-        lines.append(f"{pad}threadgroup_store({op.array_name}, {_val(op.index)}, {_val(op.value)})")
+        lines.append(
+            f"{pad}threadgroup_store({op.array_name}, {_val(op.index)}, "
+            f"{_val(op.value)}{_memory_attributes(op)})"
+        )
     elif isinstance(op, mir.MCooperativeLoad):
         bounds = "bounds_check" if op.bounds_check else "no_bounds"
         swizzle = f", swizzle={op.swizzle_bits}b" if op.swizzle_bits > 0 else ""
@@ -205,6 +277,10 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         )
     elif isinstance(op, mir.MAccElemApply):
         lines.append(f"{pad}acc_elem_apply({op.acc_name}, ops={op.operations})")
+    elif isinstance(op, mir.MThreadIndexMap):
+        lines.append(f"{pad}{prefix}thread_index_map({_val(op.thread)}, {op.layout})")
+    elif isinstance(op, mir.MSimdShuffle):
+        lines.append(f"{pad}{prefix}simd_shuffle({_val(op.value)}, {_val(op.lane)})")
     elif isinstance(op, mir.MSimdShuffleXor):
         lines.append(f"{pad}{prefix}simd_shuffle_xor({_val(op.value)}, {_val(op.mask)})")
     elif isinstance(op, mir.MSimdBroadcast):
@@ -389,6 +465,8 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         end = _val(op.end) if isinstance(op.end, mir.MValue) else str(op.end)
         start = _val(op.start) if isinstance(op.start, mir.MValue) else str(op.start)
         markers = []
+        if op.staging is not None:
+            markers.append(f"staging={op.staging.mechanism}:{op.staging.stages}")
         if getattr(op, "_unroll", False):
             markers.append("unroll")
         if getattr(op, "_aligned", False):

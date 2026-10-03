@@ -20,12 +20,12 @@ jobs:
           python-version: "3.12"
       - run: pip install ruff vulture
       - name: Format check
-        run: ruff format --check metile/ tests/ benchmarks/
+        run: ruff format --check metile/ kernels/src/ tests/ benchmarks/
       - name: Lint
-        run: ruff check metile/ tests/ benchmarks/
+        run: ruff check metile/ kernels/src/ tests/ benchmarks/
       - name: Dead code detection
         run: |
-          vulture metile/ --min-confidence 90 \
+          vulture metile/ kernels/src/ --min-confidence 90 \
             --exclude "metile/ir/printer.py" \
             --ignore-names "result_type,to_msl,to_msl_mut"
 
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev,benchmarks]"
+      - run: python -m pip install -e ".[dev,benchmarks]" -e ./kernels
       - name: Run tests
         run: python -m pytest tests/ -x -q
 
@@ -49,9 +49,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev]" -e ./kernels
       - name: Run benchmarks
-        run: python benchmarks/regression.py --output bench_results.json
+        run: python -m benchmarks.regression.regression --output bench_results.json
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev]" -e ./kernels
       - name: Run paired base/PR benchmarks
         continue-on-error: true
-        run: python benchmarks/paired_regression.py --baseline-root baseline
+        run: python -m benchmarks.regression.paired_regression --baseline-root baseline

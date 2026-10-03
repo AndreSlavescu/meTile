@@ -141,7 +141,7 @@ _NAX_MIN_ROWS = 32
 # registers against the 140-register budget in metile.target.agx and so cannot spill. It made no
 # difference: the tuner already reaches the same speed with outputs_per_simdgroup=1 at a
 # larger simdgroup count, so the wider search bought nothing and 16 stands. Audited by
-# benchmarks/agx_registers.py, which reports the worst admitted kernel at 99 of 140.
+# benchmarks/hardware/agx_registers.py, which reports the worst admitted kernel at 99 of 140.
 _MAX_QMV_ACCUMULATOR_PAIRS = 16
 
 
