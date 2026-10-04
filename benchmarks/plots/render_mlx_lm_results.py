@@ -1,18 +1,17 @@
-"""Render reproducible PNG bar charts from an MLX-LM benchmark suite result."""
+"""Render reproducible vector/raster charts from an MLX-LM benchmark suite result."""
 
 import argparse
 import json
 import math
 import sys
-from itertools import combinations
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmarks.plots import chartstyle as style
 
-MLX_COLOR = "#ffb000"
-METILE_COLOR = "#3f7ee8"
+MLX_COLOR = style.PREFILL
+METILE_COLOR = style.DECODE
 _CHART_METRICS = (
     "mlx_decode_tokens_per_second",
     "metile_decode_tokens_per_second",
@@ -303,29 +302,7 @@ def _chart_data(suite):
 
 
 def _validate_text_layout(figure):
-    from matplotlib.text import Text
-
-    figure.canvas.draw()
-    renderer = figure.canvas.get_renderer()
-    texts = [
-        artist
-        for artist in figure.findobj(Text)
-        if artist.get_visible() and artist.get_text().strip()
-    ]
-    bounds = [
-        (
-            artist,
-            artist.get_window_extent(renderer).padded(6 if artist.get_gid() == "bar-value" else 2),
-        )
-        for artist in texts
-    ]
-    canvas = figure.bbox
-    for artist, box in bounds:
-        if box.x0 < canvas.x0 or box.y0 < canvas.y0 or box.x1 > canvas.x1 or box.y1 > canvas.y1:
-            raise RuntimeError(f"chart text leaves the canvas: {artist.get_text()!r}")
-    for (left, left_box), (right, right_box) in combinations(bounds, 2):
-        if left_box.overlaps(right_box):
-            raise RuntimeError(f"chart text overlaps: {left.get_text()!r} and {right.get_text()!r}")
+    style.validate_text_layout(figure)
 
 
 def _label_paired_bars(axis, mlx_bars, metile_bars, label_format):
@@ -351,125 +328,101 @@ def _label_paired_bars(axis, mlx_bars, metile_bars, label_format):
     return tuple(labels)
 
 
-def _render_throughput(suite, output):
+def _render_absolute(suite, output, panels, title):
     _validate_suite(suite)
     pyplot = style.matplotlib_pyplot()
-    data = _chart_data(suite)
+    from matplotlib.ticker import MaxNLocator
+
     subtitle, footer = _suite_context(suite)
     native_label, optimized_label, _ = _precision_labels(suite)
-    positions = list(range(len(data["labels"])))
-    width = 0.34
-
-    panels = (
-        ("Prefill throughput", data["mlx_prefill"], data["metile_prefill"], "%.0f"),
-        ("Decode throughput", data["mlx"], data["metile"], "%.1f"),
-    )
-    figure_width = max(12.0, 2.2 * len(data["labels"]) + 3.0)
-    figure, axes = pyplot.subplots(1, 2, figsize=(figure_width, 5.8), dpi=180)
-    for axis, (title, mlx_values, metile_values, label_format) in zip(axes, panels, strict=True):
-        mlx_bars = axis.bar(
-            [position - width / 2 for position in positions],
-            mlx_values,
-            width,
-            label=native_label,
-            color=MLX_COLOR,
+    data = _chart_data(suite)
+    labels = [
+        label
+        + (
+            "\n(native fallback)"
+            if result.get("comparison_mode") == "shared_native_fallback"
+            else ""
         )
-        metile_bars = axis.bar(
-            [position + width / 2 for position in positions],
-            metile_values,
-            width,
-            label=optimized_label,
-            color=METILE_COLOR,
+        for label, result in zip(data["labels"], suite["models"], strict=True)
+    ]
+    header_height = 1.35 + 0.18 * len(style.wrapped(subtitle).splitlines())
+    height = max(7.4, 1.40 * len(labels) + header_height + 2.0)
+    figure, axes = pyplot.subplots(2, 1, figsize=(style.WIDTH, height), dpi=style.DPI)
+    positions = list(range(len(labels)))
+    for axis, (panel_title, units, mlx_key, metile_key, label_format) in zip(
+        axes, panels, strict=True
+    ):
+        mlx_values, metile_values = data[mlx_key], data[metile_key]
+        for values, offset, color, label in (
+            (mlx_values, -0.23, MLX_COLOR, native_label),
+            (metile_values, 0.23, METILE_COLOR, optimized_label),
+        ):
+            bars = axis.barh(
+                [position + offset for position in positions],
+                values,
+                height=0.34,
+                color=color,
+                label=label,
+                zorder=3,
+            )
+            for bar, value in zip(bars, values, strict=True):
+                annotation = axis.annotate(
+                    label_format % value,
+                    (value, bar.get_y() + bar.get_height() / 2),
+                    xytext=(6, 0),
+                    textcoords="offset points",
+                    ha="left",
+                    va="center",
+                    fontsize=10,
+                    color=style.INK_SOFT,
+                )
+                annotation.set_gid("bar-value")
+        axis.set_title(panel_title, loc="left", fontsize=12, fontweight="bold")
+        axis.set_xlabel(units)
+        axis.set_yticks(positions, labels)
+        axis.set_ylim(len(labels) - 0.5, -0.6)
+        maximum = max(mlx_values + metile_values) * 1.24
+        axis.set_xlim(0, maximum)
+        axis.set_xticks(
+            [value for value in MaxNLocator(5).tick_values(0, maximum) if 0 <= value <= maximum]
         )
-        _label_paired_bars(axis, mlx_bars, metile_bars, label_format)
-        axis.set_title(title, loc="left", fontsize=12, pad=10)
-        axis.set_ylabel("Tokens / second")
-        axis.set_xticks(positions, data["labels"], fontsize=8)
-        axis.set_ylim(0, max(mlx_values + metile_values) * 1.18)
-        axis.set_axisbelow(True)
-        axis.grid(axis="y", color="#d9d9d9", linewidth=0.8)
-        axis.spines["top"].set_visible(False)
-        axis.spines["right"].set_visible(False)
-    figure.suptitle(
-        "Throughput by model (higher is better)", x=0.07, y=0.965, ha="left", fontsize=18
-    )
-    figure.text(0.07, 0.88, subtitle, color="#666666", fontsize=9, va="bottom")
-    figure.text(0.98, 0.035, footer, color="#777777", fontsize=8, ha="right", va="bottom")
-    handles, labels = axes[0].get_legend_handles_labels()
+        style.frame(axis, grid_axis="x")
+    style.headings(figure, title, subtitle, footer)
+    handles, legend_labels = axes[0].get_legend_handles_labels()
     figure.legend(
-        handles, labels, frameon=False, loc="upper right", bbox_to_anchor=(0.98, 0.965), ncol=2
+        handles,
+        legend_labels,
+        loc="upper left",
+        ncol=2,
+        bbox_to_anchor=(0.035, 1 - (header_height - 0.48) / height),
+        fontsize=10,
+        columnspacing=1.5,
     )
-    figure.subplots_adjust(left=0.07, right=0.98, top=0.76, bottom=0.20, wspace=0.24)
-    _validate_text_layout(figure)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})
+    figure.subplots_adjust(
+        left=0.24,
+        right=0.975,
+        top=1 - (header_height + 0.32) / height,
+        bottom=0.9 / height,
+        hspace=0.50,
+    )
+    style.save(figure, output)
     pyplot.close(figure)
+
+
+def _render_throughput(suite, output):
+    panels = (
+        ("Prefill", "Tokens / second", "mlx_prefill", "metile_prefill", "%.0f"),
+        ("Decode", "Tokens / second", "mlx", "metile", "%.1f"),
+    )
+    _render_absolute(suite, output, panels, "Model throughput · higher is better")
 
 
 def _render_latency(suite, output):
-    _validate_suite(suite)
-    pyplot = style.matplotlib_pyplot()
-    data = _chart_data(suite)
-    subtitle, footer = _suite_context(suite)
-    native_label, optimized_label, _ = _precision_labels(suite)
-    positions = list(range(len(data["labels"])))
-    width = 0.34
     panels = (
-        (
-            "Time to first token",
-            "Milliseconds",
-            data["mlx_ttft_ms"],
-            data["metile_ttft_ms"],
-            "%.1f",
-        ),
-        (
-            "End-to-end generation",
-            "Seconds",
-            data["mlx_total_seconds"],
-            data["metile_total_seconds"],
-            "%.2f",
-        ),
+        ("Time to first token", "Milliseconds", "mlx_ttft_ms", "metile_ttft_ms", "%.1f"),
+        ("End-to-end generation", "Seconds", "mlx_total_seconds", "metile_total_seconds", "%.2f"),
     )
-
-    figure_width = max(12.0, 2.2 * len(data["labels"]) + 3.0)
-    figure, axes = pyplot.subplots(1, 2, figsize=(figure_width, 5.8), dpi=180)
-    for axes_index, (title, ylabel, mlx_values, metile_values, label_format) in enumerate(panels):
-        axis = axes[axes_index]
-        mlx_bars = axis.bar(
-            [position - width / 2 for position in positions],
-            mlx_values,
-            width,
-            label=native_label,
-            color=MLX_COLOR,
-        )
-        metile_bars = axis.bar(
-            [position + width / 2 for position in positions],
-            metile_values,
-            width,
-            label=optimized_label,
-            color=METILE_COLOR,
-        )
-        _label_paired_bars(axis, mlx_bars, metile_bars, label_format)
-        axis.set_title(title, loc="left", fontsize=12, pad=10)
-        axis.set_ylabel(ylabel)
-        axis.set_xticks(positions, data["labels"], fontsize=8)
-        axis.set_ylim(0, max(mlx_values + metile_values) * 1.18)
-        axis.set_axisbelow(True)
-        axis.grid(axis="y", color="#d9d9d9", linewidth=0.8)
-        axis.spines["top"].set_visible(False)
-        axis.spines["right"].set_visible(False)
-    figure.suptitle("Latency by model (lower is better)", x=0.07, y=0.965, ha="left", fontsize=18)
-    figure.text(0.07, 0.88, subtitle, color="#666666", fontsize=9, va="bottom")
-    figure.text(0.98, 0.035, footer, color="#777777", fontsize=8, ha="right", va="bottom")
-    handles, labels = axes[0].get_legend_handles_labels()
-    figure.legend(
-        handles, labels, frameon=False, loc="upper right", bbox_to_anchor=(0.98, 0.965), ncol=2
-    )
-    figure.subplots_adjust(left=0.07, right=0.98, top=0.76, bottom=0.20, wspace=0.24)
-    _validate_text_layout(figure)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output, facecolor="white", metadata={"Software": "meTile benchmark renderer"})
-    pyplot.close(figure)
+    _render_absolute(suite, output, panels, "Model latency · lower is better")
 
 
 def main():

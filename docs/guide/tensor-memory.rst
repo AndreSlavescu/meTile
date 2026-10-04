@@ -1,16 +1,16 @@
 Tensor and Memory Contracts
 ===========================
 
-``metile.tensor`` describes a buffer's shape, strides, access permissions, and
-address space. The compiler uses those declarations to check accesses and
-lower supported computations. Execution choices are separate: see
-:doc:`execution-schedules` for schedule constraints and :doc:`thread-layouts`
-for explicit ownership of values by threads and register slots.
+``metile.tensor`` declares a buffer's shape, strides, access permissions and
+address space. The compiler checks accesses against those declarations when
+lowering supported computations. To control execution separately, use
+:doc:`execution-schedules` for schedule requirements and :doc:`thread-layouts`
+for thread and register ownership.
 
 Declare data before computation
 -------------------------------
 
-Use ``metile.tensor`` near the beginning of a kernel to describe each buffer:
+Declare a ``metile.tensor`` near the start of the kernel to describe each buffer:
 
 .. code-block:: python
 
@@ -26,10 +26,10 @@ Use ``metile.tensor`` near the beginning of a kernel to describe each buffer:
    values = source.load((row, column))
    destination.store((row, column), values * 2.0)
 
-Omitting strides selects contiguous row-major storage. Explicit strides are
-in elements rather than bytes. Shape and stride expressions can use kernel
-scalar arguments. The descriptor is tracing metadata; it does not allocate a
-buffer or create an object for each element.
+Without explicit strides, the view uses contiguous row-major storage. Strides
+are measured in elements, not bytes, and both shape and stride expressions
+can use kernel scalar arguments. A descriptor exists only as tracing metadata:
+it neither allocates a buffer nor creates an object for every element.
 
 The indexing path uses signed 32-bit coordinates and element offsets.
 Shapes, strides, and intermediate offset calculations must fit that arithmetic
@@ -74,9 +74,9 @@ selects tiled loads and stores:
    accumulator = metile.dot(left_tile, right_tile, accumulator)
    output.store((row_origin, column_origin), accumulator)
 
-This fragment illustrates declarations and operations, not a complete GEMM:
-the surrounding kernel supplies tile origins, initializes the accumulator,
-and loops over the reduction dimension before storing the final result.
+This is a fragment, not a complete GEMM. The surrounding kernel must supply
+tile origins, initialize the accumulator and loop over the reduction dimension
+before storing the result.
 The tiled path requires two dimensions, positive compile-time block
 sizes, scalar origins, device storage, and zero padding. GEMM lowering has
 additional supported-pattern checks: contiguous row-major operands with matching
@@ -115,10 +115,10 @@ Three separate compiler facts
      - Which SIMD group, lane and register owns each logical element
      - Selected by an inspectable plan, with checked expert constraints
 
-A transpose changes the logical-to-memory map. Moving a value between lanes
-changes its execution layout. Staging it in threadgroup memory changes its
-storage and introduces synchronization obligations. These must be distinct
-IR transformations, even when a particular optimization performs all three.
+A transpose changes the logical-to-memory map. Moving values between lanes
+changes the execution layout. Staging values in threadgroup memory changes
+their storage and requires synchronization. The IR must keep those changes
+distinct even when an optimization performs all three.
 
 Tensor declarations and memory-operation metadata preserve logical and memory
 contracts in Tile IR. ``ThreadLayout`` adds a checked execution layout to
@@ -126,11 +126,11 @@ supported scalar values. The current subset covers register/thread bit
 permutations; arbitrary distributed layouts and matrix-fragment conversions
 remain unsupported.
 
-Descriptor-based GEMM lowering follows the actual operands of a matrix operation
-and its output stores. Pointer positions, argument names such as ``M`` and
-``N``, or the presence of any tiled load are insufficient to establish GEMM
-semantics. A supported fast path must match the program it replaces; an
-unsupported pattern must produce a diagnostic instead of dropping operations.
+Descriptor-based GEMM lowering follows the matrix operation's operands and
+output stores. Pointer positions, names such as ``M`` and ``N``, or a tiled
+load alone do not establish GEMM semantics. A fast path must preserve the
+program it replaces. Unsupported patterns must produce a diagnostic rather
+than drop operations.
 
 Legality before optimization
 ----------------------------
@@ -143,17 +143,16 @@ retain their checks. The scalar tail retains the original masks and fill
 values. This lets supported normalization kernels keep vectorized interiors
 without treating every descriptor as contiguous and in bounds.
 
-Vectorization also requires a unit increment in the memory address between
-adjacent logical elements. A valid logical index does not establish contiguous
-storage: a stride of two must not become a four-element contiguous load.
-The current pass rejects surviving masks, nonunit lane strides, and lane
-expressions it cannot safely rescale.
+Vectorization also needs adjacent logical elements to occupy adjacent memory
+addresses. Valid indices do not prove contiguity: a stride of two must not
+become a four-element contiguous load. The current pass rejects surviving
+masks, nonunit lane strides and lane expressions it cannot safely rescale.
 
-Matrix-backend selection needs the same discipline. Shape alignment alone
-does not establish that a reduction loop is legal. The backend must account
-for the full K step after fragment selection and unrolling, and either prove
-that K is divisible by that step or provide a correct masked tail. For example,
-alignment to 32 does not justify an unmasked K step of 96.
+Matrix-backend selection needs the same checks. Shape alignment alone does
+not prove a reduction loop safe. After choosing fragments and unrolling, the
+backend must either prove that K is divisible by the full K step or provide
+a correct masked tail. Alignment to 32, for example, does not justify an
+unmasked K step of 96.
 
 Precision requirements must reach the actual matrix-operation descriptor.
 Checking only a Python configuration flag is insufficient. The generic MPP and
@@ -183,8 +182,8 @@ references. This requirement is exercised by the migrated normalization tests.
 Related compiler designs
 -------------------------
 
-Meta's TLX, Triton Low-level Language Extensions, offers explicit buffers
-while leaving their physical layouts inferred from consumers. Its
+Meta's TLX, Triton Low-level Language Extensions, exposes explicit buffers
+while inferring their physical layouts from consumers. Its
 ``local_alloc`` separates allocation from buffer views
 and loads; optional layout requirements let experts constrain selected
 values. This is a useful model for top-level memory declarations with
@@ -202,13 +201,13 @@ and `tensor layout tutorial <https://triton-lang.org/main/getting-started/tutori
 Meta's AutoWS design separates scheduling decisions from the passes that
 materialize partitions, storage, and synchronization. In meTile, a schedule
 plan is also separate from the lowering that constructs executable operations.
-This makes the plan available for inspection and testing. See
+Keeping these steps separate lets us inspect and test the plan. See
 `the compiler pipeline <https://facebookexperimental.github.io/triton/website/triton.html>`_.
 
-An expert control must be either a checked requirement or an explicitly
-documented preference. Unsupported requirements should fail compilation;
-preferences may be overridden with an explanation. No control should be
-accepted and silently ignored.
+An expert control must either enforce a requirement or state that it is a
+preference. Unsupported requirements should fail compilation. The compiler
+may override preferences with an explanation, but should never silently ignore
+an accepted control.
 
 Placement and fusion on Apple GPUs
 ----------------------------------
@@ -221,11 +220,10 @@ These are candidate policies, not guarantees for every dtype or workload.
 See the `MPP programming guide
 <https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf>`_.
 
-General automatic placement remains future work; there is no
-``placement=auto`` tensor option. A placement policy would need to compare
-direct loads, reused values, and staged storage using measured costs and live
-ranges. Quantized unpacking and irregular accesses may need a different
-policy from dense GEMM.
+Automatic placement remains future work; there is no ``placement=auto`` tensor
+option. Such a policy would need measured costs and live ranges to compare
+direct loads, value reuse and staged storage. Quantized unpacking and irregular
+access may need different policies from dense GEMM.
 
 Read-only inspection and offline compilation on October 2, 2026 confirmed
 that the installed macOS 26.2 SDK and Metal compiler 32023.864 accept a
@@ -244,15 +242,15 @@ failed the SDK's cooperative-input type checks while a mutable tensor view
 compiled. Keep logical read permissions in the IR even when the backend
 needs a mutable view to satisfy this SDK interface.
 
-These capabilities make general matmul-to-elementwise-to-matmul fusion worth
-investigating. They are not yet a promise that arbitrary meTile operation
-chains can remain in cooperative tensors. Incompatible layouts need an
-explicit conversion or a supported memory path.
+These capabilities provide a starting point for exploring
+matmul-to-elementwise-to-matmul fusion. They do not establish that arbitrary
+meTile chains can stay in cooperative tensors. Incompatible layouts still
+need an explicit conversion or a supported memory path.
 
 Pipeline and synchronization requirements
 -----------------------------------------
 
-TLX's asynchronous descriptor loads name a source descriptor, destination
+TLX's asynchronous descriptor loads specify a source descriptor, destination
 buffer, tile origin, and completion barrier. Its copy-group operations track
 completion explicitly. See the
 `async memory reference <https://facebookexperimental.github.io/triton/website/async-memory.html>`_.
@@ -267,11 +265,11 @@ Before exposing asynchronous staging in meTile, the IR must represent:
 * Execution scope and uniform participation for each collective operation.
 * Pipeline depth constrained by storage capacity and register pressure.
 
-The compiler should derive barriers and rotating-buffer indices from those
-dependencies. An unsupported asynchronous request must be rejected or lowered
-to a documented synchronous implementation with identical semantics; it must
-not pretend a normal load is an asynchronous hardware copy. Existing explicit
-SIMD-group roles are not proof of a general pipeline planner.
+The compiler should derive barriers and rotating-buffer indices from these
+dependencies. If an asynchronous request is unsupported, it must be rejected
+or use a documented synchronous implementation with identical semantics.
+A normal load must not be described as an asynchronous hardware copy. Explicit
+SIMD-group roles alone do not provide a general pipeline planner.
 
 Current coverage and next steps
 -------------------------------
@@ -318,6 +316,6 @@ Normalization was approximately at parity.
 See :doc:`benchmarks` for the measurements and artifact links, including
 ``m5-fp16-tensor-ops.json``, ``m5-tensor-memory.json``, and
 ``m5-tensor-memory-baseline.json``. The records preserve source hashes and
-different timing regimes. Cross-revision performance checks use
-``benchmarks/regression/paired_regression.py``; a single current-versus-MLX run does not
-replace that comparison.
+different timing regimes. Use ``benchmarks/regression/paired_regression.py``
+for cross-revision performance checks; a single current-versus-MLX run does
+not replace that comparison.

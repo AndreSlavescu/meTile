@@ -1,10 +1,10 @@
 Softmax
 =======
 
-This kernel computes softmax independently for each row of a contiguous
-float32 matrix. It makes three passes: find the maximum, sum the shifted
-exponentials, then normalize. Subtracting the maximum keeps the exponential
-arguments nonpositive for finite inputs.
+This kernel applies softmax to each row of a contiguous float32 matrix. Three
+passes find the maximum, sum the shifted exponentials and normalize the row.
+Subtracting the maximum keeps the exponential arguments nonpositive for finite
+inputs.
 
 .. code-block:: python
 
@@ -56,18 +56,17 @@ arguments nonpositive for finite inputs.
 Mask the reduction, too
 -------------------------
 
-The width is 300, so the second 256-element tile contains padding. Bounds
-checks alone do not make every reduction correct: a zero-filled load would
-contribute ``exp(0 - row_maximum)`` to the denominator. The explicit ``where``
-sets those contributions to zero. The maximum pass instead fills padding with
-negative infinity, the identity for a maximum reduction.
+At width 300, the second 256-element tile contains padding. Bounds checks
+alone are not enough: a zero-filled load would add ``exp(0 - row_maximum)``
+to the denominator. The explicit ``where`` removes that contribution. The
+maximum pass fills padding with negative infinity instead, the identity for
+a maximum reduction.
 
 The loop-carried values contain one partial result per lane. ``metile.max``
 and ``metile.sum`` combine those partials across the tile. This example assumes
 positive row and column counts and finite input values; it does not define
 special behavior for rows containing NaNs or infinities.
 
-meTile can recognize some softmax forms and rewrite them into an online
-algorithm. That optimization is pattern-dependent. Inspect the generated IR
-when evaluating a particular kernel, and compare its output against a
-reference regardless of whether the rewrite occurs.
+meTile can rewrite some softmax forms into an online algorithm, but only when
+they match a supported pattern. Inspect the generated IR to see whether a
+kernel uses that rewrite. In either case, check the output against a reference.

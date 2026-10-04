@@ -1,17 +1,17 @@
 Benchmarks
 ==========
 
-The recorded results show useful gains on some Apple M5 workloads and near
-parity or losses on others. Read each ratio with its baseline, arithmetic
-policy and timing boundary. A faster GPU kernel does not necessarily reduce
-synchronized application latency, and compressing BF16 weights to INT8 changes
-the comparison.
+The recorded results include gains, near-parity cases, and losses on Apple M5.
+Each ratio needs its baseline, arithmetic policy, and timing boundary to be
+meaningful. A faster GPU kernel does not necessarily reduce synchronized
+application latency, and compressing BF16 weights to INT8 changes what is
+being compared.
 
-The charts below are rendered from the repository's JSON artifacts. Rendering
-does not execute a GPU workload or replace the recorded measurements. The MLX
-model and shape studies date from July 2026; the compiler studies date from
-October 2, 2026. They are separate experiments, not a single cumulative score.
-Open any chart for its full-size SVG; raw JSON downloads follow each study.
+All charts are rendered from the repository's JSON artifacts; rendering runs
+no GPU workload and produces no new measurements. The MLX model and shape
+studies date from July 2026, and the compiler studies from October 2, 2026.
+These are separate experiments, not a single cumulative score. Open a chart
+for its full-size SVG, or use the raw JSON downloads that follow each study.
 
 Find the benchmark code
 ------------------------
@@ -55,13 +55,13 @@ baseline. Plotted dots preserve the recorded summary ratios. Displayed labels
 are rounded; the linked JSON retains the full values and, where recorded,
 individual rounds.
 
-The compiler reports distinguish Metal command-buffer GPU timestamps from
-synchronized wall latency. Wall measurements include dispatch and synchronization;
-MLX comparisons also include operation construction or compiled-call evaluation
-and framework-managed output allocation. meTile generally uses prepared
-dispatches with preallocated outputs. Compilation and input setup are excluded.
-These are useful operation-boundary measurements, but the wall ratios do not
-isolate device execution time.
+The compiler reports separate Metal command-buffer GPU timestamps from
+synchronized wall latency. Wall measurements include dispatch and
+synchronization. MLX comparisons also include operation construction or
+compiled-call evaluation and framework-managed output allocation; meTile
+generally uses prepared dispatches with preallocated outputs. Compilation and
+input setup are excluded. These measurements describe the operation boundary,
+not isolated device execution time.
 
 Same storage precision means the input and output dtypes match. It does not
 promise identical intermediate rounding or bitwise output equality. Each
@@ -72,11 +72,11 @@ the arithmetic studies generally check tolerances.
 Register-tiling RMSNorm
 --------------------------------
 
-The latest experiment keeps one selected policy across all 12 cases: FP16 and
+The latest experiment uses one selected policy for all 12 cases: FP16 and
 FP32 storage, widths 1009 and 1024, and batches 1, 32 and 256. A finite tuning
-search selected ``register4_striped`` using seed 1741. The selection was frozen
-before validation with seed 9473 in two fresh processes. Each validation uses
-three rounds, 100 ms warmup and 250 ms measurement budgets.
+search selected ``register4_striped`` using seed 1741. That selection was then
+frozen and validated with seed 9473 in two fresh processes. Each validation
+uses three rounds, 100 ms warmup and 250 ms measurement budgets.
 
 The baseline is the **prior static-width, four-register striped kernel**.
 Both sides specialize ``N`` and use ``BLOCK=1024``. This is different from
@@ -113,9 +113,10 @@ aligned throughput cases miss the speedup target in both processes:
      - 1.002x
      - 1.024x
 
-Both runs pass the wall and ragged regression guards. The promotion gate still
-fails, so the experimental policy remains opt-in and the default is unpromoted.
-The two runs are repeated point estimates, not confidence intervals.
+Both runs pass the wall and ragged regression guards, but both fail the
+promotion gate. The experimental policy therefore remains opt-in; the default
+is unchanged. These two runs are repeated point estimates, not confidence
+intervals.
 
 The primary MLX comparator is an explicitly compiled graph using FP32 reduction,
 normalization and weight multiplication, followed by the final storage cast.
@@ -136,8 +137,8 @@ describes compiler output; it is not a substitute for timing evidence.
 Other compiler experiments
 --------------------------
 
-These studies measure different changes and baselines. Their speedups should
-not be multiplied together.
+Each experiment evaluates one change against its own baseline. Their speedups
+cannot be multiplied into a cumulative improvement.
 
 .. list-table:: Results and limits
    :header-rows: 1
@@ -187,17 +188,18 @@ include correctness, timing boundaries and execution reports. The older
 :download:`register-RMSNorm final report <../../benchmarks/results/m5-register-rmsnorm-final.json>`
 is the authoritative matched-toolchain result for that experiment. Earlier
 ``m5-register-rmsnorm.json`` and ``m5-register-rmsnorm-broadcast.json`` files
-remain historical artifacts with toolchain caveats. See :doc:`thread-layouts`
-for ownership, reduction and staging semantics.
+mixed runtime JIT and offline compilation; they remain historical artifacts,
+not valid compiler-performance comparisons. See :doc:`thread-layouts` for
+ownership, reduction and staging semantics.
 
 MLX model and shape studies
 --------------------------------
 
-The same-representation model suite compares generation using the same weight
-formats on an Apple M5 with 32 GB memory and MLX 0.32.0. A model's selected plan
-may retain native MLX. Such native fallbacks are labeled and remain in the charts.
-The saved suites below contain five same-representation model results; the
-larger model-shape study is a separate synthetic workload.
+The same-representation model suite compares generation with the same weight
+formats on an Apple M5 with 32 GB memory and MLX 0.32.0. A selected model plan
+may keep native MLX; those fallbacks are labeled and remain in the charts. The
+saved suites below contain five same-representation model results. The larger
+model-shape study uses a separate synthetic workload.
 
 .. image:: /_static/mlx-model-speedup.svg
    :target: ../_static/mlx-model-speedup.svg
@@ -220,10 +222,10 @@ Compression-assisted results
 
 The :download:`BF16 capacity suite <../../benchmarks/results/m5-mlx-lm-bf16-models.json>`
 uses selected affine-INT8 decode projections against native BF16 weights.
-It retains native weights and uses the original representation for multi-row
-prefill, but its decode speedups include a representation change. Fidelity
-guards are tolerance based. These results belong in their own labeled category,
-as shown alongside the same-representation results here:
+It keeps native weights and uses the original representation for multi-row
+prefill. Decode speedups, however, include the change in representation, and
+fidelity guards are tolerance based. The chart therefore places these results
+in a separate labeled category alongside the same-representation results:
 
 .. image:: /_static/mlx-model-all-speedup.svg
    :target: ../_static/mlx-model-all-speedup.svg
@@ -238,8 +240,9 @@ Layer shapes and batching
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :download:`matched-representation matrix <../../benchmarks/results/m5-matched-representation-matrix.json>`
-measures a fixed MLP shape across row counts and weight formats. Gains depend on
-both. All recorded measurements, including near-parity INT8 results, are shown.
+measures a fixed MLP shape across row counts and weight formats. Gains depend
+on both. The chart includes every recorded measurement, including near-parity
+INT8 results.
 
 .. image:: /_static/mlx-matched-speedup.svg
    :target: ../_static/mlx-matched-speedup.svg
@@ -268,10 +271,11 @@ threshold across devices, precisions and MLX versions.
    :width: 100%
 
 Effective weight bandwidth divides a model's weight bytes by measured latency.
-It is a normalization of those timings, not measured DRAM traffic or a physical
-bandwidth ceiling. Both backend series are retained even where they nearly
-overlap. Cache reuse, arithmetic cost and dispatch overhead can all affect it;
-this chart alone cannot identify how many times hardware fetched each weight.
+It normalizes the timings; it does not measure DRAM traffic or establish a
+physical bandwidth ceiling. Both backend series remain visible even where
+they nearly overlap. Cache reuse, arithmetic cost, and dispatch overhead can
+all affect this metric, so the chart cannot tell us how many times hardware
+fetched each weight.
 
 .. image:: /_static/mlx-batch-efficiency.svg
    :target: ../_static/mlx-batch-efficiency.svg
@@ -297,15 +301,22 @@ MLX installation or model download:
    python3 -m benchmarks.plots.render_model_shapes
    python3 -m benchmarks.plots.render_shape_sensitivity
 
+The explanatory diagrams use a separate renderer. They show compiler and
+runtime structure, not measurements from benchmark JSON:
+
+.. code-block:: bash
+
+   python3 -m benchmarks.plots.render_diagrams
+
 Reproduce the experiments
 --------------------------------
 
 Fresh measurements require a compatible Apple GPU, the recorded dependencies,
-the matching source snapshots and, for offline compiler experiments, the Metal
-toolchain. A baseline path must identify the intended pre-change source tree;
-the current checkout's Git HEAD is not necessarily that baseline when the
-experiment began with uncommitted work. Write new results to new paths so the
-original evidence remains available.
+matching source snapshots, and, for offline compiler experiments, the Metal
+toolchain. Point the baseline path at the intended pre-change source tree.
+The current checkout's Git HEAD is not necessarily that baseline if the
+experiment began with uncommitted work. Write new results to new paths to
+preserve the original evidence.
 
 Install the compiler and kernel library before measuring kernels:
 
@@ -313,17 +324,17 @@ Install the compiler and kernel library before measuring kernels:
 
    python3 -m pip install -e '.[dev,benchmarks]' -e ./kernels
 
-MLX model studies additionally need the ``mlx-lm`` extra. Moving source files
-changes the implementation and driver fingerprints even if their computation
-is unchanged. Historical manifests therefore need a fresh baseline export and
-tuning run before validation against the reorganized source tree. Preserve
-the original manifests and JSON artifacts as records of the original runs.
+MLX model studies also need the ``mlx-lm`` extra. Moving source files changes
+the implementation and driver fingerprints even when the computation stays
+the same. Validation against the reorganized source tree therefore requires
+a fresh baseline export and tuning run, not a historical manifest. Keep the
+original manifests and JSON artifacts as records of the original runs.
 
 To repeat register tiling, export the old static-register4 shader from the
 pre-tiling tree, tune against that frozen export, then validate twice. The
 validation driver starts a fresh process and refuses changed compiler or
 benchmark fingerprints. Keep the exported baseline, tuning report and selection
-manifest together; the saved manifest binds its original tuning-report path.
+manifest together. The saved manifest binds its original tuning-report path.
 
 .. code-block:: bash
 

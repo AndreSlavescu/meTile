@@ -56,7 +56,7 @@ def render_width(payload, output):
     records = sorted(payload["width_sweep"], key=lambda record: record["output_features"])
     widths = [record["output_features"] for record in records]
     speedups = [record["speedup"] for record in records]
-    figure, axis = pyplot.subplots(figsize=(10.6, 5.4), dpi=180)
+    figure, axis = pyplot.subplots(figsize=(style.WIDTH, 5.8), dpi=style.DPI)
     style.parity_rule(axis, "horizontal")
     axis.plot(
         widths,
@@ -78,25 +78,32 @@ def render_width(payload, output):
                 textcoords="offset points",
                 xytext=(0, 16),
                 ha="center",
-                fontsize=9,
+                fontsize=10.5,
                 color=style.INK_SOFT,
             )
     axis.set_xscale("log", base=2)
     axis.set_xticks(widths)
     axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{int(value)}"))
     axis.yaxis.set_major_formatter(FuncFormatter(lambda value, _: style.multiplier(value)))
-    axis.set_ylim(0.85, max(speedups) + 0.6)
-    axis.set_xlabel("projection output width")
-    axis.set_ylabel("speedup vs native MLX · higher is faster")
+    axis.set_ylim(0.8, max(speedups) + 0.6)
+    axis.set_xlabel("Projection output width · logarithmic scale (base 2)")
+    axis.set_ylabel("Speedup vs native MLX")
     style.frame(axis, grid_axis="y")
-    axis.legend(loc="upper right", frameon=False, fontsize=9, labelcolor=style.INK_SOFT)
+    axis.legend(
+        loc="lower left",
+        bbox_to_anchor=(0, 1.01),
+        ncol=2,
+        fontsize=10,
+        borderaxespad=0,
+    )
     style.headings(
         figure,
-        "INT4 prefill speedup varies with projection width",
-        f"{payload['prefill_rows']} input rows · reduction width {payload['reduction']} · INT4 group 64",
+        "INT4 prefill: width changes the result",
+        f"{payload['prefill_rows']} input rows · reduction width {payload['reduction']} · INT4 group 64\n"
+        "Same weight representation · higher is faster",
         _footer(payload),
     )
-    figure.tight_layout(rect=style.layout_rect(figure))
+    figure.subplots_adjust(left=0.105, right=0.975, top=0.71, bottom=0.19)
     style.save(figure, output)
     pyplot.close(figure)
 
@@ -106,7 +113,7 @@ def render_batch(payload, output):
     from matplotlib.ticker import FuncFormatter
 
     records = payload["batch_sweep"]
-    figure, axes = pyplot.subplots(1, 3, figsize=(11.8, 5.4), dpi=180, sharey=True)
+    figure, axes = pyplot.subplots(3, 1, figsize=(style.WIDTH, 10.8), dpi=style.DPI, sharey=True)
     maximum = max(
         record[field]
         for record in records
@@ -127,26 +134,38 @@ def render_batch(payload, output):
                 marker=marker,
                 linestyle=dash,
                 linewidth=2,
-                markersize=5,
-                markeredgecolor=style.SURFACE,
+                markersize=8 if field == "metile_bandwidth" else 4.5,
+                markerfacecolor=style.SURFACE if field == "metile_bandwidth" else color,
+                markeredgecolor=color,
+                markeredgewidth=1.5 if field == "metile_bandwidth" else 0.7,
                 zorder=3,
             )
-        axis.set_title(format_name.upper(), loc="left", fontsize=12, fontweight="bold")
+        axis.set_title(format_name.upper(), loc="left", fontsize=12, fontweight="bold", pad=12)
         axis.set_xscale("log", base=2)
         axis.set_xticks(sorted({record["rows"] for record in records}))
         axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{int(value)}"))
         axis.set_ylim(0, maximum * 1.12)
-        axis.set_xlabel("rows per dispatch")
+        axis.set_yticks([0, 40, 80, 120])
+        axis.set_xlabel("Rows per dispatch · logarithmic scale (base 2)", fontsize=10.5)
+        axis.set_ylabel("Effective GB/s", fontsize=10.5)
         style.frame(axis, grid_axis="y")
-    axes[0].set_ylabel("effective weight bandwidth (GB/s)")
-    axes[-1].legend(loc="lower left", frameon=False, fontsize=9)
+    handles, labels = axes[0].get_legend_handles_labels()
+    figure.legend(
+        handles,
+        labels,
+        loc="upper left",
+        bbox_to_anchor=(0.035, 0.89),
+        ncol=2,
+        handlelength=2.5,
+    )
     style.headings(
         figure,
-        "Effective weight bandwidth across batch sizes",
-        "Weight bytes / measured latency · all recorded backend series · not a hardware traffic counter",
+        "Weight bandwidth, across batch sizes",
+        "Weight bytes / measured latency — not a hardware traffic counter\n"
+        "Same y-axis scale in every panel; both backend series remain visible",
         _footer(payload),
     )
-    figure.tight_layout(rect=style.layout_rect(figure))
+    figure.subplots_adjust(left=0.105, right=0.975, top=0.825, bottom=0.105, hspace=0.68)
     style.save(figure, output)
     pyplot.close(figure)
 

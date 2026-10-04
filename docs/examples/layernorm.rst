@@ -65,17 +65,17 @@ The variance divides by the row width, as in ``numpy.var`` with its default
    reference = (data - mean) / np.sqrt(variance + epsilon) * weight_data + bias_data
    np.testing.assert_allclose(output_buffer.numpy(), reference, rtol=1e-4, atol=1e-5)
 
-Each program handles one row. The three passes keep intermediate statistics
-inside the kernel, although they reread the input from device memory. Computing
-variance from centered values avoids subtracting two large, nearly equal
-quantities as ``mean(x * x) - mean(x) ** 2`` would.
+Each program handles one row. The three passes keep statistics inside the
+kernel but reread the input from device memory. Computing variance from
+centered values avoids the subtraction of large, nearly equal quantities in
+``mean(x * x) - mean(x) ** 2``.
 
-The explicit mask in the variance pass matters. A padded load returns zero;
-subtracting the mean would turn that padding into a nonzero squared difference.
-``where`` removes it before the reduction. The 300-column example checks this
-partial-tile case with a nonzero input mean.
+The variance pass needs its explicit mask. A padded load returns zero, but
+subtracting the mean would give it a nonzero squared difference. ``where``
+removes that contribution before reduction. The 300-column example checks
+this case with a nonzero input mean.
 
 Use contiguous float32 inputs, positive dimensions, and a positive epsilon.
-Weights and biases each contain ``columns`` elements and are shared by all
-rows. Floating-point reductions may differ slightly from NumPy because their
-addition order differs.
+Weights and biases each contain ``columns`` elements and apply to every row.
+Floating-point reductions may differ slightly from NumPy because they add
+values in a different order.

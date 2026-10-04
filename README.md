@@ -6,13 +6,13 @@
 
 <p align="center">GPU kernels in Python. Compiled for Apple silicon.</p>
 
-Define your tensors and write the computation. meTile generates Metal code,
-with explicit layouts and schedules when you need more control. MLX integration
-is optional.
+Write GPU kernels in Python; meTile compiles them to Metal. Declare tensors,
+then choose explicit layouts and schedules where needed. MLX integration is
+optional.
 
 **[Read the docs](https://andreslavescu.github.io/meTile/docs/)** ·
 [Get started](docs/getting-started/install.rst) ·
-[Examples](docs/getting-started/first-kernel.rst) ·
+[First kernel](docs/getting-started/first-kernel.rst) ·
 [Benchmarks](docs/guide/benchmarks.rst)
 
 From a checkout, on an Apple silicon Mac with Python 3.10+:
@@ -21,12 +21,12 @@ From a checkout, on an Apple silicon Mac with Python 3.10+:
 python -m pip install -e .
 ```
 
-Ready-made kernels live in the separately installable [kernels](kernels/)
-project. Add them with `python -m pip install -e ./kernels` and import
-`metile_kernels`. The compiler itself does not depend on that package.
+For ready-made kernels, install the separate [kernels](kernels/) project with
+`python -m pip install -e ./kernels` and import `metile_kernels`. The compiler
+does not require it.
 
-Experimental compiler. Performance depends on the workload; the docs include
-results, limitations, and reproduction commands.
+meTile is experimental. The docs include measured results, limitations and
+commands to reproduce them; performance depends on your workload.
 
 ## Citations
 

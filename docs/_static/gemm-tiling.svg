@@ -1,128 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" role="img" aria-labelledby="title description">
-  <title id="title">GEMM tiling and the K reduction loop</title>
-  <desc id="description">Matrices A and B are partitioned into BM by BK and BK by BN tiles. One program instance accumulates a BM by BN output tile across the K dimension, keeps the accumulator in registers, and stores the completed tile once.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 802" role="img" aria-labelledby="title description" font-family="Inter, DejaVu Sans, Arial, sans-serif">
+  <title id="title">One output tile, many products along K</title>
+  <desc id="description">Matching BM by BK and BK by BN tiles are loaded along the reduction dimension. Each product updates the same FP32 accumulator. After the loop, a supported epilogue may run before the completed output tile is stored. Edge tiles need bounds checks.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0 1L8 5L0 9Z" fill="#303842"/>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1L8 5L1 9" fill="none" stroke="#536677" stroke-width="1.5" stroke-linejoin="round" />
     </marker>
-    <style>
-      text { font-family: Arial, Helvetica, sans-serif; fill: #20242b; }
-      .heading { font-size: 27px; font-weight: 700; }
-      .subtitle { font-size: 13px; fill: #505866; }
-      .stage { font-size: 11px; font-weight: 700; letter-spacing: 1px; fill: #505866; }
-      .panel-title { font-size: 17px; font-weight: 700; }
-      .label { font-size: 13px; font-weight: 700; }
-      .body { font-size: 12px; fill: #4b5563; }
-      .small { font-size: 10.5px; fill: #4b5563; }
-      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 11px; }
-      .math { font-size: 24px; font-weight: 700; }
-      .panel { stroke: #282d35; stroke-width: 1.4; }
-      .grid { stroke: #6a7584; stroke-width: 1; }
-      .edge { fill: none; stroke: #303842; stroke-width: 1.6; marker-end: url(#arrow); }
-    </style>
   </defs>
-
-  <rect width="1200" height="840" fill="#ffffff"/>
-  <text x="40" y="48" class="heading">GEMM tiling: C = A × B</text>
-  <text x="40" y="70" class="subtitle">One program owns one output tile and reduces matching A and B tiles across K.</text>
-  <line x1="40" y1="88" x2="1160" y2="88" stroke="#b4bcc7" stroke-width="1"/>
-
-  <text x="40" y="112" class="stage">MATRIX PARTITIONING</text>
-
-  <g id="matrix-a">
-    <rect x="40" y="126" width="300" height="240" rx="4" fill="#e7f0fa" class="panel"/>
-    <text x="58" y="154" class="panel-title">A</text>
-    <text x="58" y="176" class="body">shape M × K</text>
-    <rect x="70" y="194" width="240" height="140" fill="#ffffff" class="panel"/>
-    <path d="M130 194V334M190 194V334M250 194V334M70 241H310M70 288H310" class="grid" fill="none"/>
-    <rect x="70" y="194" width="120" height="47" fill="#bcd9f0" class="panel"/>
-    <text x="82" y="216" class="label">A tile</text>
-    <text x="82" y="233" class="small">BM × BK</text>
-    <text x="58" y="352" class="mono">rows = pid_m · BM</text>
-  </g>
-
-  <text x="390" y="254" text-anchor="middle" class="math">×</text>
-
-  <g id="matrix-b">
-    <rect x="440" y="126" width="300" height="240" rx="4" fill="#eee6f6" class="panel"/>
-    <text x="458" y="154" class="panel-title">B</text>
-    <text x="458" y="176" class="body">shape K × N</text>
-    <rect x="470" y="194" width="240" height="140" fill="#ffffff" class="panel"/>
-    <path d="M530 194V334M590 194V334M650 194V334M470 241H710M470 288H710" class="grid" fill="none"/>
-    <rect x="470" y="194" width="60" height="94" fill="#d8c9e9" class="panel"/>
-    <text x="500" y="226" text-anchor="middle" class="label">B tile</text>
-    <text x="500" y="245" text-anchor="middle" class="small">BK</text>
-    <text x="500" y="261" text-anchor="middle" class="small">×</text>
-    <text x="500" y="277" text-anchor="middle" class="small">BN</text>
-    <text x="458" y="352" class="mono">cols = pid_n · BN</text>
-  </g>
-
-  <path d="M770 246H816" class="edge"/>
-
-  <g id="matrix-c">
-    <rect x="840" y="126" width="320" height="240" rx="4" fill="#e5f1e2" class="panel"/>
-    <text x="858" y="154" class="panel-title">C</text>
-    <text x="858" y="176" class="body">shape M × N · program grid = ceil(M/BM) × ceil(N/BN)</text>
-    <rect x="870" y="194" width="260" height="140" fill="#ffffff" class="panel"/>
-    <path d="M935 194V334M1000 194V334M1065 194V334M870 229H1130M870 264H1130M870 299H1130" class="grid" fill="none"/>
-    <rect x="870" y="194" width="65" height="35" fill="#c9e5c7" class="panel"/>
-    <text x="902.5" y="216" text-anchor="middle" class="small">pid 0,0</text>
-    <text x="858" y="352" class="mono">one program → one BM × BN tile</text>
-  </g>
-
-  <text x="40" y="404" class="stage">INSIDE ONE PROGRAM: K REDUCTION</text>
-  <rect x="40" y="420" width="1120" height="258" rx="4" fill="#f7efc8" class="panel"/>
-
-  <g id="iteration-zero">
-    <rect x="66" y="452" width="310" height="180" rx="3" fill="#ffffff" class="panel"/>
-    <text x="84" y="480" class="panel-title">Iteration k = 0</text>
-    <rect x="84" y="502" width="88" height="48" rx="2" fill="#dcecf8" class="panel"/>
-    <text x="128" y="522" text-anchor="middle" class="label">A tile</text>
-    <text x="128" y="540" text-anchor="middle" class="small">BM × BK</text>
-    <text x="191" y="533" text-anchor="middle" class="math">×</text>
-    <rect x="210" y="502" width="88" height="48" rx="2" fill="#e7e0f2" class="panel"/>
-    <text x="254" y="522" text-anchor="middle" class="label">B tile</text>
-    <text x="254" y="540" text-anchor="middle" class="small">BK × BN</text>
-    <text x="84" y="579" class="mono">acc = dot(a, b, zeros)</text>
-    <text x="84" y="606" class="body">BM × BN accumulator stays in registers</text>
-  </g>
-
-  <path d="M376 542H420" class="edge"/>
-
-  <g id="iteration-next">
-    <rect x="422" y="452" width="310" height="180" rx="3" fill="#ffffff" class="panel"/>
-    <text x="440" y="480" class="panel-title">Iteration k = BK</text>
-    <rect x="440" y="502" width="88" height="48" rx="2" fill="#dcecf8" class="panel"/>
-    <text x="484" y="522" text-anchor="middle" class="label">next A</text>
-    <text x="484" y="540" text-anchor="middle" class="small">BM × BK</text>
-    <text x="547" y="533" text-anchor="middle" class="math">×</text>
-    <rect x="566" y="502" width="88" height="48" rx="2" fill="#e7e0f2" class="panel"/>
-    <text x="610" y="522" text-anchor="middle" class="label">next B</text>
-    <text x="610" y="540" text-anchor="middle" class="small">BK × BN</text>
-    <text x="440" y="579" class="mono">acc = dot(a, b, acc)</text>
-    <text x="440" y="606" class="body">The same register tile accumulates again</text>
-  </g>
-
-  <path d="M732 542H776" class="edge"/>
-
-  <g id="remaining-iterations">
-    <rect x="778" y="452" width="356" height="180" rx="3" fill="#ffffff" class="panel"/>
-    <text x="796" y="480" class="panel-title">Repeat to K</text>
-    <text x="796" y="511" class="mono">for k in tile_range(0, K, BK)</text>
-    <text x="796" y="541" class="body">Load matching A and B tiles.</text>
-    <text x="796" y="565" class="body">Apply the selected hardware MMA.</text>
-    <text x="796" y="589" class="body">Optionally fuse the register epilogue.</text>
-    <rect x="992" y="503" width="118" height="72" rx="3" fill="#e5f1e2" class="panel"/>
-    <text x="1051" y="530" text-anchor="middle" class="label">acc</text>
-    <text x="1051" y="551" text-anchor="middle" class="small">BM × BN</text>
-    <text x="1051" y="567" text-anchor="middle" class="small">registers</text>
-  </g>
-
-  <path d="M956 632V706" class="edge"/>
-
-  <rect x="40" y="708" width="1120" height="92" rx="4" fill="#e5f1e2" class="panel"/>
-  <text x="60" y="739" class="panel-title">Store the completed output tile once</text>
-  <text x="60" y="766" class="mono">metile.tile_store(C, pid_m · BM, pid_n · BN, N, acc, (BM, BN))</text>
-  <text x="1140" y="753" text-anchor="end" class="body">No score matrix or intermediate GEMM tile is materialized.</text>
-  <text x="1140" y="776" text-anchor="end" class="body">Fused epilogues run before this global-memory write.</text>
+  <rect x="0" y="0" width="960" height="802" rx="0" fill="#ffffff" stroke="none" stroke-width="1" />
+  <text x="32" y="46" font-size="27" font-weight="650" fill="#172b3a" text-anchor="start">One output tile, many products along K</text>
+  <text x="32" y="76" font-size="14" font-weight="400" fill="#536677" text-anchor="start">C = A × B. Each program keeps an accumulator for its own BM × BN output tile.</text>
+  <line x1="32" y1="100" x2="928" y2="100" stroke="#d8e3e9" stroke-width="1.5" />
+  <text x="48" y="156" font-size="20" font-weight="650" fill="#087f8c" text-anchor="start">A</text>
+  <text x="288" y="156" font-size="14" font-weight="400" fill="#536677" text-anchor="end">M × K</text>
+  <rect x="48" y="180" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="108" y="180" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="168" y="180" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="228" y="180" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="48" y="226" width="56" height="42" rx="5" fill="#087f8c" stroke="none" stroke-width="1" />
+  <rect x="108" y="226" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="168" y="226" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="228" y="226" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="48" y="272" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="108" y="272" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="168" y="272" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="228" y="272" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="48" y="318" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="108" y="318" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="168" y="318" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <rect x="228" y="318" width="56" height="42" rx="5" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="164" y="392" font-size="14" font-weight="650" fill="#087f8c" text-anchor="middle">A tile</text>
+  <text x="360" y="156" font-size="20" font-weight="650" fill="#c17134" text-anchor="start">B</text>
+  <text x="600" y="156" font-size="14" font-weight="400" fill="#536677" text-anchor="end">K × N</text>
+  <rect x="360" y="180" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="420" y="180" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="480" y="180" width="56" height="42" rx="5" fill="#c17134" stroke="none" stroke-width="1" />
+  <rect x="540" y="180" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="360" y="226" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="420" y="226" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="480" y="226" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="540" y="226" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="360" y="272" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="420" y="272" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="480" y="272" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="540" y="272" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="360" y="318" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="420" y="318" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="480" y="318" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <rect x="540" y="318" width="56" height="42" rx="5" fill="#fcf2e8" stroke="none" stroke-width="1" />
+  <text x="476" y="392" font-size="14" font-weight="650" fill="#c17134" text-anchor="middle">B tile</text>
+  <text x="672" y="156" font-size="20" font-weight="650" fill="#7357aa" text-anchor="start">C</text>
+  <text x="912" y="156" font-size="14" font-weight="400" fill="#536677" text-anchor="end">M × N</text>
+  <rect x="672" y="180" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="732" y="180" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="792" y="180" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="852" y="180" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="672" y="226" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="732" y="226" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="792" y="226" width="56" height="42" rx="5" fill="#7357aa" stroke="none" stroke-width="1" />
+  <rect x="852" y="226" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="672" y="272" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="732" y="272" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="792" y="272" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="852" y="272" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="672" y="318" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="732" y="318" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="792" y="318" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <rect x="852" y="318" width="56" height="42" rx="5" fill="#f3eff9" stroke="none" stroke-width="1" />
+  <text x="788" y="392" font-size="14" font-weight="650" fill="#7357aa" text-anchor="middle">C tile</text>
+  <text x="321" y="284" font-size="26" font-weight="400" fill="#536677" text-anchor="middle">×</text>
+  <text x="633" y="284" font-size="26" font-weight="400" fill="#536677" text-anchor="middle">→</text>
+  <text x="164" y="421" font-size="14" font-weight="400" fill="#172b3a" text-anchor="middle" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">BM × BK</text>
+  <text x="476" y="421" font-size="14" font-weight="400" fill="#172b3a" text-anchor="middle" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">BK × BN</text>
+  <text x="788" y="421" font-size="14" font-weight="400" fill="#172b3a" text-anchor="middle" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">BM × BN</text>
+  <text x="480" y="465" font-size="14" font-weight="400" fill="#536677" text-anchor="middle">Output grid = ceil(M / BM) × ceil(N / BN)</text>
+  <rect x="32" y="508" width="280" height="174" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="52" y="537" font-size="14" font-weight="650" fill="#7357aa" text-anchor="start">01 / INITIALIZE</text>
+  <text x="52" y="568" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Start from zero</text>
+  <text x="52" y="597" font-size="14" font-weight="400" fill="#536677" text-anchor="start">One FP32 accumulator tile</text>
+  <text x="52" y="619" font-size="14" font-weight="400" fill="#536677" text-anchor="start">belongs to this program.</text>
+  <rect x="340" y="508" width="280" height="174" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="360" y="537" font-size="14" font-weight="650" fill="#087f8c" text-anchor="start">02 / REDUCE</text>
+  <text x="360" y="568" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Accumulate across K</text>
+  <text x="360" y="597" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Load the next A and B tiles.</text>
+  <text x="360" y="619" font-size="14" font-weight="400" fill="#536677" text-anchor="start">acc = dot(left, right, acc)</text>
+  <text x="360" y="641" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Repeat in BK-sized steps.</text>
+  <rect x="648" y="508" width="280" height="174" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="668" y="537" font-size="14" font-weight="650" fill="#c17134" text-anchor="start">03 / STORE</text>
+  <text x="668" y="568" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Write the result once</text>
+  <text x="668" y="597" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Apply a supported epilogue.</text>
+  <text x="668" y="619" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Store the completed tile</text>
+  <text x="668" y="641" font-size="14" font-weight="400" fill="#536677" text-anchor="start">with output bounds checks.</text>
+  <line x1="316" y1="587" x2="334" y2="587" stroke="#536677" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="624" y1="587" x2="642" y2="587" stroke="#536677" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="32" y1="734" x2="928" y2="734" stroke="#d8e3e9" stroke-width="1.5" />
+  <text x="32" y="761" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Tile dimensions describe ownership, not one hardware instruction.</text>
+  <text x="32" y="783" font-size="14" font-weight="400" fill="#536677" text-anchor="start">The selected backend must support the requested shape, dtype, layout, and resource use.</text>
 </svg>

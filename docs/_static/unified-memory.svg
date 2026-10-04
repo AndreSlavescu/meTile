@@ -1,87 +1,48 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif">
-  <title id="title">Unified memory on Apple Silicon</title>
-  <desc id="description">Constructing a meTile Buffer copies NumPy input into shared Metal storage. CPU and GPU then access that buffer allocation. After a GPU write, numpy() waits for completion and returns a direct view of the shared buffer.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 652" role="img" aria-labelledby="title description" font-family="Inter, DejaVu Sans, Arial, sans-serif">
+  <title id="title">Shared memory, explicit synchronization</title>
+  <desc id="description">Buffer(data=array) copies the input into shared Metal storage. CPU and GPU then access that allocation. After GPU writes, Buffer.numpy() waits for completion and returns a direct NumPy view. metile.shared is separate threadgroup-local storage.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 1L8 5L0 9Z" fill="#273142"/>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1L8 5L1 9" fill="none" stroke="#536677" stroke-width="1.5" stroke-linejoin="round" />
     </marker>
-    <style>
-      .box { stroke: #273142; stroke-width: 1.5; }
-      .inner { fill: #ffffff; stroke: #526071; stroke-width: 1.2; }
-      .edge { fill: none; stroke: #273142; stroke-width: 1.55; stroke-linecap: square; stroke-linejoin: miter; marker-start: url(#arrow); marker-end: url(#arrow); }
-      .flow { fill: none; stroke: #273142; stroke-width: 1.55; stroke-linecap: square; stroke-linejoin: miter; marker-end: url(#arrow); }
-      .title { fill: #172033; font-size: 22px; font-weight: 700; }
-      .subtitle { fill: #556070; font-size: 11.5px; }
-      .label { fill: #172033; font-size: 14px; font-weight: 700; }
-      .body { fill: #263243; font-size: 11.5px; }
-      .small { fill: #596579; font-size: 10px; }
-      .tiny { fill: #596579; font-size: 9px; }
-      .caps { fill: #344054; font-size: 9.5px; font-weight: 700; letter-spacing: 1.2px; }
-      .mono { fill: #263243; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 10px; }
-    </style>
   </defs>
-
-  <rect width="900" height="520" fill="#ffffff"/>
-
-  <!-- Heading -->
-  <text x="32" y="40" class="title">Unified memory on Apple Silicon</text>
-  <text x="32" y="60" class="subtitle">CPU and GPU access the same physical allocation through <tspan class="mono">metile.Buffer</tspan></text>
-  <line x1="32" y1="76" x2="868" y2="76" stroke="#aeb6c2" stroke-width="1"/>
-
-  <!-- CPU client -->
-  <rect x="32" y="160" width="190" height="150" rx="3" fill="#e7effa" class="box"/>
-  <text x="49" y="184" class="caps">CPU</text>
-  <text x="49" y="211" class="label">Python / NumPy</text>
-  <rect x="49" y="228" width="156" height="30" rx="2" class="inner"/>
-  <text x="61" y="248" class="mono">Buffer(data=arr)</text>
-  <rect x="49" y="268" width="156" height="25" rx="2" class="inner"/>
-  <text x="61" y="285" class="mono">out.numpy()</text>
-
-  <!-- Shared allocation -->
-  <rect x="286" y="126" width="328" height="218" rx="3" fill="#e3f2ec" class="box"/>
-  <text x="304" y="151" class="caps">UNIFIED PHYSICAL MEMORY</text>
-  <text x="304" y="180" class="label">One shared allocation</text>
-  <text x="304" y="201" class="body">CPU and GPU access the same buffer storage.</text>
-  <rect x="304" y="220" width="292" height="52" rx="2" fill="#ffffff" class="inner"/>
-  <text x="320" y="242" class="mono">metile.Buffer(data=np_array)</text>
-  <text x="320" y="260" class="small">copies input into shared Metal storage</text>
-  <rect x="304" y="289" width="292" height="35" rx="2" fill="#fff4cf" class="inner"/>
-  <text x="320" y="311" class="label">Shared storage after allocation</text>
-
-  <!-- GPU client -->
-  <rect x="678" y="160" width="190" height="150" rx="3" fill="#ece5f6" class="box"/>
-  <text x="695" y="184" class="caps">APPLE GPU</text>
-  <text x="695" y="211" class="label">Metal compute kernel</text>
-  <rect x="695" y="228" width="156" height="30" rx="2" class="inner"/>
-  <text x="707" y="248" class="mono">device T* buffer</text>
-  <rect x="695" y="268" width="156" height="25" rx="2" class="inner"/>
-  <text x="707" y="285" class="mono">load / store</text>
-
-  <!-- Bidirectional shared-memory access -->
-  <path d="M224 235H284" class="edge"/>
-  <rect x="223" y="218" width="62" height="15" fill="#ffffff"/>
-  <text x="255" y="229" text-anchor="middle" class="tiny">read / write</text>
-  <path d="M616 235H676" class="edge"/>
-  <rect x="615" y="218" width="62" height="15" fill="#ffffff"/>
-  <text x="647" y="229" text-anchor="middle" class="tiny">read / write</text>
-
-  <!-- Synchronization sequence -->
-  <text x="32" y="391" class="caps">AFTER A GPU WRITE</text>
-  <rect x="32" y="408" width="238" height="58" rx="3" fill="#ece5f6" class="box"/>
-  <text x="49" y="431" class="label">1 · Kernel updates buffer</text>
-  <text x="49" y="450" class="small">Metal stores into unified memory</text>
-
-  <path d="M270 437H326" class="flow"/>
-  <rect x="328" y="408" width="238" height="58" rx="3" fill="#fff4cf" class="box"/>
-  <text x="345" y="431" class="label">2 · Wait for completion</text>
-  <text x="345" y="450" class="mono">numpy() synchronizes first</text>
-
-  <path d="M566 437H622" class="flow"/>
-  <rect x="624" y="408" width="244" height="58" rx="3" fill="#e7effa" class="box"/>
-  <text x="641" y="431" class="label">3 · Read direct view</text>
-  <text x="641" y="450" class="mono">result = out.numpy()</text>
-
-  <line x1="32" y1="493" x2="868" y2="493" stroke="#d0d5dd" stroke-width="1"/>
-  <text x="32" y="510" class="tiny">Construction copies input; later views share buffer storage.</text>
-  <text x="868" y="510" text-anchor="end" class="tiny"><tspan class="mono">metile.shared</tspan> is separate threadgroup-local storage.</text>
+  <rect x="0" y="0" width="960" height="652" rx="0" fill="#ffffff" stroke="none" stroke-width="1" />
+  <text x="32" y="46" font-size="27" font-weight="650" fill="#172b3a" text-anchor="start">Shared memory, explicit synchronization</text>
+  <text x="32" y="76" font-size="14" font-weight="400" fill="#536677" text-anchor="start">On Apple silicon, the CPU and GPU can access the same Metal buffer allocation.</text>
+  <line x1="32" y1="100" x2="928" y2="100" stroke="#d8e3e9" stroke-width="1.5" />
+  <rect x="32" y="140" width="240" height="170" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="52" y="169" font-size="14" font-weight="650" fill="#3267a8" text-anchor="start">CPU</text>
+  <text x="52" y="200" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Python / NumPy</text>
+  <text x="52" y="229" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Create a Buffer.</text>
+  <text x="52" y="251" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Read or write its view.</text>
+  <rect x="328" y="140" width="304" height="170" rx="12" fill="#e8f5f4" stroke="#d8e3e9" stroke-width="1" />
+  <text x="348" y="169" font-size="14" font-weight="650" fill="#087f8c" text-anchor="start">SHARED ALLOCATION</text>
+  <text x="348" y="200" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Metal buffer storage</text>
+  <text x="348" y="229" font-size="14" font-weight="400" fill="#536677" text-anchor="start">CPU and GPU access</text>
+  <text x="348" y="251" font-size="14" font-weight="400" fill="#536677" text-anchor="start">the same physical allocation.</text>
+  <rect x="688" y="140" width="240" height="170" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="708" y="169" font-size="14" font-weight="650" fill="#7357aa" text-anchor="start">APPLE GPU</text>
+  <text x="708" y="200" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">A Metal kernel</text>
+  <text x="708" y="229" font-size="14" font-weight="400" fill="#536677" text-anchor="start">device pointers</text>
+  <text x="708" y="251" font-size="14" font-weight="400" fill="#536677" text-anchor="start">load / store</text>
+  <line x1="282" y1="225" x2="318" y2="225" stroke="#536677" stroke-width="1.5" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+  <line x1="642" y1="225" x2="678" y2="225" stroke="#536677" stroke-width="1.5" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+  <text x="480" y="346" font-size="14" font-weight="400" fill="#536677" text-anchor="middle">Buffer(data=array) copies input; later views share the buffer storage.</text>
+  <rect x="32" y="402" width="280" height="142" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="52" y="431" font-size="14" font-weight="650" fill="#087f8c" text-anchor="start">01 / WRITE</text>
+  <text x="52" y="462" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Update the buffer</text>
+  <text x="52" y="491" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Metal stores the output.</text>
+  <rect x="340" y="402" width="280" height="142" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="360" y="431" font-size="14" font-weight="650" fill="#087f8c" text-anchor="start">02 / WAIT</text>
+  <text x="360" y="462" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Wait for completion</text>
+  <text x="360" y="491" font-size="14" font-weight="400" fill="#536677" text-anchor="start">numpy() synchronizes first.</text>
+  <rect x="648" y="402" width="280" height="142" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="668" y="431" font-size="14" font-weight="650" fill="#087f8c" text-anchor="start">03 / VIEW</text>
+  <text x="668" y="462" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">Read the shared result</text>
+  <text x="668" y="491" font-size="14" font-weight="400" fill="#536677" text-anchor="start">result = output.numpy()</text>
+  <line x1="316" y1="475" x2="334" y2="475" stroke="#536677" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="624" y1="475" x2="642" y2="475" stroke="#536677" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="32" y1="584" x2="928" y2="584" stroke="#d8e3e9" stroke-width="1.5" />
+  <text x="32" y="611" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Keep the Buffer alive while using its NumPy view.</text>
+  <text x="32" y="633" font-size="14" font-weight="400" fill="#536677" text-anchor="start">metile.shared is threadgroup-local storage, not the host-visible shared allocation.</text>
 </svg>

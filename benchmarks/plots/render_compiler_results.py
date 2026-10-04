@@ -100,17 +100,18 @@ def render(reports, output):
     pyplot = style.matplotlib_pyplot()
     from matplotlib.ticker import FuncFormatter
 
-    figure, axes = pyplot.subplots(3, 1, figsize=(8.8, 16.5), dpi=180)
+    figure, axes = pyplot.subplots(3, 1, figsize=(style.WIDTH, 16.8), dpi=style.DPI)
     names = [case["name"] for case in reports[0]["cases"]]
     labels = [
         f"{'FP16' if case['dtype'] == 'float16' else 'FP32'}  {case['batches']:>3} x {case['width']}"
         + (" *" if case["width"] == 1024 and case["batches"] in (32, 256) else "")
         for case in reports[0]["cases"]
     ]
-    maximum = max(1.15, max(row["speedup"] for row in rows) + 0.035)
-    minimum = min(0.975, min(row["speedup"] for row in rows) - 0.025)
+    maximum = max(1.15, max(row["speedup"] for row in rows) + 0.015)
+    minimum = min(0.98, min(row["speedup"] for row in rows) - 0.015)
     for axis, (comparator, metric, title) in zip(axes, PANELS):
         style.parity_rule(axis, reference="comparator")
+        series = []
         for run_index, _ in enumerate(reports):
             selected = {
                 row["name"]: row
@@ -119,61 +120,46 @@ def render(reports, output):
                 and row["comparator"] == comparator
                 and row["metric"] == metric
             }
-            positions = [
-                index + (run_index - (len(reports) - 1) / 2) * 0.50 for index in range(len(names))
-            ]
             values = [selected[name]["speedup"] for name in names]
             color = style.SERIES[run_index % len(style.SERIES)]
-            axis.scatter(
-                values,
-                positions,
-                color=color,
-                marker=("o", "s", "^", "D")[run_index % 4],
-                s=34,
-                edgecolors=style.SURFACE,
-                linewidths=0.7,
-                zorder=3,
-                label=f"Heldout run {run_index + 1}",
-            )
-            for value, position in zip(values, positions):
-                axis.annotate(
-                    f"{value:.3f}x",
-                    (value, position),
-                    xytext=(7, 0),
-                    textcoords="offset points",
-                    va="center",
-                    fontsize=8.8,
-                    color=color,
-                    bbox={"facecolor": style.SURFACE, "edgecolor": "none", "pad": 0.6},
-                )
-        axis.set_title(title, loc="left", fontsize=12, fontweight="bold", pad=24)
+            series.append((values, color, f"Heldout run {run_index + 1}"))
+        columns = tuple(
+            0.85 + 0.12 * index / max(1, len(reports) - 1) for index in range(len(reports))
+        )
+        style.comparison_rows(axis, labels, series, columns=columns, digits=3)
+        style.value_headers(
+            axis,
+            [
+                (values, color, f"Run {index + 1}")
+                for index, (values, color, _) in enumerate(series)
+            ],
+            columns=columns,
+            label="STORAGE  /  ROWS x WIDTH",
+        )
+        axis.set_title(title, loc="left", fontsize=12, fontweight="bold", pad=38)
         axis.text(
             1.0,
-            1.015,
+            1.025,
             "1.00x parity",
             transform=axis.get_xaxis_transform(),
             ha="center",
-            fontsize=9,
+            fontsize=9.5,
             color=style.INK_MUTED,
         )
         axis.set_xlim(minimum, maximum)
         axis.set_xticks([1.0, 1.05, 1.10, 1.15])
         axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _: style.multiplier(value)))
-        axis.set_xlabel("comparator time / candidate time · higher is faster", fontsize=10)
+        axis.set_xlabel("Comparator time / candidate time →", fontsize=10.5)
         axis.set_ylim(len(names) - 0.5, -0.7)
-        axis.set_yticks(range(len(names)), labels)
-        style.frame(axis, grid_axis="x")
-        for boundary in (2.5, 5.5, 8.5):
-            axis.axhline(boundary, color=style.GRID, linewidth=0.7, zorder=0)
     target = reports[0]["gate_policy"]["aligned_throughput_gpu_speedup_minimum"]
     axes[0].axvline(target, color=style.ACCENT, linewidth=1.2, linestyle="dotted")
     axes[0].text(
         target,
-        1.015,
+        1.025,
         f"{target:.2f}x target *",
         transform=axes[0].get_xaxis_transform(),
         ha="center",
-        fontsize=9,
+        fontsize=9.5,
         color=style.ACCENT,
     )
     handles, legend_labels = axes[0].get_legend_handles_labels()
@@ -181,29 +167,34 @@ def render(reports, output):
         handles[1:],
         legend_labels[1:],
         loc="upper left",
-        bbox_to_anchor=(0.19, 0.939),
+        bbox_to_anchor=(0.035, 0.923),
         ncol=len(reports),
         frameon=False,
-        fontsize=10,
+        fontsize=10.5,
     )
     passed = all(report["promotion_gate"]["passed"] for report in reports)
     style.headings(
         figure,
-        "RMSNorm register tiling: "
-        + ("promotion gate passed" if passed else "the promotion gate is not met"),
-        "All 12 heldout cases · frozen register4 policy\n"
-        "Two fresh-process runs, not confidence intervals",
-        f"{reports[0]['device']} · MLX {reports[0]['mlx_version']} · FP32 arithmetic, final output cast",
+        "RMSNorm register tiling",
+        (
+            "Promotion gate passed"
+            if passed
+            else "Promotion gate not met · default remains unpromoted"
+        )
+        + "\nAll 12 heldout cases · frozen static-N register4 baseline\n"
+        + f"{len(reports)} fresh-process runs, not confidence intervals",
+        f"{reports[0]['device']} · MLX {reports[0]['mlx_version']} · FP32 arithmetic, final output cast\n"
+        "Matched MLX means the FP32 graph, not mx.fast.rms_norm · higher is faster",
     )
     figure.text(
-        0.985,
-        0.035,
+        0.045,
+        0.050,
         "* Target applies to aligned 32- and 256-row GPU cases",
-        ha="right",
-        fontsize=9,
+        ha="left",
+        fontsize=10,
         color=style.INK_SOFT,
     )
-    figure.subplots_adjust(left=0.20, right=0.97, top=0.88, bottom=0.08, hspace=0.48)
+    figure.subplots_adjust(left=0.28, right=0.74, top=0.865, bottom=0.095, hspace=0.39)
     style.save(figure, output)
     pyplot.close(figure)
 

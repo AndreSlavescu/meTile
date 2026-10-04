@@ -1,12 +1,13 @@
 Memory Model
 ============
 
-Apple Silicon lets the CPU and GPU access shared physical memory. In meTile,
-``Buffer`` owns a Metal allocation in shared storage. This removes the need
-for a separate GPU-to-CPU transfer when reading that allocation, but it does
-not mean every buffer conversion is zero-copy.
+On Apple Silicon, the CPU and GPU can access the same physical memory.
+meTile's ``Buffer`` owns a shared Metal allocation, so reading it does not
+require a separate GPU-to-CPU transfer. Creating a buffer from other storage
+can still involve a copy.
 
 .. image:: /_static/unified-memory.svg
+   :target: ../_static/unified-memory.svg
    :alt: CPU and GPU access a shared Metal buffer; constructing it from NumPy copies the input
    :width: 100%
 
@@ -26,15 +27,14 @@ Allocation and ownership
    assert source[0] == 0.0
 
 ``Buffer(data=source)`` and ``Buffer.from_numpy(source)`` copy the source
-into a new Metal allocation. Changing the original array afterward does not
-change an explicit buffer. ``Buffer.zeros`` initializes storage to zero;
+into a new Metal allocation. Modifying the original array afterward does not
+affect an explicit buffer. ``Buffer.zeros`` initializes storage to zero;
 ``Buffer.empty`` leaves its initial contents unspecified.
 
-``buffer.numpy()`` waits for pending GPU work and returns a writable NumPy
-view of the Metal allocation. It is not a copy. Keep the ``Buffer`` alive
-for as long as that view is in use, and synchronize before accessing a retained
-view after another dispatch. Calling ``numpy()`` again performs that wait;
-reading a view returned earlier does not.
+``buffer.numpy()`` waits for pending GPU work, then returns a writable view
+of the Metal allocation, not a copy. Keep the ``Buffer`` alive while using
+that view. After another dispatch, synchronize before reading a retained
+view: calling ``numpy()`` again waits, but reading an earlier view does not.
 
 All examples use an explicit storage dtype. NumPy commonly creates float64
 arrays by default, but the kernel launcher does not support arbitrary NumPy
@@ -45,14 +45,13 @@ inputs to a dtype supported by the chosen kernel.
 Passing NumPy arrays directly
 ------------------------------
 
-A normal kernel launch can accept contiguous NumPy arrays. The launcher
-copies their current contents into cached Metal buffers, dispatches, waits,
-and copies the results back. That convenience includes transfer and
-synchronization costs on each launch.
+A normal launch accepts contiguous NumPy arrays. It copies their current
+contents into cached Metal buffers, dispatches the kernel, waits and copies
+the results back. Each launch pays those copy and synchronization costs.
 
 Use explicit buffers for repeated GPU work. In particular,
 ``kernel[grid].prepare(...)`` binds resources and returns a dispatcher that
-reuses them; repeated calls do not rerun the NumPy conversion/copy-back path.
+reuses them. Repeated calls don't rerun NumPy conversion or copy-back.
 Read results through an explicit output buffer's ``numpy()`` method.
 
 Use contiguous arrays for implicit outputs. A noncontiguous array can be
@@ -74,11 +73,11 @@ and access mode. For example, this fragment loads one tile and doubles it:
    outputs.store((positions,), inputs.load((positions,)) * 2.0)
 
 A tensor load checks each coordinate against its declared dimension. Invalid
-coordinates use the scalar ``other`` value, which defaults to zero; invalid
-stores are skipped. Bounds are logical contracts, not a check against the
-allocation size: the caller must provide enough storage for every valid
-shape/stride address. Index and offset arithmetic must fit signed 32-bit
-indexing. See :doc:`tensor-memory` for the complete contract.
+coordinates return the scalar ``other`` value, which defaults to zero;
+invalid stores are skipped. These checks enforce the logical shape, not the
+allocation size. The caller must provide storage for every valid shape/stride
+address and keep index and offset arithmetic within signed 32-bit range.
+See :doc:`tensor-memory` for the complete contract.
 
 The lower-level ``load`` and ``store`` operations take pointer expressions
 and optional masks. They do not know the allocation's bounds:
@@ -95,8 +94,8 @@ For ``count=10``, ``BLOCK=4``, and program 2, the positions are
 The last two loads produce zero and their stores are skipped. A computation
 that can produce negative positions also needs a lower-bound check.
 
-A masked load's fill value must suit the reduction that follows. Zero works
-for sums, negative infinity for maxima, and positive infinity for minima.
+For a masked load, choose a fill value that suits the reduction that follows:
+zero for sums, negative infinity for maxima, and positive infinity for minima.
 After operations such as subtraction or exponentiation, padding may need
 another mask. The :doc:`/examples/softmax` and :doc:`/examples/layernorm`
 examples show why.

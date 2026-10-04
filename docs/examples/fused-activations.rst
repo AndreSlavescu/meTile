@@ -1,8 +1,8 @@
 Fused Activations and SIMDgroup Roles
 =======================================
 
-Pointwise fusion keeps related arithmetic in one kernel. This example computes
-a gated activation from two float32 arrays:
+Pointwise fusion computes related expressions in one kernel. Here, two
+float32 arrays produce a gated activation:
 
 ``output = gelu_approx(gate) * up``, with
 ``gelu_approx(value) = value / (1 + exp(-1.702 * value))``.
@@ -52,10 +52,9 @@ into its epilogue. The :doc:`matmul` example includes a complete GEMM-plus-ReLU
 kernel; the same mechanism supports expressions such as this QuickGELU
 approximation when they satisfy the compiler's epilogue constraints.
 
-Fusion avoids an intermediate device-memory round trip. It does not make the
-activation free: exponentials, divides, and extra live values still affect
-execution time. Use ``dispatch.explain()`` and the generated MSL to inspect
-the selected implementation.
+Fusion avoids an intermediate device-memory round trip, but exponentials,
+divisions and extra live values still take time and resources. Inspect
+``dispatch.explain()`` and the generated MSL to see the selected implementation.
 
 When to use SIMDgroup roles
 -----------------------------
@@ -65,14 +64,13 @@ assigned to a subset of the threadgroup's 32-thread SIMDgroups. This is a
 lower-level tool for specialized kernels, not a dependency or synchronization
 mechanism.
 
-Role regions appear in Python source order, but that does not make one role
-finish before another starts. A producer writing values that a consumer reads
-needs an appropriate memory and synchronization design. Threadgroup barriers
-must be reached by every participating thread; placing a barrier inside only
-one role can deadlock.
+Python source order does not make one role finish before another starts.
+If one role reads another's writes, you must arrange the storage and
+synchronization. Every participating thread must reach a threadgroup barrier;
+placing a barrier inside only one role can deadlock.
 
 For this gated activation, all dependent operations belong to the same lane,
 so ordinary pointwise fusion is sufficient. Independent outputs are a better
-starting point for role specialization. Study
+starting point for role specialization. See
 ``kernels/src/metile_kernels/simdgroup_specialized_elementwise.py`` and verify the
 generated indexing before introducing communication between roles.
