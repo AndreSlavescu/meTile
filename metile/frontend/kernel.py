@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import inspect
+import math
 import os
 import struct
 import sys
@@ -44,7 +45,7 @@ _ELEM_SIZES = {"float": 4, "half": 2, "int": 4, "uint": 4, "uchar": 1, "bool": 1
 
 
 class OutOfResources(RuntimeError):
-    """A configuration asks for more threadgroup memory than the device has.
+    """A configuration exceeds a device or compiled-pipeline resource limit.
 
     Typed rather than a bare RuntimeError so tuners can prune the config and keep going, which is
     the distinction Triton draws with its own OutOfResources: exceeding a hardware limit is a fact
@@ -66,6 +67,18 @@ def _validate_threadgroup_memory(metal_ir: mir.MFunction):
         raise OutOfResources(
             f"Kernel '{metal_ir.name}' requires {total_bytes} bytes threadgroup memory "
             f"but device limit is {limit} bytes. Reduce tile sizes."
+        )
+
+
+def _validate_pipeline_threadgroup(metal_ir: mir.MFunction, pipeline):
+    """Reject launch geometry the compiled pipeline cannot execute."""
+    threads = math.prod(metal_ir.threadgroup_size)
+    limit = MetalDevice.get().pipeline_max_threads(pipeline)
+    if threads > limit:
+        raise OutOfResources(
+            f"Kernel '{metal_ir.name}' requires {threads} threads per threadgroup "
+            f"but compiled pipeline limit is {limit}. Reduce the threadgroup size "
+            "or register pressure."
         )
 
 
@@ -684,6 +697,8 @@ class KernelLauncher:
             pipeline, _ = dev.compile_msl_precompiled(msl_source, metal_ir.name)
         else:
             pipeline = dev.compile_msl(msl_source, metal_ir.name)
+
+        _validate_pipeline_threadgroup(metal_ir, pipeline)
 
         source_param_names = [
             name

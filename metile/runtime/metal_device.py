@@ -155,6 +155,7 @@ class MetalDevice:
         if not self.command_queue:
             raise RuntimeError("Failed to create Metal command queue.")
         self._last_cmd_buffer = None
+        self._completed_cmd_buffer = None
         self._pending_cmd_buffer = None
         self._pending_encoder = None
         self._pending_pipeline = None
@@ -413,6 +414,10 @@ class MetalDevice:
     def max_threadgroup_memory(self) -> int:
         """Max threadgroup memory in bytes (MTLDevice.maxThreadgroupMemoryLength)."""
         return _send_uint64(self.device, "maxThreadgroupMemoryLength")
+
+    def pipeline_max_threads(self, pipeline) -> int:
+        """Return the compiled pipeline's maximum threads per threadgroup."""
+        return _send_uint64(pipeline, "maxTotalThreadsPerThreadgroup")
 
     @cached_property
     def supports_tensor_ops(self) -> bool:
@@ -752,20 +757,30 @@ class MetalDevice:
             cb = self._last_cmd_buffer
             if cb is not None:
                 self._ensure_cached_selectors()
-                completed = False
+                status = 0
                 spin_ns = min(self._last_completion_spin_ns, self.low_latency_spin_ns)
                 if spin_ns:
                     deadline = time.perf_counter_ns() + spin_ns
-                    while MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status) < 4:
+                    status = MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status)
+                    while status < 4:
                         if time.perf_counter_ns() >= deadline:
                             break
-                    completed = MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status) >= 4
-                if not completed:
+                        status = MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status)
+                if status < 4:
                     MetalDevice._msg_send_void(cb, MetalDevice._sel_waitUntilCompleted)
-                self._completed_cmd_buffer = cb
+                    status = MetalDevice._msg_send_uint64(cb, MetalDevice._sel_status)
+                self._completed_cmd_buffer = cb if status == 4 else None
                 self._last_cmd_buffer = None
                 self._last_completion_spin_ns = 0
                 self._inflight_lifetimes.clear()
+                if status == 5:
+                    error = _send_ptr(cb, "error")
+                    description = (
+                        _nsstring_to_str(_send_ptr(error, "localizedDescription")) if error else ""
+                    )
+                    raise RuntimeError(
+                        f"Metal command buffer failed (status=5): {description or 'unknown Metal error'}"
+                    )
 
     @cached_property
     def low_latency_spin_ns(self) -> int:

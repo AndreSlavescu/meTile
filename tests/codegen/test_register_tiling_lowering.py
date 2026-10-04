@@ -9,8 +9,10 @@ from metile.compiler.execution_report import execution_report
 from metile.compiler.lowering import lower
 from metile.compiler.lowering.common import LoweringError
 from metile.compiler.ownership import validate_register_reductions
+from metile.frontend.kernel import OutOfResources
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
+from metile.runtime.metal_device import MetalDevice
 from metile_kernels.rmsnorm import rmsnorm_register
 from tests.codegen.test_register_lowering import _trace, register_copy
 
@@ -155,13 +157,30 @@ def test_gpu_generalized_register_rmsnorm_preserves_fp32_accumulation(elements, 
 
 @pytest.mark.parametrize("elements", [2, 8, 16, 32])
 @pytest.mark.parametrize("dtype", [np.float16, np.int32])
-def test_gpu_register_tiling_at_maximum_thread_count_preserves_ragged_copy(elements, dtype):
-    block = elements * 1024
+@pytest.mark.parametrize("threads", [128, 1024])
+def test_gpu_register_tiling_respects_pipeline_thread_limit(monkeypatch, elements, dtype, threads):
+    block = elements * threads
     identity = metile.ThreadLayout.identity(block, elements_per_thread=elements)
     layout = metile.ThreadLayout(
         tuple(reversed(identity.bit_order)), xor_mask=3, elements_per_thread=elements
     )
     source = (np.arange(block * 2 - 7, dtype=np.int32) % 127).astype(dtype)
     output = np.full_like(source, -1)
-    register_copy[(2,)].prepare(source, output, source.size, BLOCK=block, LAYOUT=layout)
+    device = MetalDevice.get()
+    pipeline_limits = []
+    query_limit = device.pipeline_max_threads
+
+    def record_limit(pipeline):
+        limit = query_limit(pipeline)
+        pipeline_limits.append(limit)
+        return limit
+
+    monkeypatch.setattr(device, "pipeline_max_threads", record_limit)
+    try:
+        register_copy[(2,)].prepare(source, output, source.size, BLOCK=block, LAYOUT=layout)
+    except OutOfResources:
+        assert threads == 1024
+        assert pipeline_limits and pipeline_limits[-1] < threads
+        np.testing.assert_array_equal(output, np.full_like(source, -1))
+        return
     np.testing.assert_array_equal(output, source)

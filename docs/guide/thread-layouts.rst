@@ -102,6 +102,14 @@ conversions are currently supported for multi-register layouts. Explicit vector
 widths other than one reject;
 ``Schedule(staging="device")`` cannot conceal a required cross-group exchange.
 
+The 1024-thread ceiling is an IR limit, not a guarantee that every compiled
+kernel can launch that many threads. meTile checks the compiled pipeline's
+``maxTotalThreadsPerThreadgroup`` before caching or dispatching it and raises
+``OutOfResources`` when the requested geometry exceeds that limit. Reduce the
+tile's physical thread count or register pressure explicitly; ownership is
+never silently remapped. See Apple's `pipeline threadgroup limit
+<https://developer.apple.com/documentation/metal/mtlcomputepipelinestate/maxtotalthreadsperthreadgroup>`_.
+
 Register-tiled reductions
 -------------------------
 

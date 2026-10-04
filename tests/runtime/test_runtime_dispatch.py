@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import metile
+from metile.runtime import metal_device as metal_device_module
 from metile.runtime.metal_device import MetalDevice, completion_spin_budget_ns
 
 
@@ -210,7 +211,7 @@ def test_autotune_persists_measured_completion_budget(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     ("spin_ns", "status", "expected_status_calls", "expected_wait_calls"),
-    [(100_000, 4, 2, 0), (0, 2, 0, 1)],
+    [(100_000, 4, 1, 0), (0, 2, 1, 1)],
 )
 def test_sync_selects_bounded_poll_or_blocking_wait(
     monkeypatch, spin_ns, status, expected_status_calls, expected_wait_calls
@@ -230,7 +231,9 @@ def test_sync_selects_bounded_poll_or_blocking_wait(
         return status
 
     def wait_until_completed(*_):
+        nonlocal status
         calls["wait"] += 1
+        status = 4
 
     monkeypatch.setattr(MetalDevice, "_msg_send_uint64", command_buffer_status)
     monkeypatch.setattr(MetalDevice, "_msg_send_void", wait_until_completed)
@@ -240,5 +243,89 @@ def test_sync_selects_bounded_poll_or_blocking_wait(
     device.sync()
 
     assert calls == {"status": expected_status_calls, "wait": expected_wait_calls}
+    assert device._completed_cmd_buffer == 1
     assert device._last_cmd_buffer is None
     assert not device._inflight_lifetimes
+
+
+def test_pipeline_thread_limit_queries_the_compiled_pipeline(monkeypatch):
+    device = MetalDevice.__new__(MetalDevice)
+    pipeline = object()
+    calls = []
+
+    def query_limit(actual_pipeline, selector):
+        calls.append((actual_pipeline, selector))
+        return 512
+
+    monkeypatch.setattr(metal_device_module, "_send_uint64", query_limit)
+
+    assert device.pipeline_max_threads(pipeline) == 512
+    assert calls == [(pipeline, "maxTotalThreadsPerThreadgroup")]
+
+
+@pytest.mark.parametrize("spin_ns", [0, 100_000])
+@pytest.mark.parametrize("description", ["Threadgroup exceeds pipeline resources", None])
+def test_sync_reports_command_failure_and_clears_dispatch_state(monkeypatch, spin_ns, description):
+    device = MetalDevice.__new__(MetalDevice)
+    device._dispatch_lock = threading.RLock()
+    device._last_cmd_buffer = 1
+    device._completed_cmd_buffer = 1
+    device._last_completion_spin_ns = 0
+    device._pending_cmd_buffer = 2
+    device._pending_encoder = 3
+    device._pending_pipeline = object()
+    device._pending_binding_key = object()
+    device._pending_dispatches = 1
+    device._pending_concurrent = True
+    device._pending_inputs = {4}
+    device._pending_outputs = {5}
+    device._pending_lifetimes = {6: object()}
+    device._pending_completion_spin_ns = spin_ns
+    device._inflight_lifetimes = [object()]
+    device._ensure_cached_selectors = lambda: None
+    device.__dict__["low_latency_spin_ns"] = spin_ns
+    lifecycle_calls = []
+
+    def send_void(receiver, selector):
+        lifecycle_calls.append((receiver, selector))
+
+    def error_details(receiver, selector):
+        if selector == "error":
+            assert receiver == 2
+            return 7 if description is not None else None
+        assert receiver == 7
+        assert selector == "localizedDescription"
+        return description
+
+    monkeypatch.setattr(MetalDevice, "_msg_send_uint64", lambda *_: 5)
+    monkeypatch.setattr(MetalDevice, "_msg_send_void", send_void)
+    for selector in ("status", "endEncoding", "commit", "waitUntilCompleted"):
+        monkeypatch.setattr(MetalDevice, f"_sel_{selector}", selector)
+    monkeypatch.setattr(metal_device_module, "_send_ptr", error_details)
+    monkeypatch.setattr(metal_device_module, "_nsstring_to_str", lambda value: value)
+
+    with pytest.raises(RuntimeError, match=r"Metal command buffer failed \(status=5\)") as error:
+        device.sync()
+
+    assert (description or "unknown Metal error") in str(error.value)
+    expected_calls = [(3, "endEncoding"), (2, "commit")]
+    if not spin_ns:
+        expected_calls.append((2, "waitUntilCompleted"))
+    assert lifecycle_calls == expected_calls
+    assert device._completed_cmd_buffer is None
+    assert device._last_cmd_buffer is None
+    assert device._last_completion_spin_ns == 0
+    assert device._pending_cmd_buffer is None
+    assert device._pending_encoder is None
+    assert device._pending_pipeline is None
+    assert device._pending_binding_key is None
+    assert device._pending_dispatches == 0
+    assert device._pending_concurrent is None
+    assert not device._pending_inputs
+    assert not device._pending_outputs
+    assert not device._pending_lifetimes
+    assert device._pending_completion_spin_ns == 0
+    assert not device._inflight_lifetimes
+    assert device.gpu_elapsed() == 0.0
+    device.sync()
+    assert lifecycle_calls == expected_calls
