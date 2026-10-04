@@ -86,8 +86,9 @@ The first command checks compiler data structures. The second executes the
 complete tutorial examples and compares GPU output with NumPy. GPU execution
 requires the Apple Silicon/Metal environment described above.
 
-The tutorial's attention example imports the kernel library. For the full
-suite, install both projects and the benchmark extra:
+The tutorial's attention example uses ``metile.backends.attention_runtime``,
+whose GPU kernels come from the companion library; it does not need MLX.
+For the full suite, install both projects and the benchmark extra:
 
 .. code-block:: bash
 

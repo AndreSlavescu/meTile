@@ -73,11 +73,19 @@ def test_reference_kernels_import_from_separate_namespace_without_device():
     _run_isolated(
         """
         import importlib
+        import importlib.abc
         import pkgutil
         import sys
         from pathlib import Path
 
         sys.path[:0] = sys.argv[1:]
+
+        class BlockFrameworks(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.split(".")[0] in {"mlx", "mlx_lm"}:
+                    raise AssertionError(f"Reference kernels imported a framework: {fullname}")
+
+        sys.meta_path.insert(0, BlockFrameworks())
 
         import metile
         from metile.runtime.metal_device import MetalDevice
@@ -94,9 +102,14 @@ def test_reference_kernels_import_from_separate_namespace_without_device():
         for module in pkgutil.iter_modules(metile_kernels.__path__, "metile_kernels."):
             importlib.import_module(module.name)
 
-        from metile_kernels.attention_runtime import attention_decode
+        assert not hasattr(metile_kernels, "attention_decode")
+        assert "metile_kernels.attention_runtime" not in sys.modules
+        assert not any(name.startswith("metile.backends.") for name in sys.modules)
 
-        assert metile_kernels.attention_decode is attention_decode
+        from metile.backends.attention_runtime import AttentionDecode, attention_decode
+
+        assert isinstance(attention_decode, AttentionDecode)
+        assert AttentionDecode.__module__ == "metile.backends.attention_runtime"
         assert callable(attention_decode[(1,)].prepare)
         assert metile_kernels.matmul.kernel_fn.fn.__module__ == "metile_kernels.gemm"
         assert not hasattr(metile, "kernels")

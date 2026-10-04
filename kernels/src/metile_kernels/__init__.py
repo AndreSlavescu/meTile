@@ -20,16 +20,6 @@ from metile_kernels.simdgroup_specialized_elementwise import (
 )
 from metile_kernels.softmax import softmax
 
-
-def __getattr__(name):
-    if name == "attention_decode":
-        from metile_kernels.attention_runtime import attention_decode
-
-        globals()[name] = attention_decode
-        return attention_decode
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
     "ATTENTION_DECODE_CONFIGS",
     "ATTENTION_PARTIAL_CONFIGS",
@@ -37,7 +27,6 @@ __all__ = [
     "REDUCE_KERNELS",
     "affine_qmv",
     "affine_swiglu_qmv",
-    "attention_decode",
     "exp_kernel",
     "exp_sqrt_kernel",
     "geglu_kernel",

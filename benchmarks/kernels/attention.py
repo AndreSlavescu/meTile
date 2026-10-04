@@ -14,8 +14,8 @@ import numpy as np
 
 import metile
 from benchmarks.common.benchutils import bench_interleaved
+from metile.backends.attention_runtime import attention_decode
 from metile.runtime.metal_device import MetalDevice
-from metile_kernels import attention_decode
 
 COOLDOWN = 3.0
 

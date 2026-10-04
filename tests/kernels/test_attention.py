@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 
 import metile
-from metile.runtime.metal_device import MetalDevice
-from metile_kernels import attention_runtime
-from metile_kernels.attention import attention_decode_kernel
-from metile_kernels.attention_runtime import (
+from metile.backends import attention_runtime
+from metile.backends.attention_runtime import (
     AttentionDecodeConfig,
     _prepare_two_pass,
     attention_decode,
 )
+from metile.runtime.metal_device import MetalDevice
+from metile_kernels.attention import attention_decode_kernel
 
 
 def _reference_attention(query, key, value, scale):

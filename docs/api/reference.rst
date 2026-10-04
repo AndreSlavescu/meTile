@@ -8,9 +8,55 @@ are used by host Python code. See :doc:`/guide/language` for tracing rules and
 
 The separately installed ``metile-kernels`` project provides ready-made
 operations under ``metile_kernels``, such as ``metile_kernels.gemm.matmul``
-and ``metile_kernels.attention_decode``. Their implementations live in
+and ``metile_kernels.attention.attention_decode_kernel``. Their implementations live in
 ``kernels/src/metile_kernels/``. They depend on the compiler; the compiler
 does not require the kernel library. See :doc:`/getting-started/install`.
+
+Host-side decode attention orchestration lives in
+``metile.backends.attention_runtime.attention_decode``. This optional backend
+requires the kernel library, but not MLX. See :doc:`/examples/attention` for
+its launcher API and migration from the former kernel-package import.
+
+Training and Manual VJPs
+------------------------
+
+See :doc:`/guide/training` for examples, precision contracts, and saved-buffer
+lifetime rules, and :doc:`/guide/kernel-coverage` for the Liger parity checklist.
+These are native APIs, not automatic framework-autograd registrations.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 50 50
+
+   * - Entry points
+     - Contract
+   * - ``metile.backends.pointwise.activation_forward / activation_backward``
+     - Unary or gated activations; separate gradients for both gate and up
+   * - ``metile.backends.pointwise.rope_forward / rope_backward``
+     - Full/partial RoPE with pre-expanded coefficient tables and all three input gradients
+   * - ``metile.backends.training_norms.rms_norm_forward / layer_norm_forward / add_rms_norm_forward / norm_backward``
+     - FP32 statistics, input and affine-parameter gradients, residual cotangents
+   * - ``metile.backends.training_matmul.matmul_forward / matmul_backward``
+     - FP32 two-dimensional dense products and optional activation derivatives
+   * - ``metile.backends.training_losses.softmax_forward / softmax_backward / log_softmax_forward / log_softmax_backward``
+     - Final-axis FP32 normalization and its explicit cotangent map
+   * - ``metile.backends.training_losses.cross_entropy_forward / cross_entropy_backward``
+     - Integer-label cross entropy, ignored labels, smoothing and optional z-loss
+   * - ``metile.backends.attention.attention_forward / attention_backward``
+     - Stable dense/causal/masked attention, MHA/GQA/MQA, and dQ/dK/dV
+   * - ``metile.backends.gated_delta.gated_delta_forward / gated_delta_backward``
+     - Scalar/channel-decay recurrences with all six tensor-input gradients
+   * - ``metile.backends.dual_chunk_attention.dual_chunk_attention_forward / dual_chunk_attention_backward``
+     - Three pre-rotated branches, one global normalization, and branch/K/V gradients
+   * - ``metile.vjp(output, inputs, cotangent)``
+     - Trace-time expression VJP; unsupported differentiated operators fail explicitly
+   * - ``metile.loop_state(initial)``
+     - Explicit mutable per-lane state with ``.value`` snapshots and ``.update(next_value)``
+
+Raw device implementations live in ``metile_kernels.training_activations``,
+``rope``, ``training_norms``, ``training_losses``, ``stable_attention``,
+``gated_delta``, and ``dual_chunk_attention``. Allocation and dispatch logic
+stays outside those kernel modules.
 
 Kernel Definition & Launch
 --------------------------
@@ -36,6 +82,10 @@ Preparation may modify outputs. Use explicit ``Buffer`` objects when reusing
 a dispatcher: subsequent calls do not repeat implicit NumPy conversion or
 copy results into the original NumPy arrays. The ordinary launch cache also
 depends on input dtypes and relevant compilation settings, not just constexprs.
+
+Pass ``STRICT_MATH=True`` to disable Metal fast-math in both compilation paths.
+This boolean is part of compilation cache identity. It does not override an
+explicit fast intrinsic or change the selected matrix arithmetic precision.
 
 
 Buffers

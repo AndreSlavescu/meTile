@@ -56,6 +56,8 @@ Write and tune kernels
    guide/execution-schedules
    guide/thread-layouts
    guide/autotuning
+   guide/training
+   guide/kernel-coverage
 
 Kernel examples
 ---------------

@@ -1,11 +1,24 @@
 Decode Attention
 ================
 
-``metile_kernels.attention_decode`` computes attention for one query token
+This page describes the inference decode launcher. For full-sequence stable
+attention, explicit backward kernels, Dual Chunk Attention, and GDN/KDA,
+see :doc:`/guide/training` and the :doc:`/guide/kernel-coverage` checklist.
+
+``metile.backends.attention_runtime.attention_decode`` computes attention for one query token
 per head. It supports multi-head attention (MHA), grouped-query attention
 (GQA), and multi-query attention (MQA). The kernel streams keys and values
 while maintaining an online softmax state, avoiding a full attention-score
 matrix in device memory.
+
+The backend owns argument validation, scratch allocation, tuning, and
+multi-pass dispatch. GPU kernels remain in ``metile_kernels.attention``;
+install both projects as shown in :doc:`/getting-started/install`. This
+backend does not require MLX.
+
+Code using ``metile_kernels.attention_decode`` or
+``metile_kernels.attention_runtime`` should use the backend import below.
+The launcher arguments and preparation behavior are unchanged.
 
 Run a small GQA example
 -----------------------
@@ -17,7 +30,7 @@ use contiguous float32 storage.
 
    import numpy as np
    import metile
-   from metile_kernels import attention_decode
+   from metile.backends.attention_runtime import attention_decode
 
    batch, query_heads, key_value_heads = 1, 4, 2
    context_length, head_dim = 37, 32
