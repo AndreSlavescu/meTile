@@ -1,14 +1,14 @@
 Thread Ownership and Software Staging
 ======================================
 
-Tensor declarations describe logical memory. Thread layouts describe which GPU
-thread owns each logical value. Keeping these separate lets the compiler select
-communication without putting pointer arithmetic, scratch arrays and barriers
-into every kernel definition.
+Tensor declarations describe logical memory; thread layouts assign each logical
+value to a GPU thread. Keeping these separate lets the compiler arrange
+communication without requiring pointer arithmetic, scratch arrays and barriers
+in every kernel.
 
 Explicit layouts support 1, 2, 4, 8, 16, or 32 scalar values per thread in
-straight-line programs using tensor descriptors. Multi-register paths also
-support FP32 sum reductions. The subset is deliberately limited; existing
+straight-line programs with tensor descriptors. Multi-register paths also
+support FP32 sum reductions. These controls cover a limited subset; existing
 kernels keep their automatic execution path.
 
 Declare memory first, then ownership
@@ -54,12 +54,12 @@ elements; ``thread_count`` counts physical threads. The representation supports
 bit permutations plus an XOR constant, rather than arbitrary binary linear
 transformations.
 
-The compiler propagates ownership through arithmetic, comparisons, selections,
-casts and descriptor loads. Uniform scalar values broadcast. Combining tiles
-with different owners requires an explicit ``convert_layout``; implicit
-ownership means identity when it interacts with an explicit layout. A legacy
-operation that loses per-thread ownership by reporting a nonuniform scalar is
-rejected rather than treated as a uniform broadcast.
+Arithmetic, comparisons, selections, casts and descriptor loads preserve
+ownership. Uniform scalars broadcast. To combine tiles with different owners,
+use an explicit ``convert_layout``; an implicit layout means identity when
+combined with an explicit one. Legacy operations that report a nonuniform
+scalar lose per-thread ownership. The compiler rejects those values rather
+than treating them as uniform broadcasts.
 
 Compiler-selected communication
 --------------------------------
@@ -80,10 +80,10 @@ The source-to-destination owner map determines the implementation:
      - Store to typed threadgroup scratch, publish with a threadgroup barrier,
        load from the source owner, then release with a second barrier.
 
-Every launched thread participates in an exchange, even when its logical device
-load or store is out of bounds. Scratch can be reused by later conversions of
-the same dtype only after the release barrier. A post-pass verifier checks the
-allocation, owner map, geometry, unconditional barriers and access sequence.
+Every launched thread takes part in an exchange, whether or not its logical
+device load or store is in bounds. Later conversions of the same dtype can
+reuse scratch only after the release barrier. After the pass, a verifier checks
+the allocation, owner map, geometry, unconditional barriers and access sequence.
 ``execution_report.value_layouts`` records per-value ownership;
 ``layout_conversions`` records each chosen mechanism and scratch identity.
 ``allocations`` includes the actual byte count.
@@ -121,22 +121,21 @@ elements_per_thread=4)``, instead gives each thread four adjacent elements.
 This is logical register ownership, not a promise of specific hardware register
 numbers, vector memory instructions, occupancy or spill-free machine code.
 
-The compiler scalarizes ordinary pointwise operations into one SSA value per
-register slot, preserving each slot's address, bounds mask, fill and dtype.
-An FP32 ``sum`` first combines local values in a balanced tree, then uses the
-SIMD/threadgroup reduction primitive. Every thread participates, including
-threads with masked
-device accesses. A one-SIMD-group reduction needs no shared storage; larger
-groups allocate one FP32 partial per SIMD group. The result is uniform and can
-broadcast into subsequent tile arithmetic. Other reduction operations and
-FP16 accumulation reject; cast to FP32 before summing.
+The compiler lowers ordinary pointwise operations to one SSA value per register
+slot, preserving each slot's address, bounds mask, fill and dtype. An FP32
+``sum`` combines local values in a balanced tree, then uses the SIMD/threadgroup
+reduction primitive. Every thread participates, including those with masked
+device accesses. One SIMD group needs no shared storage; larger groups allocate
+one FP32 partial per SIMD group. The uniform result can broadcast into later
+tile arithmetic. Other reductions and FP16 accumulation are rejected; cast to
+FP32 before summing.
 
-Lowering also makes the verified physical-thread range visible to Apple's
-compiler. It masks the thread index to ``thread_count - 1`` once before adding
-register offsets. This is an identity for every legal launched thread, but
-exposes known zero bits that simplify ownership permutations and eliminate
-redundant bounds checks. The launch geometry remains a checked contract, not
-an assumption about an arbitrary caller-supplied index.
+Lowering exposes the verified physical-thread range to Apple's compiler by
+masking the thread index to ``thread_count - 1`` before adding register offsets.
+This leaves every legal thread index unchanged while exposing zero bits that
+simplify ownership permutations and eliminate redundant bounds checks. The
+compiler checks the launch geometry; it does not assume these bounds for an
+arbitrary caller-supplied index.
 
 For private reduction scratch, every SIMD group reads the published partials
 and independently computes the final sum. This removes the second barrier and
@@ -164,7 +163,7 @@ For example, ``LAYOUT=metile.ThreadLayout.identity(1024, elements_per_thread=16)
 uses 64 threads and sixteen values per thread. With 32 values per thread,
 the same logical tile uses one SIMD group and no reduction scratch or
 threadgroup barrier. This trades parallelism for per-thread work and live
-values; fewer threads are not automatically faster. The compiler still owns
+values; fewer threads are not inherently faster. The compiler still owns
 scalarization, reduction trees, scratch allocation and barrier placement.
 
 ``N`` and ``BLOCK`` are compile-time values; ``0 < N <= BLOCK`` is required.
@@ -221,10 +220,10 @@ with other users remains live. SSA references, including tensor metadata, are
 rewritten on a cloned IR; unchanged programs are returned without cloning.
 ``execution_report.layout_optimizations`` records the proofs and counts.
 
-This eliminates barriers only when the communication itself is proven redundant.
-It does not indiscriminately remove release barriers, move communication across
-memory effects, support nonidentity multi-register conversions or weaken the
-staging lifetime contract.
+The pass removes a barrier only when it proves the communication is redundant.
+It does not remove other release barriers, move communication across memory
+effects, support nonidentity multi-register conversions or relax staging
+lifetime checks.
 
 Verified two-stage matrix pipelines
 -----------------------------------
@@ -255,11 +254,11 @@ are duplicated, not unrelated scratch. The emitter consumes verified phases
 without mutating the original loop. ``execution_report.pipelines`` exposes this
 contract and the allocation report exposes its storage cost.
 
-This is synchronous software staging. It does not claim hardware-asynchronous
-copies or guaranteed load/compute overlap. Native MPP/device staging remains the
-automatic path where already selected; explicit shared-memory staging is not
-assumed to be faster. Specialized producer/consumer kernels retain a separate,
-restricted implementation rather than pretending to share this general proof.
+This is synchronous software staging, not hardware-asynchronous copying or a
+guarantee of load/compute overlap. Where automatic selection already chooses
+native MPP/device staging, it still does; shared-memory staging is not assumed
+faster. Specialized producer/consumer kernels retain their separate, restricted
+implementation and are not covered by this proof.
 
 Research and remaining work
 ----------------------------
@@ -282,9 +281,9 @@ explicit scalar communication remain separate choices rather than forcing every
 kernel through shared-memory templates. The research-only AIR and native AGX
 routes remain separate; see :doc:`compiler-bypasses`.
 
-Next steps include broader reduction/layout composition, multi-register
-redistribution, cost-based conversion selection, and native tensor chaining.
-Each needs correctness and performance evidence before changing defaults.
+Further work includes composing more reductions and layouts, redistributing
+multi-register tiles, choosing conversions by cost and chaining native tensors.
+Each needs correctness and performance evidence before it can change defaults.
 
 Measurements and reproduction
 -----------------------------

@@ -11,9 +11,9 @@ sys.path.insert(0, _root)
 from benchmarks.plots import chartstyle as style
 
 SERIES = (
-    ("prefill_down_speedup", style.DECODE, "prefill, down projection"),
-    ("row_1", style.ACCENT, "decode, 1 row"),
-    ("row_16", style.PREFILL, "decode, 16 rows"),
+    ("prefill_down_speedup", style.DECODE, "Prefill\ndown proj."),
+    ("row_1", style.ACCENT, "Decode\n1 row"),
+    ("row_16", style.PREFILL, "Decode\n16 rows"),
 )
 
 
@@ -34,73 +34,52 @@ def _arguments():
 def _label(record):
     name = record["model"].replace("-Instruct", "").replace("-4bit", "")
     name = name.replace("-", " ")
-    return f"{name}   ·   width {record['hidden']}"
+    return f"{name}\nwidth {record['hidden']}"
 
 
-def main():
-    arguments = _arguments()
-    payload = json.loads(arguments.input.read_text())
+def render(payload, output):
     if payload.get("scope") != "model_shape_matrix":
         raise ValueError("input is not a model shape matrix result")
 
     pyplot = style.matplotlib_pyplot()
-    records = sorted(payload["models"], key=lambda record: record["hidden"])
-    for record in records:
-        record["row_1"] = record["block_speedup"]["1"]
-        record["row_16"] = record["block_speedup"]["16"]
+    records = [
+        dict(record, row_1=record["block_speedup"]["1"], row_16=record["block_speedup"]["16"])
+        for record in sorted(payload["models"], key=lambda record: record["hidden"])
+    ]
 
-    height = 0.62 * len(records) + 2.6
-    figure, axis = pyplot.subplots(figsize=(10.6, height), dpi=180)
-    figure.patch.set_facecolor(style.SURFACE)
+    from matplotlib.ticker import FuncFormatter, MultipleLocator
+
+    height = 0.65 * len(records) + 2.9
+    figure, axis = pyplot.subplots(figsize=(style.WIDTH, height), dpi=style.DPI)
     style.parity_rule(axis, "vertical")
-
-    slots = [float(index) for index in range(len(records))]
-    offsets = (0.22, 0.0, -0.22)
-    for (key, colour, name), offset in zip(SERIES, offsets):
-        values = [record[key] for record in records]
-        positions = [slot + offset for slot in slots]
-        axis.scatter(
-            values,
-            positions,
-            s=54,
-            color=colour,
-            edgecolor=style.SURFACE,
-            linewidth=1.1,
-            zorder=3,
-            label=name,
-        )
-        for value, position in zip(values, positions):
-            axis.annotate(
-                style.multiplier(value),
-                (value, position),
-                textcoords="offset points",
-                xytext=(9, 0),
-                ha="left",
-                va="center",
-                fontsize=8,
-                color=style.INK_SOFT,
-            )
-
+    series = [([record[key] for record in records], colour, name) for key, colour, name in SERIES]
+    columns = (0.755, 0.865, 0.975)
+    style.comparison_rows(axis, [_label(record) for record in records], series, columns=columns)
+    style.value_headers(axis, series, columns=columns, label="MODEL SHAPE")
     lowest = min(min(record[key] for record in records) for key, _, _ in SERIES)
     highest = max(max(record[key] for record in records) for key, _, _ in SERIES)
-    axis.set_xlim(min(0.92, lowest - 0.06), highest + 0.34)
-    axis.set_ylim(len(records) - 0.45, -0.75)
-    axis.set_yticks(slots)
-    axis.set_yticklabels([_label(record) for record in records], fontsize=9.5)
-    axis.set_xlabel("speedup vs native MLX", fontsize=9.5, color=style.INK_SOFT)
-    style.frame(axis, grid_axis="x")
-    axis.legend(loc="lower right", frameon=False, fontsize=9, labelcolor=style.INK_SOFT)
+    axis.set_xlim(min(0.9, lowest - 0.06), highest + 0.12)
+    axis.set_ylim(len(records) - 0.45, -0.65)
+    axis.xaxis.set_major_locator(MultipleLocator(0.5))
+    axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _: style.multiplier(value)))
+    axis.set_xlabel("Speedup vs native MLX →", fontsize=10.5)
 
     style.headings(
         figure,
-        "Projection and block speedups at model-shaped dimensions",
-        "INT4 group 64 · synthetic layer workloads, not end-to-end generation",
-        f"Apple M5 · int4 group 64 · identical weights on both sides · "
-        f"{payload['prompt_rows']} prompt rows · {payload['rounds']} rounds",
+        "Layer workloads, across model shapes",
+        "INT4 group 64 · prefill down projection and decode MLP blocks\n"
+        "Synthetic layers, not end-to-end generation",
+        f"Apple M5 · identical weights on both sides · {payload['prompt_rows']} prompt rows · "
+        f"{payload['rounds']} rounds\n1.00x = parity with native MLX; higher is faster",
     )
-    figure.tight_layout(rect=style.layout_rect(figure))
-    style.save(figure, arguments.output)
+    figure.subplots_adjust(left=0.305, right=0.65, top=1 - 1.65 / height, bottom=1.25 / height)
+    style.save(figure, output)
     pyplot.close(figure)
+
+
+def main():
+    arguments = _arguments()
+    render(json.loads(arguments.input.read_text()), arguments.output)
 
 
 if __name__ == "__main__":

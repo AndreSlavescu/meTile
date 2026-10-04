@@ -67,6 +67,7 @@ ignore = [
 # captured tensor as a default argument would only obscure what is being measured.
 "benchmarks/*.py" = ["E402", "B023"]
 "benchmarks/**/*.py" = ["E402", "B023"]
+"benchmarks/plots/render_diagrams.py" = ["RUF001"]
 "examples/*.py" = ["E402"]
 
 [tool.ruff.lint.isort]

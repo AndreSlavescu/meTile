@@ -5,9 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from benchmarks.plots import chartstyle as style
 from benchmarks.plots.render_compiler_results import DEFAULT_INPUTS, PANELS, chart_data, render
+from benchmarks.plots.render_matched_matrix import FORMATS
+from benchmarks.plots.render_matched_matrix import render as render_matched
+from benchmarks.plots.render_model_shapes import render as render_shapes
 from benchmarks.plots.render_model_speedups import _MATCHED, _MIXED, _collect
-from benchmarks.plots.render_shape_sensitivity import _bandwidth_series
+from benchmarks.plots.render_model_speedups import _render as render_models
+from benchmarks.plots.render_shape_sensitivity import _bandwidth_series, render_batch, render_width
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -115,9 +120,125 @@ def test_compiler_chart_exports_vector_and_raster_without_losing_labels(reports,
     assert "mlx_fast" not in vector
     assert "<text" in vector
     assert "'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" in vector
+    assert all(line == line.rstrip() for line in vector.splitlines())
     document = element_tree.fromstring(vector)
     viewbox = [float(value) for value in document.attrib["viewBox"].split()]
     assert viewbox[3] > viewbox[2]
     labels = [element.text for element in document.iter("{http://www.w3.org/2000/svg}text")]
     assert labels.count("FP16    1 x 1009") == 3
     assert labels.count("1.10x target *") == 1
+
+
+@pytest.fixture
+def plotted(monkeypatch):
+    pytest.importorskip("matplotlib")
+    figures = []
+
+    def capture(figure, output):
+        style.validate_text_layout(figure)
+        assert figure.get_size_inches()[0] == style.WIDTH
+        figures.append(figure)
+
+    monkeypatch.setattr(style, "save", capture)
+    return figures
+
+
+def test_all_72_compiler_points_reach_the_canvas_unchanged(reports, plotted, tmp_path):
+    render(reports, tmp_path / "rmsnorm.png")
+    figure = plotted[0]
+    for axis, (comparator, metric, _) in zip(figure.axes, PANELS, strict=True):
+        assert len(axis.collections) == len(reports)
+        for points, report in zip(axis.collections, reports, strict=True):
+            assert points.get_offsets()[:, 0].tolist() == [
+                case["summary"][comparator][metric]["speedup"] for case in report["cases"]
+            ]
+        target_rules = [line for line in axis.lines if line.get_color() == style.ACCENT]
+        assert len(target_rules) == (metric == "gpu_us")
+    assert len({axis.get_xlim() for axis in figure.axes}) == 1
+
+
+@pytest.mark.parametrize("include_mixed", (False, True))
+@pytest.mark.parametrize("metrics", (("decode", "prefill"), ("ttft", "end_to_end")))
+def test_model_charts_draw_every_collected_ratio(include_mixed, metrics, plotted, tmp_path):
+    paths = [
+        ROOT / "benchmarks/results" / name
+        for name in (
+            "m5-mlx-lm-models.json",
+            "m5-mlx-lm-bf16-dense-qwen15.json",
+            "m5-mlx-lm-bf16-models.json",
+        )
+    ]
+    rows, context = _collect(paths, include_mixed)
+    series = [(key, color, key) for key, color in zip(metrics, style.SERIES)]
+    render_models(
+        rows, context, tmp_path / "models.png", "Model comparisons", "Recorded results", series
+    )
+    axis = plotted[0].axes[0]
+    assert 1.0 in axis.get_xticks()
+    for points, metric in zip(axis.collections, metrics, strict=True):
+        assert points.get_offsets()[:, 0].tolist() == [row[metric] for row in rows]
+    assert len(rows) == (12 if include_mixed else 5)
+    assert any("native fallback" in label.get_text() for label in axis.texts)
+    if include_mixed:
+        assert any("Mixed precision" in label.get_text() for label in axis.texts)
+
+
+def test_model_shape_plot_preserves_payload_and_all_three_series(plotted, tmp_path):
+    payload = json.loads((ROOT / "benchmarks/results/m5-model-shape-matrix.json").read_text())
+    original = deepcopy(payload)
+    render_shapes(payload, tmp_path / "shapes.png")
+    records = sorted(payload["models"], key=lambda record: record["hidden"])
+    expected = [
+        [record["prefill_down_speedup"] for record in records],
+        [record["block_speedup"]["1"] for record in records],
+        [record["block_speedup"]["16"] for record in records],
+    ]
+    for points, values in zip(plotted[0].axes[0].collections, expected, strict=True):
+        assert points.get_offsets()[:, 0].tolist() == values
+    assert payload == original
+
+
+def test_matched_matrix_draws_every_format_and_batch(plotted, tmp_path):
+    payload = json.loads(
+        (ROOT / "benchmarks/results/m5-matched-representation-matrix.json").read_text()
+    )
+    render_matched(payload, tmp_path / "matched.png")
+    axis = plotted[0].axes[0]
+    for line, (format_name, _, _) in zip(axis.lines[1:], FORMATS, strict=True):
+        records = sorted(
+            (record for record in payload["measurements"] if record["format"] == format_name),
+            key=lambda record: record["rows"],
+        )
+        assert line.get_xdata().tolist() == [record["rows"] for record in records]
+        assert line.get_ydata().tolist() == [record["speedup"] for record in records]
+    assert axis.get_xscale() == "log"
+
+
+def test_shape_sweeps_preserve_every_point_and_share_zero_based_bandwidth_scale(plotted, tmp_path):
+    payload = json.loads((ROOT / "benchmarks/results/m5-shape-sensitivity.json").read_text())
+    render_width(payload, tmp_path / "width.png")
+    records = sorted(payload["width_sweep"], key=lambda record: record["output_features"])
+    line = plotted[0].axes[0].lines[1]
+    assert line.get_xdata().tolist() == [record["output_features"] for record in records]
+    assert line.get_ydata().tolist() == [record["speedup"] for record in records]
+    render_batch(payload, tmp_path / "batch.png")
+    for axis, format_name in zip(plotted[1].axes, ("bf16", "int4", "int8"), strict=True):
+        for line, field in zip(axis.lines, ("metile_bandwidth", "mlx_bandwidth"), strict=True):
+            rows, values = _bandwidth_series(payload["batch_sweep"], format_name, field)
+            assert line.get_xdata().tolist() == rows
+            assert line.get_ydata().tolist() == values
+        assert axis.get_ylim()[0] == 0
+    assert len({axis.get_ylim() for axis in plotted[1].axes}) == 1
+    assert len({axis.get_position().x0 for axis in plotted[1].axes}) == 1
+
+
+def test_export_refuses_clipped_text_before_writing_files(tmp_path):
+    pytest.importorskip("matplotlib")
+    pyplot = style.matplotlib_pyplot()
+    figure = pyplot.figure()
+    figure.text(1.2, 0.5, "clipped label")
+    output = tmp_path / "clipped.svg"
+    with pytest.raises(RuntimeError, match="leaves the canvas"):
+        style.save(figure, output)
+    assert not output.exists()
+    pyplot.close(figure)

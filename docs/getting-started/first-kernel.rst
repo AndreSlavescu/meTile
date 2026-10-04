@@ -2,8 +2,8 @@ Your First Kernel
 =================
 
 This example adds two float32 arrays on the GPU and checks the result with
-NumPy. Save both Python blocks in one file and run it after following
-:doc:`install`.
+NumPy. After following :doc:`install`, save both Python blocks in one file
+and run it.
 
 Write the kernel
 ----------------
@@ -21,14 +21,13 @@ Write the kernel
        positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
        output.store((positions,), left.load((positions,)) + right.load((positions,)))
 
-``@metile.kernel`` traces the function with symbolic values when a new
-specialization is needed. The compiler turns that trace into a Metal shader.
-The function body describes GPU work; it does not run on the input arrays as
-ordinary Python.
+When a new specialization is needed, ``@metile.kernel`` traces the function
+with symbolic values and compiles the trace to a Metal shader. The function
+describes GPU work; ordinary Python does not execute it on the input arrays.
 
-The three ``metile.tensor`` declarations describe existing buffers. Their
-shapes are logical bounds, and their access modes tell the compiler which
-loads and stores are allowed. They do not allocate memory.
+The three ``metile.tensor`` declarations describe existing buffers; they do
+not allocate memory. Their shapes set logical bounds, and their access modes
+tell the compiler which loads and stores are allowed.
 
 Each program instance is a threadgroup. ``program_id(0)`` identifies its
 position in the launch grid, while ``arange(0, BLOCK)`` creates the indices
@@ -60,8 +59,8 @@ Launch and check the result
    np.testing.assert_allclose(result, left_data + right_data, rtol=1e-6, atol=1e-6)
    print(result[:5])
 
-The grid has four program instances because ``cdiv`` rounds the division up.
-The uneven input length exercises the last tile's bounds checks.
+``cdiv`` rounds up, giving a grid of four program instances. The uneven input
+length checks that the last tile handles its bounds correctly.
 
 ``Buffer(data=...)`` allocates shared Metal storage and **copies** the NumPy
 data into it. CPU and GPU then access that allocation. ``numpy()`` waits for
@@ -69,9 +68,9 @@ pending GPU work and returns a NumPy view of the buffer; it does not copy the
 result back to the original array. Keep the buffer alive while using its view.
 See :doc:`/guide/memory` for ownership and synchronization details.
 
-The first launch includes tracing and compilation. Later launches reuse a
-cached specialization when its input types, constants, and other compilation
-settings match.
+The first launch includes tracing and compilation overhead. Later launches
+reuse the compiled specialization when input types, constants and other
+compilation settings match.
 
 Inspect the compilation
 -----------------------
@@ -93,10 +92,9 @@ Run the script in a fresh process with ``METILE_DEBUG`` to inspect a stage:
    METILE_DEBUG=tile_ir python my_script.py
    METILE_DEBUG=all python my_script.py
 
-Debug output appears on standard error and is saved under ``debug_output/``.
-``METILE_DEBUG_DIR`` changes that directory. Output is generated when a
-specialization is compiled, so an in-process cache hit does not produce a new
-dump.
+Debug output goes to standard error and files under ``debug_output/``. Set
+``METILE_DEBUG_DIR`` to choose another directory. Dumps are written when a
+specialization is compiled; an in-process cache hit produces no new dump.
 
 Continue with :doc:`/examples/softmax` for reductions,
 :doc:`/examples/matmul` for matrix tiles, or :doc:`/guide/language` for the

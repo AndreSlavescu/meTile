@@ -1,18 +1,18 @@
 API Reference
 =============
 
-This page is a quick index of the public entry points. Kernel operations run
-during tracing inside ``@metile.kernel``; buffers, launchers, and tuning APIs
-are used by host Python code. See :doc:`/guide/language` for tracing rules and
-:doc:`/guide/memory` for storage, dtype, and synchronization details.
+Use kernel operations inside ``@metile.kernel``, where tracing records GPU
+work. Use buffers, launchers and tuning APIs from host Python code. This page
+indexes both; see :doc:`/guide/language` for tracing rules and
+:doc:`/guide/memory` for storage, dtypes and synchronization.
 
-The separately installed ``metile-kernels`` project provides ready-made
-operations under ``metile_kernels``, such as ``metile_kernels.gemm.matmul``
-and ``metile_kernels.attention.attention_decode_kernel``. Their implementations live in
-``kernels/src/metile_kernels/``. They depend on the compiler; the compiler
-does not require the kernel library. See :doc:`/getting-started/install`.
+Install ``metile-kernels`` for ready-made operations under ``metile_kernels``,
+including ``metile_kernels.gemm.matmul`` and
+``metile_kernels.attention.attention_decode_kernel``. Their source lives in
+``kernels/src/metile_kernels/``. The library depends on the compiler, not the
+other way around. See :doc:`/getting-started/install`.
 
-Host-side decode attention orchestration lives in
+Host-side decode attention is provided by
 ``metile.backends.attention_runtime.attention_decode``. This optional backend
 requires the kernel library, but not MLX. See :doc:`/examples/attention` for
 its launcher API and migration from the former kernel-package import.
@@ -78,10 +78,10 @@ Kernel Definition & Launch
    * - ``dispatch()``
      - Enqueue work using the prepared buffers, scalar values, and grid
 
-Preparation may modify outputs. Use explicit ``Buffer`` objects when reusing
-a dispatcher: subsequent calls do not repeat implicit NumPy conversion or
-copy results into the original NumPy arrays. The ordinary launch cache also
-depends on input dtypes and relevant compilation settings, not just constexprs.
+Preparation can modify outputs. For a reusable dispatcher, pass explicit
+``Buffer`` objects: later calls do not repeat implicit NumPy conversion or
+copy results back to the original arrays. The ordinary launch cache depends
+on input dtypes and relevant compilation settings as well as constexprs.
 
 Pass ``STRICT_MATH=True`` to disable Metal fast-math in both compilation paths.
 This boolean is part of compilation cache identity. It does not override an
@@ -108,8 +108,8 @@ Buffers
    * - ``buf.numpy()``
      - Synchronize pending GPU work and return a writable view of the allocation
 
-Keep the buffer alive while using a NumPy view of it. Storage dtypes must be
-supported by the launcher and the selected operation; float64 arrays are not
+Keep the buffer alive until its NumPy view is no longer needed. Storage dtypes
+must be supported by the launcher and the selected operation; float64 arrays are not
 supported kernel inputs. Declaring a tensor view does not convert storage.
 
 
@@ -298,9 +298,9 @@ Reductions
    * - ``metile.min(x)``
      - Min-reduce tile to scalar
 
-These reduce a supported logical tile. ``simd_sum`` and ``simd_max`` below
-operate only within the current SIMDgroup. Padding and reduction identities
-must match; see :doc:`/examples/softmax`.
+These operations reduce a supported logical tile. By contrast, ``simd_sum``
+and ``simd_max`` below reduce only within the current SIMDgroup. Choose padding
+that matches the reduction's identity; see :doc:`/examples/softmax`.
 
 
 Simdgroup Operations
@@ -401,11 +401,11 @@ Model Integration
 -----------------
 
 ``metile.compile(model, *, verify=True, features=..., tolerance=...)`` modifies
-a loaded MLX-LM model in place and returns a ``CompileReport``. The report
-describes accepted and declined replacements; ``report.restore()`` restores
-the previous implementations. Verification uses a finite probe, not a proof
-over all possible model inputs. See :doc:`/guide/mlx-backend` for setup,
-verification settings, and the limitations of that check.
+a loaded MLX-LM model in place and returns a ``CompileReport`` listing accepted
+and declined replacements. Call ``report.restore()`` to restore the previous
+implementations. Verification checks a finite probe; it does not prove
+correctness for every model input. See :doc:`/guide/mlx-backend` for setup,
+verification settings and the limits of that check.
 
 
 Related Host APIs
@@ -416,6 +416,7 @@ layouts on the host. They are distinct from ``ThreadLayout``, which specifies
 physical thread/register ownership inside a kernel.
 
 ``GlobalAddressSpace``, ``TensorView``, ``TiledView``, and ``KernelPipeline``
-provide host-side allocation, view, and composition utilities. They are also
-distinct from the traced ``metile.tensor`` declaration. For graph construction
-and fusion planning, see :doc:`/guide/graph-fusion`.
+provide host-side helpers for allocating memory, constructing views and
+composing pipelines. These are separate from the traced ``metile.tensor``
+declaration. For graph construction and fusion planning, see
+:doc:`/guide/graph-fusion`.

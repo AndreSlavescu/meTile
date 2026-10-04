@@ -105,92 +105,62 @@ def _collect(paths, include_mixed=False):
 
 def _render(rows, context, output, title, subtitle, series):
     pyplot = style.matplotlib_pyplot()
+    from matplotlib.ticker import FuncFormatter, MultipleLocator
+    from matplotlib.transforms import blended_transform_factory
 
-    height = 0.44 * len(rows) + 0.42 * 2 + 2.6
-    figure, axis = pyplot.subplots(figsize=(10.6, height), dpi=180)
-    figure.patch.set_facecolor(style.SURFACE)
-
-    # One y slot per model, plus a slot for each section heading.
-    slots, ticks, tick_labels, heading_slots = [], [], [], []
+    sections = list(dict.fromkeys(row["section"] for row in rows))
+    height = 0.57 * len(rows) + 0.75 * len(sections) + 2.6
+    figure, axis = pyplot.subplots(figsize=(style.WIDTH, height), dpi=style.DPI)
+    slots, labels, heading_slots = [], [], []
     current_section, cursor = None, 0.0
     for row in rows:
         if row["section"] != current_section:
             if current_section is not None:
-                cursor += 0.55
+                cursor += 0.65
             heading_slots.append((cursor, row["section"]))
-            cursor += 0.85
+            cursor += 1.05
             current_section = row["section"]
         slots.append(cursor)
-        ticks.append(cursor)
-        tick_labels.append(row["label"])
+        labels.append(row["label"].replace("  (native fallback)", "\n(native fallback)"))
         cursor += 1.0
 
     style.parity_rule(axis, "vertical")
-
-    offset = 0.19
-    for index, (key, colour, name) in enumerate(series):
-        shift = offset if index == 0 else -offset
-        positions = [slot + shift for slot in slots]
-        values = [row[key] for row in rows]
-        axis.scatter(
-            values,
-            positions,
-            s=52,
-            color=colour,
-            edgecolor=style.SURFACE,
-            linewidth=1.1,
-            zorder=3,
-            label=name,
-        )
-        for value, position in zip(values, positions):
-            axis.annotate(
-                style.multiplier(value),
-                (value, position),
-                textcoords="offset points",
-                xytext=(9 if value >= 1.0 else -9, 0),
-                ha="left" if value >= 1.0 else "right",
-                va="center",
-                fontsize=8,
-                color=style.INK_SOFT,
-            )
-
+    plotted = [([row[key] for row in rows], colour, name) for key, colour, name in series]
+    style.comparison_rows(axis, labels, plotted, slots)
+    style.value_headers(axis, plotted)
     lowest = min(min(row[key] for row in rows) for key, _, _ in series)
     highest = max(max(row[key] for row in rows) for key, _, _ in series)
-    axis.set_xlim(min(0.93, lowest - 0.10), highest + 0.16)
-    axis.set_ylim(cursor - 0.45, -0.9)
-    axis.set_yticks(ticks)
-    axis.set_yticklabels(tick_labels, fontsize=9.5)
-    axis.set_xlabel("speedup vs native MLX · higher is faster", fontsize=9.5, color=style.INK_SOFT)
-    style.frame(axis, grid_axis="x")
-
-    # A single group needs no heading: the subtitle already states the property.
-    for slot, heading in heading_slots if len(heading_slots) > 1 else ():
-        axis.annotate(
-            heading,
-            (0.0, slot),
-            xycoords=("axes fraction", "data"),
-            xytext=(0, 0),
-            textcoords="offset points",
-            ha="left",
-            va="center",
-            fontsize=8.5,
-            color=style.INK_MUTED,
+    axis.set_xlim(min(0.93, lowest - 0.05), highest + 0.06)
+    axis.set_ylim(cursor - 0.4, -0.5)
+    axis.xaxis.set_major_locator(MultipleLocator(0.1 if highest - lowest < 0.5 else 0.25))
+    axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _: style.multiplier(value)))
+    axis.set_xlabel("Speedup vs native MLX →", fontsize=10.5)
+    transform = blended_transform_factory(figure.transFigure, axis.transData)
+    section_labels = {
+        _MATCHED: "Same representation · identical weights and format",
+        _MIXED: "Mixed precision · meTile affine INT8 decode vs MLX BF16",
+    }
+    for slot, heading in heading_slots:
+        axis.text(
+            0.045,
+            slot,
+            section_labels.get(heading, heading),
+            transform=transform,
+            fontsize=10,
+            color=style.INK_SOFT,
             fontweight="bold",
+            va="center",
+            bbox={"facecolor": style.SURFACE, "edgecolor": "none", "pad": 4},
         )
-
-    # Upper right: the matched-representation rows all sit near parity, so the top of
-    # the fast side is the one region no marker occupies.
-    legend = axis.legend(loc="upper right", frameon=False, fontsize=9, labelcolor=style.INK_SOFT)
-    legend.set_zorder(5)
 
     style.headings(
         figure,
         title,
         subtitle,
-        f"{context['chip']} · {context['memory']} · MLX {context['mlx']} · "
-        f"128 prompt tokens · median of paired alternating trials",
+        f"{context['chip']} · {context['memory']} · MLX {context['mlx']} · 128 prompt tokens\n"
+        "Median of paired alternating trials · 1.00x = parity; higher is faster",
     )
-    figure.tight_layout(rect=style.layout_rect(figure))
+    figure.subplots_adjust(left=0.34, right=0.73, top=1 - 1.5 / height, bottom=1.25 / height)
     style.save(figure, output)
     pyplot.close(figure)
 
@@ -202,21 +172,21 @@ def main():
         rows,
         context,
         arguments.throughput_output,
-        "Decode and prefill speedup by model",
-        "Weight representation is labeled per section; 1.00x is parity."
+        "Model throughput",
+        "Same-weight and compression-assisted results are separate comparisons."
         if arguments.include_mixed
-        else "Same weight representation · 1.00x is parity · native fallbacks are labeled.",
-        (("decode", style.DECODE, "decode"), ("prefill", style.PREFILL, "prefill")),
+        else "Same weight representation · native fallbacks remain in the results.",
+        (("decode", style.DECODE, "Decode"), ("prefill", style.PREFILL, "Prefill")),
     )
     _render(
         rows,
         context,
         arguments.latency_output,
-        "Time-to-first-token and end-to-end speedup by model",
-        "Same runs, latency side.",
+        "Model latency",
+        "Time to first token and complete generation, from the same paired runs.",
         (
-            ("ttft", style.DECODE, "time to first token"),
-            ("end_to_end", style.PREFILL, "end to end"),
+            ("ttft", style.DECODE, "First token"),
+            ("end_to_end", style.PREFILL, "End to end"),
         ),
     )
 

@@ -45,12 +45,12 @@ def render(payload, output):
     pyplot = style.matplotlib_pyplot()
     measurements = payload["measurements"]
 
-    figure, axis = pyplot.subplots(figsize=(10.0, 5.2), dpi=180)
+    figure, axis = pyplot.subplots(figsize=(style.WIDTH, 5.9), dpi=style.DPI)
     figure.patch.set_facecolor(style.SURFACE)
     style.parity_rule(axis, "horizontal")
 
     peak, floor = 1.0, 1.0
-    for format_name, colour, label in FORMATS:
+    for index, (format_name, colour, label) in enumerate(FORMATS):
         rows, speedups = _series(measurements, format_name)
         if not rows:
             continue
@@ -59,9 +59,9 @@ def render(payload, output):
             rows,
             speedups,
             color=colour,
-            linewidth=2.0,
-            marker="o",
-            markersize=5.5,
+            linewidth=2.2,
+            marker=("o", "s", "D")[index],
+            markersize=6,
             markeredgecolor=style.SURFACE,
             markeredgewidth=1.1,
             label=label,
@@ -77,7 +77,7 @@ def render(payload, output):
         (rows[best], speedups[best]),
         textcoords="offset points",
         xytext=(10, 6),
-        fontsize=9,
+        fontsize=10.5,
         color=style.INK_SOFT,
     )
 
@@ -89,14 +89,22 @@ def render(payload, output):
         ticker.FuncFormatter(lambda value, _: style.multiplier(value))
     )
     axis.set_xlim(0.9, max(rows) * 1.25)
-    axis.set_ylim(min(0.92, floor - 0.06), peak + 0.10)
+    axis.set_ylim(min(0.9, floor - 0.06), peak + 0.16)
     axis.set_xlabel(
-        "rows per dispatch  (1 = single-token decode)", fontsize=9.5, color=style.INK_SOFT
+        "Rows per dispatch · logarithmic scale (base 2)", fontsize=10.5, color=style.INK_SOFT
     )
-    axis.set_ylabel("speedup vs native MLX", fontsize=9.5, color=style.INK_SOFT)
+    axis.set_ylabel("Speedup vs native MLX", fontsize=10.5, color=style.INK_SOFT)
     style.frame(axis, grid_axis="y")
 
-    legend = axis.legend(loc="upper right", frameon=False, fontsize=9.5, labelcolor=style.INK_SOFT)
+    legend = axis.legend(
+        loc="lower left",
+        bbox_to_anchor=(0, 1.015),
+        ncol=4,
+        fontsize=9.5,
+        borderaxespad=0,
+        handlelength=2,
+        columnspacing=1.2,
+    )
     legend.set_zorder(5)
 
     hardware = payload.get("hardware", {})
@@ -104,14 +112,15 @@ def render(payload, output):
     shape = payload.get("shape", {})
     style.headings(
         figure,
-        "Speedup by batch size, at matched weight representation",
-        "Same weights, same format, both sides.",
+        "Matched weights, across batch sizes",
+        "Same weights and format on both sides · 1 row = single-token decode\n"
+        "All measured formats and batch sizes · higher is faster",
         f"{hardware.get('chip', '')} · {hardware.get('memory', '')} · "
-        f"MLX {software.get('mlx', '')} · {shape.get('label', '')} "
-        f"{shape.get('hidden')}->{shape.get('intermediate')}->{shape.get('hidden')} · "
-        f"{payload.get('rounds')} interleaved rounds",
+        f"MLX {software.get('mlx', '')} · {payload.get('rounds')} interleaved rounds\n"
+        f"{shape.get('label', '')} "
+        f"{shape.get('hidden')} → {shape.get('intermediate')} → {shape.get('hidden')}",
     )
-    figure.tight_layout(rect=style.layout_rect(figure))
+    figure.subplots_adjust(left=0.10, right=0.975, top=0.70, bottom=0.20)
     style.save(figure, output)
     pyplot.close(figure)
 

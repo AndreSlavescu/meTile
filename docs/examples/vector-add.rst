@@ -1,8 +1,8 @@
 Vector Addition
 ===============
 
-Each program adds one tile of two contiguous float32 arrays. Tensor views
-provide the bounds checks, including the partial tile at the end.
+Each program adds one tile from two contiguous float32 arrays. Tensor views
+check the bounds, including the partial tile at the end.
 
 .. code-block:: python
 
@@ -33,11 +33,11 @@ provide the bounds checks, including the partial tile at the end.
        output_buffer.numpy(), left_data + right_data, rtol=1e-6, atol=1e-6
    )
 
-``Buffer(data=...)`` copies each input into shared Metal storage. Reading
+``Buffer(data=...)`` copies each input into shared Metal storage. Calling
 ``output_buffer.numpy()`` waits for the GPU and returns a view of the output
-allocation. An extra ``sync()`` is unnecessary here.
+allocation. No additional ``sync()`` call is needed here.
 
-The grid counts program instances, not elements. ``cdiv(count, block)`` makes
-room for every element; the declared tensor shape prevents the last program
-from storing beyond ``count``. See :doc:`/getting-started/first-kernel` for a
-step-by-step explanation and :doc:`/guide/memory` for raw pointer access.
+The grid counts programs, not elements. ``cdiv(count, block)`` covers the whole
+array, while the tensor shape prevents the last program from storing beyond
+``count``. See :doc:`/getting-started/first-kernel` for the walkthrough and
+:doc:`/guide/memory` for raw pointer access.

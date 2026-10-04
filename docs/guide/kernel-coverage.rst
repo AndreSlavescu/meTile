@@ -1,39 +1,39 @@
 Kernel coverage and training scope
 ===================================
 
-meTile does not yet cover the full Liger-Kernel training library. This page
-separates native forward/backward pairs from forward-only kernels and work that
-remains. A matching operator name is not enough: formulas, gradient inputs,
-dtypes, layouts and framework integration must also match.
+meTile does not yet cover the full Liger-Kernel training library. This inventory
+distinguishes native forward/backward pairs, forward-only kernels, and missing
+work. An operator name alone does not establish parity: its formula, gradient
+inputs, dtypes, layouts, and framework integration must also match.
 
 The comparison was checked on 2026-10-04 against Liger-Kernel
 `v0.8.4 <https://github.com/linkedin/Liger-Kernel/releases/tag/v0.8.4>`_
 and commit ``b297821787949e6102c162f24bf89a0cf3625d09`` on its main branch.
 The pinned main snapshot includes partial RoPE support beyond that release.
-The `operator exports`_, `functional wrappers`_ and `chunked-loss exports`_
-define the inventory here; open pull requests are not counted as released or
+The inventory follows the `operator exports`_, `functional wrappers`_, and
+`chunked-loss exports`_. Open pull requests are not counted as released or
 merged features.
 
 Status key
 ----------
 
-**Paired, bounded** means native forward and explicit backward entry points
-exist for the stated subset, with numerical tests. It does not mean every
-upstream option is supported, that existing inference entry points gained
-backward support, or that a framework automatically calls those kernels.
+**Paired, bounded** means the stated subset has native forward and explicit
+backward entry points with numerical tests. It does not imply support for
+every upstream option, add backward support to existing inference entry
+points, or make a framework call the kernels automatically.
 
 **Forward only** means the existing path has no corresponding native backward
 entry point. **Planned** identifies work in progress, not a usable contract.
-**Missing** means no corresponding implementation is provided. Priorities below
-describe implementation order, not a delivery schedule or performance claim.
+**Missing** means no corresponding implementation is provided. The priorities
+below give the intended implementation order, not a delivery schedule or
+performance guarantee.
 
 Normalization
 -------------
 
-The first three pairs live in ``metile_kernels.training_norms``. The explicit
-allocation and dispatch API lives separately in
-``metile.backends.training_norms``. The older inference normalization modules
-remain separate entry points.
+The first three pairs are defined in ``metile_kernels.training_norms``;
+``metile.backends.training_norms`` provides allocation and dispatch. The older
+inference normalization modules remain separate entry points.
 
 .. list-table:: Normalization parity checklist
    :header-rows: 1
@@ -68,9 +68,9 @@ remain separate entry points.
      - Trainable alpha, gamma and beta gradients. Priority 1.
 
 Upstream contracts: `RMSNorm`_, `LayerNorm`_, `fused add RMSNorm`_ and the
-normalization entries in `functional wrappers`_. In particular, fused add
-RMSNorm has two outputs; omitting the residual-output cotangent loses part of
-its backward contract.
+normalization entries in `functional wrappers`_. Fused add RMSNorm has two
+outputs, so omitting the residual-output cotangent loses part of its backward
+contract.
 
 Activations, projections and positions
 --------------------------------------
@@ -123,10 +123,12 @@ Activations, projections and positions
 
 See upstream `SwiGLU`_, `GeGLU`_, `MLP`_, `tiled MLP`_, `MoE`_ and `RoPE`_.
 The older ``metile_kernels.mlp`` GELU/GeGLU helpers use the logistic
-``x * sigmoid(1.702 * x)`` approximation: they are not the tanh-GELU variant.
-The new activation module keeps these formulas distinct. Native RoPE can also
-return per-row cosine/sine gradients; upstream standard RoPE treats those
-tables as fixed. Shared-table gradients still need an explicit reduction.
+``x * sigmoid(1.702 * x)`` approximation, not tanh-GELU. The new activation
+module keeps the two formulas distinct.
+
+Native RoPE can also return per-row cosine/sine gradients, whereas upstream
+standard RoPE treats those tables as fixed. Shared-table gradients still
+require an explicit reduction.
 
 Reductions and attention-like operators
 ----------------------------------------
@@ -219,33 +221,34 @@ Losses
 The pinned `cross-entropy`_, `fused linear cross-entropy`_, `scaled loss`_,
 `vocabulary-parallel loss`_, `KL divergence`_, `JSD`_, `TVD`_,
 `fused linear JSD`_, `fused linear KL`_, `fused CE TVD`_ and `GRPO loss`_
-sources define these variants. Distributed loss support cannot be inferred
-from a single-device reduction kernel.
+sources define these variants. A single-device reduction kernel does not
+establish distributed loss support.
 
-The native ``metile.backends.training_losses`` API uses integer class targets,
-valid-row-count mean reduction and zero loss/gradient for entirely ignored
-targets. Its softmax and CE paths share the width/row bounds above and a
-256 MiB per-call output/workspace limit, excluding NumPy input copies. CE
-backward returns only the logit gradient; targets and loss configuration are
-fixed. Separate saved maxima and log-denominators avoid recombining large
-offsets before the backward normalization.
+The native ``metile.backends.training_losses`` API takes integer class targets.
+Mean reduction divides by the number of valid rows; if all targets are ignored,
+both loss and gradient are zero. Softmax and CE share the width/row bounds
+above and a 256 MiB per-call output/workspace limit, excluding NumPy input
+copies. CE backward returns only the logit gradient: targets and loss
+configuration are fixed. Saving maxima and log-denominators separately avoids
+recombining large offsets before backward normalization.
 
 All eight public `chunked-loss exports`_ are still missing: fused linear
 cosine-similarity loss, CPO, DPO, GRPO, JSD, KTO, ORPO and SimPO. These require
-their own chunking/recompute and backward contracts; the chunked JSD class is
+their own chunking/recompute and backward contracts. The chunked JSD class is
 listed separately from the operator-level fused linear JSD above. Preference,
-unpaired-preference, distillation and PPO base implementations are supporting
-infrastructure rather than additional public operator checkboxes. Priority 1.
+unpaired-preference, distillation, and PPO base implementations are supporting
+infrastructure, not additional public operators. This work is Priority 1.
 
 Experimental operators and meTile extras
 ----------------------------------------
 
-Upstream experimental `embedding`_ has an embedding-table backward, which is
-missing here. Repeated indices require correct accumulation into the shared
-table; simply gathering or adding a scatter store is insufficient. Priority 1.
+Upstream experimental `embedding`_ includes an embedding-table backward that
+meTile lacks. Repeated indices must accumulate correctly into the shared table;
+a gather or scatter store alone is not enough. This is Priority 1.
+
 The experimental `integer matrix product`_ and its packing helpers do not
-define an autograd pair. Integer indices, packed bit patterns and rounding are
-not silently treated as differentiable floating operations.
+define an autograd pair. Integer indices, packed bit patterns, and rounding
+are not silently treated as differentiable floating operations.
 
 meTile also includes operators outside this Liger inventory:
 
@@ -266,9 +269,9 @@ meTile also includes operators outside this Liger inventory:
 * Native sigmoid, tanh, ordinary ReLU and quick-GELU have elementwise paired
   kernels in ``training_activations``.
 
-No CUDA-versus-Metal performance equivalence is claimed. Each supported Apple
-GPU, shape, dtype and resource limit needs its own correctness and performance
-measurement.
+None of this establishes CUDA-versus-Metal performance equivalence. Correctness
+and performance need to be measured for each supported Apple GPU, shape,
+dtype, and resource limit.
 
 Exact native normalization contract
 -------------------------------------
@@ -341,27 +344,28 @@ reduction repeatability and finite-difference derivatives in
 What remains before claiming parity
 -----------------------------------
 
-Priority 0 is a dependable training core: bounded norm, activation and RoPE
+Priority 0 is a dependable training core: bounded norm, activation, and RoPE
 pairs; softmax and CE; then chunked linear CE and broader GEMM adjoint coverage.
-Priority 1 extends formulas and wrappers, additional norms and losses,
-embedding and training MLPs. Priority 2 adds distributed and specialized
-attention/MoE contracts. All priorities still need framework integration,
-dtype coverage and end-to-end training checks.
+Priority 1 extends the formulas and wrappers to additional norms and losses,
+embedding, and training MLPs. Priority 2 adds distributed and specialized
+attention/MoE contracts. Framework integration, dtype coverage, and end-to-end
+training checks remain necessary at every priority.
 
-For each entry, completion requires the exact forward formula and gradient
-set, a declared policy for frozen/discrete inputs, dtype and accumulation
-rules, masking and empty-input behavior, shape/layout bounds, deterministic
-or explicitly nondeterministic accumulation, and validated framework wiring.
-Finite differences and independent analytical references precede performance
-claims; training-step and convergence checks are separate evidence.
+An entry is complete only when its forward formula and full gradient set are
+defined and tested. Its contract must also state how frozen or discrete inputs,
+dtypes, accumulation, masking, empty inputs, and shape/layout bounds are
+handled. Accumulation must be deterministic or explicitly documented as
+nondeterministic, and framework wiring must be validated. Finite differences
+and independent analytical references come before performance claims;
+training-step and convergence checks provide separate evidence.
 
-``metile.vjp`` is only a bounded expression-DAG adjoint facility. It can
-differentiate supported arithmetic, selected floating unary functions,
-selection and row reductions between explicitly requested floating values.
-It does not synthesize whole-kernel backward memory traffic, loop adjoints,
-matrix-product adjoints, scatter/atomic accumulation or framework hooks.
-Hand-written library backwards therefore remain necessary even where a
-forward expression uses the DSL.
+``metile.vjp`` differentiates a bounded expression DAG between explicitly
+requested floating values. It supports arithmetic, selected floating unary
+functions, selection, and row reductions. It does not generate whole-kernel
+backward memory traffic, loop or matrix-product adjoints, scatter/atomic
+accumulation, or framework hooks. Library kernels therefore still need
+hand-written backward implementations, even when their forward expressions
+use the DSL.
 
 .. _operator exports: https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/__init__.py
 .. _functional wrappers: https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/transformers/functional.py

@@ -1,9 +1,9 @@
 Decode Attention
 ================
 
-This page describes the inference decode launcher. For full-sequence stable
-attention, explicit backward kernels, Dual Chunk Attention, and GDN/KDA,
-see :doc:`/guide/training` and the :doc:`/guide/kernel-coverage` checklist.
+Use this launcher for inference decoding. For full-sequence stable attention,
+explicit backward kernels, Dual Chunk Attention and GDN/KDA, see
+:doc:`/guide/training` and the :doc:`/guide/kernel-coverage` checklist.
 
 ``metile.backends.attention_runtime.attention_decode`` computes attention for one query token
 per head. It supports multi-head attention (MHA), grouped-query attention
@@ -11,10 +11,10 @@ per head. It supports multi-head attention (MHA), grouped-query attention
 while maintaining an online softmax state, avoiding a full attention-score
 matrix in device memory.
 
-The backend owns argument validation, scratch allocation, tuning, and
-multi-pass dispatch. GPU kernels remain in ``metile_kernels.attention``;
-install both projects as shown in :doc:`/getting-started/install`. This
-backend does not require MLX.
+The backend validates arguments, allocates scratch buffers, tunes candidates
+and dispatches the passes. GPU kernels live in ``metile_kernels.attention``;
+install both projects as shown in :doc:`/getting-started/install`. This example
+does not require MLX.
 
 Code using ``metile_kernels.attention_decode`` or
 ``metile_kernels.attention_runtime`` should use the backend import below.
@@ -60,20 +60,20 @@ use contiguous float32 storage.
    reference = np.einsum("bht,bhtd->bhd", probabilities, expanded_values)
    np.testing.assert_allclose(output.numpy(), reference, rtol=1e-4, atol=1e-5)
 
-The layout contract is query/output ``[batch, query_heads, head_dim]`` and
-key/value ``[batch, key_value_heads, tokens, head_dim]``. Batch size, head
-counts, and context length must be positive. Query heads must be divisible by
-key/value heads; the head dimension must be a positive multiple of 32.
+Query and output have shape ``[batch, query_heads, head_dim]``; key and value
+have shape ``[batch, key_value_heads, tokens, head_dim]``. Batch size, head
+counts, and context length must be positive. The number of query heads must
+be divisible by the number of key/value heads; the head dimension must be a
+positive multiple of 32.
 The public decode wrapper validates float32 storage and buffer capacity.
 
 Preparation and reuse
 ---------------------
 
-``prepare`` runs candidate kernels when tuning is needed, so it can write
-the output before returning. The returned dispatcher retains the supplied
-buffers and fixed dimensions. It is useful for repeating that same problem;
-prepare again when the context length, shape, or buffer bindings change.
-Reading ``output.numpy()`` synchronizes pending work.
+``prepare`` runs candidates when tuning is needed and may write the output
+before returning. Its dispatcher retains the supplied buffers and dimensions
+for repeated calls. Prepare again if the context length, shape or buffer
+bindings change. Reading ``output.numpy()`` synchronizes pending work.
 
 The search compares single-pass threadgroups with 32 through 1024 threads
 and, for longer contexts, two-pass candidates. The latter split tokens across
@@ -88,10 +88,10 @@ selected configuration and measured latency can be reused across processes.
 Inside the recurrence
 ---------------------
 
-Each SIMDgroup tracks a running maximum, normalization sum, and weighted
-output. When the maximum changes, the previous sum and output are rescaled
-before the next contribution is added. Shared memory and a threadgroup
-barrier make the final merge possible.
+Each SIMDgroup tracks a running maximum, normalization sum and weighted
+output. When the maximum changes, it rescales the previous sum and output
+before adding the next contribution. Shared memory and a threadgroup barrier
+coordinate the final merge.
 
 The implementation uses ordinary frontend operations: ``scalar`` for
 loop-carried scalar state, ``tile_range`` for token iteration,
