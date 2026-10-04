@@ -4,13 +4,15 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Matrix Multiply (GEMM)" href="matmul.html"><link rel="prev" title="Softmax" href="softmax.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Decode Attention - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -173,7 +181,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
       </label>
     </div>
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -251,53 +274,99 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
           </label>
         </div>
         <article role="main" id="furo-main-content">
           <section id="decode-attention">
 <h1>Decode Attention<a class="headerlink" href="#decode-attention" title="Link to this heading">¶</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">metile.kernels.attention_decode</span></code> implements single-query MHA/GQA/MQA decode as composable
-meTile eDSL kernels. It never materializes the score matrix. Each SIMDgroup streams a
-subset of key/value tokens, maintains a numerically stable online-softmax recurrence in
-registers, and merges its maximum, denominator, and output partials.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile.kernels</span><span class="w"> </span><span class="kn">import</span> <span class="n">attention_decode</span>
+<p>This page describes the inference decode launcher. For full-sequence stable
+attention, explicit backward kernels, Dual Chunk Attention, and GDN/KDA,
+see <a class="reference internal" href="../guide/training.html"><span class="doc">Training kernels and gradients</span></a> and the <a class="reference internal" href="../guide/kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> checklist.</p>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.attention_runtime.attention_decode</span></code> computes attention for one query token
+per head. It supports multi-head attention (MHA), grouped-query attention
+(GQA), and multi-query attention (MQA). The kernel streams keys and values
+while maintaining an online softmax state, avoiding a full attention-score
+matrix in device memory.</p>
+<p>The backend owns argument validation, scratch allocation, tuning, and
+multi-pass dispatch. GPU kernels remain in <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention</span></code>;
+install both projects as shown in <a class="reference internal" href="../getting-started/install.html"><span class="doc">Installation</span></a>. This
+backend does not require MLX.</p>
+<p>Code using <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention_decode</span></code> or
+<code class="docutils literal notranslate"><span class="pre">metile_kernels.attention_runtime</span></code> should use the backend import below.
+The launcher arguments and preparation behavior are unchanged.</p>
+<section id="run-a-small-gqa-example">
+<h2>Run a small GQA example<a class="headerlink" href="#run-a-small-gqa-example" title="Link to this heading">¶</a></h2>
+<p>This example uses four query heads sharing two key/value heads. All buffers
+use contiguous float32 storage.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.attention_runtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">attention_decode</span>
+
+<span class="n">batch</span><span class="p">,</span> <span class="n">query_heads</span><span class="p">,</span> <span class="n">key_value_heads</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">2</span>
+<span class="n">context_length</span><span class="p">,</span> <span class="n">head_dim</span> <span class="o">=</span> <span class="mi">37</span><span class="p">,</span> <span class="mi">32</span>
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">query_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">((</span><span class="n">batch</span><span class="p">,</span> <span class="n">query_heads</span><span class="p">,</span> <span class="n">head_dim</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">key_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span>
+    <span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">key_value_heads</span><span class="p">,</span> <span class="n">context_length</span><span class="p">,</span> <span class="n">head_dim</span><span class="p">)</span>
+<span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">value_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">key_data</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">query</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">query_data</span><span class="p">)</span>
+<span class="n">key</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">key_data</span><span class="p">)</span>
+<span class="n">value</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">value_data</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">query_data</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
 <span class="n">dispatch</span> <span class="o">=</span> <span class="n">attention_decode</span><span class="p">[(</span><span class="n">batch</span><span class="p">,</span> <span class="n">query_heads</span><span class="p">)]</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span>
-    <span class="n">query</span><span class="p">,</span>
-    <span class="n">key</span><span class="p">,</span>
-    <span class="n">value</span><span class="p">,</span>
-    <span class="n">output</span><span class="p">,</span>
-    <span class="n">context_length</span><span class="p">,</span>
-    <span class="n">head_dim</span> <span class="o">**</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">,</span>
-    <span class="n">D</span><span class="o">=</span><span class="n">head_dim</span><span class="p">,</span>
-    <span class="n">KV_HEADS</span><span class="o">=</span><span class="n">key_value_heads</span><span class="p">,</span>
+    <span class="n">query</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">context_length</span><span class="p">,</span> <span class="n">head_dim</span> <span class="o">**</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">D</span><span class="o">=</span><span class="n">head_dim</span><span class="p">,</span> <span class="n">KV_HEADS</span><span class="o">=</span><span class="n">key_value_heads</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">dispatch</span><span class="p">()</span>
+
+<span class="n">heads_per_group</span> <span class="o">=</span> <span class="n">query_heads</span> <span class="o">//</span> <span class="n">key_value_heads</span>
+<span class="n">expanded_keys</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">key_data</span><span class="p">,</span> <span class="n">heads_per_group</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">expanded_values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">value_data</span><span class="p">,</span> <span class="n">heads_per_group</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">scores</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">"bhd,bhtd-&gt;bht"</span><span class="p">,</span> <span class="n">query_data</span><span class="p">,</span> <span class="n">expanded_keys</span><span class="p">)</span> <span class="o">*</span> <span class="n">head_dim</span> <span class="o">**</span> <span class="o">-</span><span class="mf">0.5</span>
+<span class="n">probabilities</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">scores</span> <span class="o">-</span> <span class="n">scores</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+<span class="n">probabilities</span> <span class="o">/=</span> <span class="n">probabilities</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">reference</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">"bht,bhtd-&gt;bhd"</span><span class="p">,</span> <span class="n">probabilities</span><span class="p">,</span> <span class="n">expanded_values</span><span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>The contiguous float32 layouts are query/output <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">query_heads,</span> <span class="pre">D]</span></code> and
-key/value <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">key_value_heads,</span> <span class="pre">tokens,</span> <span class="pre">D]</span></code>. Query heads must be divisible by
-key/value heads, and <code class="docutils literal notranslate"><span class="pre">D</span></code> must be divisible by 32.</p>
-<p>The runtime measures both a single-pass threadgroup and, for long contexts, a two-pass
-form that partitions tokens across threadgroups and merges unnormalized online-softmax
-partials in a second kernel. Both passes share one ordered Metal encoder and require no
-host-visible intermediate synchronization.</p>
-<p>The implementation is composed from reusable frontend operations rather than emitted
-as a whole-kernel source template:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">scalar</span></code> identifies loop-carried scalar SSA state.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">tile_range</span></code> expresses the runtime token recurrence.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">simd_sum</span></code> and <code class="docutils literal notranslate"><span class="pre">simd_max</span></code> map to native SIMD-scoped Metal reductions.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">fast_exp</span></code> maps to Metal’s fast exponential for online normalization.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">shared</span></code> and <code class="docutils literal notranslate"><span class="pre">barrier</span></code> assemble partial results across SIMDgroups.</p></li>
-</ul>
-<p>The autotuned wrapper searches single-pass threadgroup widths from 32 through 1024
-threads plus two-pass token partitions and partial/merge threadgroup shapes. Its cache
-key includes the launch grid as well as context length and head dimension, so a schedule
-measured for a highly parallel head batch is not reused for a low-head decode. The
-selected algorithm and its measured GPU latency persist across processes.</p>
+<p>The layout contract is query/output <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">query_heads,</span> <span class="pre">head_dim]</span></code> and
+key/value <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">key_value_heads,</span> <span class="pre">tokens,</span> <span class="pre">head_dim]</span></code>. Batch size, head
+counts, and context length must be positive. Query heads must be divisible by
+key/value heads; the head dimension must be a positive multiple of 32.
+The public decode wrapper validates float32 storage and buffer capacity.</p>
+</section>
+<section id="preparation-and-reuse">
+<h2>Preparation and reuse<a class="headerlink" href="#preparation-and-reuse" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">prepare</span></code> runs candidate kernels when tuning is needed, so it can write
+the output before returning. The returned dispatcher retains the supplied
+buffers and fixed dimensions. It is useful for repeating that same problem;
+prepare again when the context length, shape, or buffer bindings change.
+Reading <code class="docutils literal notranslate"><span class="pre">output.numpy()</span></code> synchronizes pending work.</p>
+<p>The search compares single-pass threadgroups with 32 through 1024 threads
+and, for longer contexts, two-pass candidates. The latter split tokens across
+threadgroups, then merge unnormalized softmax partials in another kernel.
+Those two passes share an ordered Metal encoder, with no intermediate CPU
+readback.</p>
+<p>The tuning key includes batch size, query and key/value head counts, context
+length, and head dimension, as well as implementation/device identity. The
+selected configuration and measured latency can be reused across processes.</p>
+</section>
+<section id="inside-the-recurrence">
+<h2>Inside the recurrence<a class="headerlink" href="#inside-the-recurrence" title="Link to this heading">¶</a></h2>
+<p>Each SIMDgroup tracks a running maximum, normalization sum, and weighted
+output. When the maximum changes, the previous sum and output are rescaled
+before the next contribution is added. Shared memory and a threadgroup
+barrier make the final merge possible.</p>
+<p>The implementation uses ordinary frontend operations: <code class="docutils literal notranslate"><span class="pre">scalar</span></code> for
+loop-carried scalar state, <code class="docutils literal notranslate"><span class="pre">tile_range</span></code> for token iteration,
+<code class="docutils literal notranslate"><span class="pre">simd_sum</span></code> and <code class="docutils literal notranslate"><span class="pre">simd_max</span></code> for SIMDgroup reductions, and <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code>
+for normalization. Its fast exponential and reduction order can produce
+small differences from the NumPy reference.</p>
+</section>
 </section>
 
         </article>
@@ -343,8 +412,29 @@ selected algorithm and its measured GPU latency persist across processes.</p>
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Decode Attention</a><ul>
+<li><a class="reference internal" href="#run-a-small-gqa-example">Run a small GQA example</a></li>
+<li><a class="reference internal" href="#preparation-and-reuse">Preparation and reuse</a></li>
+<li><a class="reference internal" href="#inside-the-recurrence">Inside the recurrence</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>

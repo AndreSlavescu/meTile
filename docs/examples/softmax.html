@@ -4,13 +4,15 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Decode Attention" href="attention.html"><link rel="prev" title="Vector Addition" href="vector-add.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Softmax - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -258,62 +281,71 @@
         <article role="main" id="furo-main-content">
           <section id="softmax">
 <h1>Softmax<a class="headerlink" href="#softmax" title="Link to this heading">¶</a></h1>
-<p>A fused row-wise softmax in a single kernel. Demonstrates multi-pass tiling with reductions.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
+<p>This kernel computes softmax independently for each row of a contiguous
+float32 matrix. It makes three passes: find the maximum, sum the shifted
+exponentials, then normalize. Subtracting the maximum keeps the exponential
+arguments nonpositive for finite inputs.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">softmax</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">softmax</span><span class="p">(</span><span class="n">input_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+    <span class="n">inputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">input_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">outputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">output_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
     <span class="n">row</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
 
-    <span class="c1"># Pass 1: find row maximum (for numerical stability)</span>
-    <span class="n">m</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1e38</span>
-    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
-        <span class="n">cols</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-        <span class="n">mask</span> <span class="o">=</span> <span class="n">cols</span> <span class="o">&lt;</span> <span class="n">N</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">m</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span>
-    <span class="n">m</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+    <span class="n">local_maximum</span> <span class="o">=</span> <span class="o">-</span><span class="nb">float</span><span class="p">(</span><span class="s2">"inf"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">),</span> <span class="n">other</span><span class="o">=-</span><span class="nb">float</span><span class="p">(</span><span class="s2">"inf"</span><span class="p">))</span>
+        <span class="n">local_maximum</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">local_maximum</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+    <span class="n">row_maximum</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">local_maximum</span><span class="p">)</span>
 
-    <span class="c1"># Pass 2: sum of exponentials</span>
-    <span class="n">s</span> <span class="o">=</span> <span class="mf">0.0</span>
-    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
-        <span class="n">cols</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-        <span class="n">mask</span> <span class="o">=</span> <span class="n">cols</span> <span class="o">&lt;</span> <span class="n">N</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">m</span><span class="p">)</span>
-    <span class="n">s</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">local_sum</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">))</span>
+        <span class="n">exponentials</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">positions</span> <span class="o">&lt;</span> <span class="n">columns</span><span class="p">,</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">values</span> <span class="o">-</span> <span class="n">row_maximum</span><span class="p">),</span> <span class="mf">0.0</span>
+        <span class="p">)</span>
+        <span class="n">local_sum</span> <span class="o">=</span> <span class="n">local_sum</span> <span class="o">+</span> <span class="n">exponentials</span>
+    <span class="n">denominator</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">local_sum</span><span class="p">)</span>
 
-    <span class="c1"># Pass 3: normalize and write output</span>
-    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
-        <span class="n">cols</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-        <span class="n">mask</span> <span class="o">=</span> <span class="n">cols</span> <span class="o">&lt;</span> <span class="n">N</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">m</span><span class="p">)</span> <span class="o">/</span> <span class="n">s</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">))</span>
+        <span class="n">outputs</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">values</span> <span class="o">-</span> <span class="n">row_maximum</span><span class="p">)</span> <span class="o">/</span> <span class="n">denominator</span><span class="p">)</span>
+
+<span class="n">rows</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">300</span>
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">((</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="o">-</span> <span class="mf">5.0</span>
+<span class="n">input_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">data</span><span class="p">)</span>
+<span class="n">output_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">softmax</span><span class="p">[(</span><span class="n">rows</span><span class="p">,)](</span><span class="n">input_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+
+<span class="n">shifted</span> <span class="o">=</span> <span class="n">data</span> <span class="o">-</span> <span class="n">data</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">reference</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">shifted</span><span class="p">)</span>
+<span class="n">reference</span> <span class="o">/=</span> <span class="n">reference</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
 </pre></div>
 </div>
-<section id="launching">
-<h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">¶</a></h2>
-<p>Each program instance handles one row. The grid is 1D with one instance per row:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-
-<span class="n">rows</span><span class="p">,</span> <span class="n">cols</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span> <span class="mi">1024</span>
-<span class="n">X</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">Out</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">rows</span> <span class="o">*</span> <span class="n">cols</span><span class="p">,))</span>
-
-<span class="n">softmax</span><span class="p">[(</span><span class="n">rows</span><span class="p">,)](</span><span class="n">X</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">cols</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="concepts-introduced">
-<h2>Concepts Introduced<a class="headerlink" href="#concepts-introduced" title="Link to this heading">¶</a></h2>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.tile_range</span></code>: tiling loop for iterating over a dimension</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.maximum</span></code> / <code class="docutils literal notranslate"><span class="pre">metile.max</span></code>: element-wise max and reduction</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.sum</span></code>: sum reduction</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.exp</span></code>: element-wise exponential</p></li>
-<li><p>Multi-pass algorithms: reading the same data multiple times in different passes</p></li>
-<li><p>Scalar accumulators (<code class="docutils literal notranslate"><span class="pre">m</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code>) carried across loop iterations</p></li>
-</ul>
+<section id="mask-the-reduction-too">
+<h2>Mask the reduction, too<a class="headerlink" href="#mask-the-reduction-too" title="Link to this heading">¶</a></h2>
+<p>The width is 300, so the second 256-element tile contains padding. Bounds
+checks alone do not make every reduction correct: a zero-filled load would
+contribute <code class="docutils literal notranslate"><span class="pre">exp(0</span> <span class="pre">-</span> <span class="pre">row_maximum)</span></code> to the denominator. The explicit <code class="docutils literal notranslate"><span class="pre">where</span></code>
+sets those contributions to zero. The maximum pass instead fills padding with
+negative infinity, the identity for a maximum reduction.</p>
+<p>The loop-carried values contain one partial result per lane. <code class="docutils literal notranslate"><span class="pre">metile.max</span></code>
+and <code class="docutils literal notranslate"><span class="pre">metile.sum</span></code> combine those partials across the tile. This example assumes
+positive row and column counts and finite input values; it does not define
+special behavior for rows containing NaNs or infinities.</p>
+<p>meTile can recognize some softmax forms and rewrite them into an online
+algorithm. That optimization is pattern-dependent. Inspect the generated IR
+when evaluating a particular kernel, and compare its output against a
+reference regardless of whether the rewrite occurs.</p>
 </section>
 </section>
 
@@ -373,8 +405,7 @@
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Softmax</a><ul>
-<li><a class="reference internal" href="#launching">Launching</a></li>
-<li><a class="reference internal" href="#concepts-introduced">Concepts Introduced</a></li>
+<li><a class="reference internal" href="#mask-the-reduction-too">Mask the reduction, too</a></li>
 </ul>
 </li>
 </ul>

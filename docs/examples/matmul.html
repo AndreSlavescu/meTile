@@ -4,13 +4,15 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Layer Normalization" href="layernorm.html"><link rel="prev" title="Decode Attention" href="attention.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Matrix Multiply (GEMM) - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="attention.html">Decode Attention</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -258,134 +281,124 @@
         <article role="main" id="furo-main-content">
           <section id="matrix-multiply-gemm">
 <h1>Matrix Multiply (GEMM)<a class="headerlink" href="#matrix-multiply-gemm" title="Link to this heading">¶</a></h1>
-<p>Tiled matrix multiplication using meTile’s <code class="docutils literal notranslate"><span class="pre">dot</span></code> and <code class="docutils literal notranslate"><span class="pre">tile_load</span></code> operations.</p>
-<section id="basic-gemm">
-<h2>Basic GEMM<a class="headerlink" href="#basic-gemm" title="Link to this heading">¶</a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
+<p>A matrix multiply reduces pairs of input tiles into an output tile. This
+example uses contiguous float32 matrices and deliberately uneven dimensions,
+so loads and stores must handle partial tiles.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">matmul</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span>
-           <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
-           <span class="n">BLOCK_K</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid_m</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
-        <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
-        <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-        <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-
-    <span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-</pre></div>
-</div>
-</section>
-<section id="launching">
-<h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">¶</a></h2>
-<p>The grid is 2D, one program instance per output tile:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-
-<span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="mi">1024</span>
-<span class="n">A</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">B</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">C</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">M</span> <span class="o">*</span> <span class="n">N</span><span class="p">,))</span>
-
-<span class="n">grid</span> <span class="o">=</span> <span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="mi">128</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="mi">128</span><span class="p">))</span>
-<span class="n">matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="how-it-works">
-<h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">¶</a></h2>
-<a class="reference internal image-reference" href="../_images/gemm-tiling.svg"><img alt="GEMM matrices partitioned into program-owned output tiles with a register-resident K reduction loop" src="../_images/gemm-tiling.svg" style="width: 100%;" />
-</a>
-<ol class="arabic simple">
-<li><p>Each program instance owns a <code class="docutils literal notranslate"><span class="pre">BLOCK_M</span> <span class="pre">x</span> <span class="pre">BLOCK_N</span></code> tile of the output matrix C.</p></li>
-<li><p>It initializes a register-resident accumulator with <code class="docutils literal notranslate"><span class="pre">metile.zeros</span></code>.</p></li>
-<li><p>The K-loop iterates in steps of <code class="docutils literal notranslate"><span class="pre">BLOCK_K</span></code>, loading a tile of A and B each step.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.dot(a,</span> <span class="pre">b,</span> <span class="pre">acc)</span></code> computes <code class="docutils literal notranslate"><span class="pre">acc</span> <span class="pre">+=</span> <span class="pre">a</span> <span class="pre">&#64;</span> <span class="pre">b</span></code> using hardware matrix multiply.</p></li>
-<li><p>After the loop, the accumulated result is written to C.</p></li>
-</ol>
-<p>The compiler maps <code class="docutils literal notranslate"><span class="pre">dot</span></code> to the appropriate hardware:</p>
-<ul class="simple">
-<li><p><strong>M1/M2/M3</strong>: <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;float,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code> with cooperative loads through
-threadgroup memory</p></li>
-<li><p><strong>Metal 4-capable GPU/toolchain</strong>: <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> tensor_ops with register-resident
-<code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code></p></li>
-</ul>
-</section>
-<section id="fused-gemm-relu">
-<h2>Fused GEMM + ReLU<a class="headerlink" href="#fused-gemm-relu" title="Link to this heading">¶</a></h2>
-<p>Element-wise operations after the GEMM loop are fused into the kernel’s epilogue.
-They run on register-resident data with zero extra memory traffic:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">matmul_relu</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span>
-                <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
-                <span class="n">BLOCK_K</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid_m</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
-        <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
-        <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-        <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">acc</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>   <span class="c1"># fused ReLU, no global memory round-trip</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-</pre></div>
-</div>
-</section>
-<section id="tile-swizzle-for-cache-locality">
-<h2>Tile Swizzle for Cache Locality<a class="headerlink" href="#tile-swizzle-for-cache-locality" title="Link to this heading">¶</a></h2>
-<p>For large matrices, the order in which tiles are processed affects cache hit rates.
-The compiler can specialize linear, grouped-2/4/8, diagonal, Morton (Z-order), and
-4x4 Hilbert traversals. Use <code class="docutils literal notranslate"><span class="pre">tile_swizzle</span></code> to force a schedule:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">matmul_swizzled</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span>
-                    <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
-                    <span class="n">BLOCK_K</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid_m</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_swizzle</span><span class="p">(</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
-        <span class="n">pattern</span><span class="o">=</span><span class="s2">"morton"</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">matmul</span><span class="p">(</span>
+    <span class="n">left_ptr</span><span class="p">,</span> <span class="n">right_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">reduction</span><span class="p">,</span>
+    <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+    <span class="n">BLOCK_K</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">RELU</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="n">left</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+        <span class="n">left_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">reduction</span><span class="p">),</span>
+        <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">,</span>
     <span class="p">)</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
-        <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
-        <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-        <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
+    <span class="n">right</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+        <span class="n">right_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">reduction</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span>
+        <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+        <span class="n">output_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span>
+        <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">row</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK_M</span>
+    <span class="n">column</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK_N</span>
+    <span class="n">accumulator</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">reduction</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
+        <span class="n">accumulator</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+            <span class="n">left</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">start</span><span class="p">)),</span> <span class="n">right</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">start</span><span class="p">,</span> <span class="n">column</span><span class="p">)),</span> <span class="n">accumulator</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="n">RELU</span><span class="p">:</span>
+        <span class="n">accumulator</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+    <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">column</span><span class="p">),</span> <span class="n">accumulator</span><span class="p">)</span>
+
+<span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">reduction</span> <span class="o">=</span> <span class="mi">65</span><span class="p">,</span> <span class="mi">77</span><span class="p">,</span> <span class="mi">53</span>
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">left_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">((</span><span class="n">rows</span><span class="p">,</span> <span class="n">reduction</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">right_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">((</span><span class="n">reduction</span><span class="p">,</span> <span class="n">columns</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">left_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">left_data</span><span class="p">)</span>
+<span class="n">right_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">right_data</span><span class="p">)</span>
+<span class="n">output_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+<span class="n">grid</span> <span class="o">=</span> <span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="mi">32</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">columns</span><span class="p">,</span> <span class="mi">32</span><span class="p">))</span>
+<span class="n">matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span>
+    <span class="n">left_buffer</span><span class="p">,</span> <span class="n">right_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">reduction</span><span class="p">,</span>
+    <span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">RELU</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">reference</span> <span class="o">=</span> <span class="n">left_data</span> <span class="o">@</span> <span class="n">right_data</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">pattern=&quot;auto&quot;</span></code> runs the schedule-algebra pass. For a statically known launch
-grid it emits only the selected branch-free coordinate decoder. Explicit Hilbert
-and Morton schedules safely fall back on grids that cannot be tiled bijectively.</p>
+<section id="how-the-tiles-fit-together">
+<h2>How the tiles fit together<a class="headerlink" href="#how-the-tiles-fit-together" title="Link to this heading">¶</a></h2>
+<a class="reference internal image-reference" href="../_images/gemm-tiling.svg"><img alt="Each program owns an output matrix tile and accumulates products along K" src="../_images/gemm-tiling.svg" style="width: 100%;" />
+</a>
+<p><code class="docutils literal notranslate"><span class="pre">block_shape</span></code> defines the matrix tile loaded or stored by a view. Here,
+each program owns a 32-by-32 output tile. Every loop iteration loads a
+32-by-16 left tile and a 16-by-32 right tile, then accumulates their product
+with <code class="docutils literal notranslate"><span class="pre">dot</span></code>. The logical tensor shapes supply bounds for all three axes:
+out-of-bounds inputs contribute zero, and out-of-bounds outputs are skipped.</p>
+<p>The matrix path requires matching input/output storage dtypes and supported
+contiguous row-major layouts, with a separate output buffer. Float32 and
+supported float16 configurations accumulate in float32; the store converts
+to the output storage dtype. Use positive dimensions. Not every tile size,
+dtype, and schedule combination is legal. See <a class="reference internal" href="../guide/tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> and
+<a class="reference internal" href="../guide/tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a> before changing them.</p>
+<p>The compiler chooses a supported matrix backend using device and toolchain
+capabilities. A newer chip name alone does not establish Metal 4 tensor-ops
+support. The direct NAX path has additional tile and alignment requirements.</p>
 </section>
-<section id="autotuning">
-<h2>Autotuning<a class="headerlink" href="#autotuning" title="Link to this heading">¶</a></h2>
-<p>Different matrix sizes benefit from different block sizes. Use the autotuner to search:</p>
+<section id="fuse-an-activation">
+<h2>Fuse an activation<a class="headerlink" href="#fuse-an-activation" title="Link to this heading">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">RELU</span></code> argument is a compile-time boolean. With <code class="docutils literal notranslate"><span class="pre">RELU=True</span></code>, the
+compiler incorporates the pointwise activation into the GEMM epilogue:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span>
+    <span class="n">left_buffer</span><span class="p">,</span> <span class="n">right_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">reduction</span><span class="p">,</span>
+    <span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">RELU</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span>
+    <span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">reference</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-4</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Fusion saves an intermediate device-memory write/read and a separate launch.
+The activation still takes instructions and may affect register use. See
+<a class="reference internal" href="../guide/execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for the supported epilogue expressions.</p>
+</section>
+<section id="tune-the-tile-sizes">
+<h2>Tune the tile sizes<a class="headerlink" href="#tune-the-tile-sizes" title="Link to this heading">¶</a></h2>
+<p>This small search compares two legal configurations. The callable grid is
+recomputed for each candidate, so every candidate covers the full output.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">autotuned_matmul</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">autotune</span><span class="p">(</span>
     <span class="n">configs</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">Config</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>  <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>  <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">WM</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">WN</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">Config</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">WM</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">WN</span><span class="o">=</span><span class="mi">4</span><span class="p">),</span>
+        <span class="n">metile</span><span class="o">.</span><span class="n">Config</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">RELU</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+        <span class="n">metile</span><span class="o">.</span><span class="n">Config</span><span class="p">(</span><span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">RELU</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
     <span class="p">],</span>
-    <span class="n">key</span><span class="o">=</span><span class="p">[</span><span class="s2">"M"</span><span class="p">,</span> <span class="s2">"N"</span><span class="p">,</span> <span class="s2">"K"</span><span class="p">],</span>
+    <span class="n">key</span><span class="o">=</span><span class="p">[</span><span class="s2">"rows"</span><span class="p">,</span> <span class="s2">"columns"</span><span class="p">,</span> <span class="s2">"reduction"</span><span class="p">],</span>
+    <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
 <span class="p">)(</span><span class="n">matmul</span><span class="p">)</span>
 
-<span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">M</span><span class="o">=</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="o">=</span><span class="n">N</span><span class="p">:</span> <span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"BLOCK_M"</span><span class="p">]),</span> <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"BLOCK_N"</span><span class="p">]))</span>
-<span class="n">autotuned_matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tuned_grid</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">config</span><span class="p">[</span><span class="s2">"BLOCK_M"</span><span class="p">]),</span>
+        <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">columns</span><span class="p">,</span> <span class="n">config</span><span class="p">[</span><span class="s2">"BLOCK_N"</span><span class="p">]),</span>
+    <span class="p">)</span>
+
+<span class="n">autotuned_matmul</span><span class="p">[</span><span class="n">tuned_grid</span><span class="p">](</span>
+    <span class="n">left_buffer</span><span class="p">,</span> <span class="n">right_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">reduction</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>See <a class="reference internal" href="../guide/autotuning.html"><span class="doc">Autotuning</span></a> for the full autotuning guide.</p>
-</section>
-<section id="concepts-introduced">
-<h2>Concepts Introduced<a class="headerlink" href="#concepts-introduced" title="Link to this heading">¶</a></h2>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.zeros</span></code>: register-resident accumulator initialization</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.dot</span></code>: tile-level matrix multiply-accumulate</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.tile_load</span></code> / <code class="docutils literal notranslate"><span class="pre">metile.tile_store</span></code>: 2D strided memory access</p></li>
-<li><p>2D grids: <code class="docutils literal notranslate"><span class="pre">kernel[(grid_m,</span> <span class="pre">grid_n)]</span></code></p></li>
-<li><p>Fused epilogues: element-wise ops after GEMM are free</p></li>
-<li><p>Tile swizzle: cache-friendly scheduling patterns</p></li>
-</ul>
+<p>Tuning executes candidates and writes the output. Measure its cost separately
+from repeated execution of the selected kernel. Tile traversal is another
+schedule choice: <code class="docutils literal notranslate"><span class="pre">tile_swizzle</span></code> supports automatic selection or explicit
+patterns such as Morton and Hilbert. See <a class="reference internal" href="../guide/autotuning.html"><span class="doc">Autotuning</span></a> and
+<a class="reference internal" href="../guide/tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a> for the search and grid constraints.</p>
 </section>
 </section>
 
@@ -445,13 +458,9 @@ and Morton schedules safely fall back on grids that cannot be tiled bijectively.
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Matrix Multiply (GEMM)</a><ul>
-<li><a class="reference internal" href="#basic-gemm">Basic GEMM</a></li>
-<li><a class="reference internal" href="#launching">Launching</a></li>
-<li><a class="reference internal" href="#how-it-works">How It Works</a></li>
-<li><a class="reference internal" href="#fused-gemm-relu">Fused GEMM + ReLU</a></li>
-<li><a class="reference internal" href="#tile-swizzle-for-cache-locality">Tile Swizzle for Cache Locality</a></li>
-<li><a class="reference internal" href="#autotuning">Autotuning</a></li>
-<li><a class="reference internal" href="#concepts-introduced">Concepts Introduced</a></li>
+<li><a class="reference internal" href="#how-the-tiles-fit-together">How the tiles fit together</a></li>
+<li><a class="reference internal" href="#fuse-an-activation">Fuse an activation</a></li>
+<li><a class="reference internal" href="#tune-the-tile-sizes">Tune the tile sizes</a></li>
 </ul>
 </li>
 </ul>

@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="prev" title="Fused Activations &amp; Simdgroup Roles" href="../examples/fused-activations.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="prev" title="Research references" href="../guide/references.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>API Reference - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/references.html">Research references</a></li>
 </ul>
 <ul class="current">
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">API Reference</a></li>
@@ -258,6 +281,77 @@
         <article role="main" id="furo-main-content">
           <section id="api-reference">
 <h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h1>
+<p>This page is a quick index of the public entry points. Kernel operations run
+during tracing inside <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code>; buffers, launchers, and tuning APIs
+are used by host Python code. See <a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> for tracing rules and
+<a class="reference internal" href="../guide/memory.html"><span class="doc">Memory Model</span></a> for storage, dtype, and synchronization details.</p>
+<p>The separately installed <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code> project provides ready-made
+operations under <code class="docutils literal notranslate"><span class="pre">metile_kernels</span></code>, such as <code class="docutils literal notranslate"><span class="pre">metile_kernels.gemm.matmul</span></code>
+and <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention.attention_decode_kernel</span></code>. Their implementations live in
+<code class="docutils literal notranslate"><span class="pre">kernels/src/metile_kernels/</span></code>. They depend on the compiler; the compiler
+does not require the kernel library. See <a class="reference internal" href="../getting-started/install.html"><span class="doc">Installation</span></a>.</p>
+<p>Host-side decode attention orchestration lives in
+<code class="docutils literal notranslate"><span class="pre">metile.backends.attention_runtime.attention_decode</span></code>. This optional backend
+requires the kernel library, but not MLX. See <a class="reference internal" href="../examples/attention.html"><span class="doc">Decode Attention</span></a> for
+its launcher API and migration from the former kernel-package import.</p>
+<section id="training-and-manual-vjps">
+<h2>Training and Manual VJPs<a class="headerlink" href="#training-and-manual-vjps" title="Link to this heading">¶</a></h2>
+<p>See <a class="reference internal" href="../guide/training.html"><span class="doc">Training kernels and gradients</span></a> for examples, precision contracts, and saved-buffer
+lifetime rules, and <a class="reference internal" href="../guide/kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> for the Liger parity checklist.
+These are native APIs, not automatic framework-autograd registrations.</p>
+<div class="table-wrapper colwidths-given docutils container">
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 50.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Entry points</p></th>
+<th class="head"><p>Contract</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.pointwise.activation_forward</span> <span class="pre">/</span> <span class="pre">activation_backward</span></code></p></td>
+<td><p>Unary or gated activations; separate gradients for both gate and up</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.pointwise.rope_forward</span> <span class="pre">/</span> <span class="pre">rope_backward</span></code></p></td>
+<td><p>Full/partial RoPE with pre-expanded coefficient tables and all three input gradients</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_norms.rms_norm_forward</span> <span class="pre">/</span> <span class="pre">layer_norm_forward</span> <span class="pre">/</span> <span class="pre">add_rms_norm_forward</span> <span class="pre">/</span> <span class="pre">norm_backward</span></code></p></td>
+<td><p>FP32 statistics, input and affine-parameter gradients, residual cotangents</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_matmul.matmul_forward</span> <span class="pre">/</span> <span class="pre">matmul_backward</span></code></p></td>
+<td><p>FP32 two-dimensional dense products and optional activation derivatives</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_losses.softmax_forward</span> <span class="pre">/</span> <span class="pre">softmax_backward</span> <span class="pre">/</span> <span class="pre">log_softmax_forward</span> <span class="pre">/</span> <span class="pre">log_softmax_backward</span></code></p></td>
+<td><p>Final-axis FP32 normalization and its explicit cotangent map</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_losses.cross_entropy_forward</span> <span class="pre">/</span> <span class="pre">cross_entropy_backward</span></code></p></td>
+<td><p>Integer-label cross entropy, ignored labels, smoothing and optional z-loss</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.attention.attention_forward</span> <span class="pre">/</span> <span class="pre">attention_backward</span></code></p></td>
+<td><p>Stable dense/causal/masked attention, MHA/GQA/MQA, and dQ/dK/dV</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.gated_delta.gated_delta_forward</span> <span class="pre">/</span> <span class="pre">gated_delta_backward</span></code></p></td>
+<td><p>Scalar/channel-decay recurrences with all six tensor-input gradients</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.backends.dual_chunk_attention.dual_chunk_attention_forward</span> <span class="pre">/</span> <span class="pre">dual_chunk_attention_backward</span></code></p></td>
+<td><p>Three pre-rotated branches, one global normalization, and branch/K/V gradients</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.vjp(output,</span> <span class="pre">inputs,</span> <span class="pre">cotangent)</span></code></p></td>
+<td><p>Trace-time expression VJP; unsupported differentiated operators fail explicitly</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.loop_state(initial)</span></code></p></td>
+<td><p>Explicit mutable per-lane state with <code class="docutils literal notranslate"><span class="pre">.value</span></code> snapshots and <code class="docutils literal notranslate"><span class="pre">.update(next_value)</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Raw device implementations live in <code class="docutils literal notranslate"><span class="pre">metile_kernels.training_activations</span></code>,
+<code class="docutils literal notranslate"><span class="pre">rope</span></code>, <code class="docutils literal notranslate"><span class="pre">training_norms</span></code>, <code class="docutils literal notranslate"><span class="pre">training_losses</span></code>, <code class="docutils literal notranslate"><span class="pre">stable_attention</span></code>,
+<code class="docutils literal notranslate"><span class="pre">gated_delta</span></code>, and <code class="docutils literal notranslate"><span class="pre">dual_chunk_attention</span></code>. Allocation and dispatch logic
+stays outside those kernel modules.</p>
+</section>
 <section id="kernel-definition-launch">
 <h2>Kernel Definition &amp; Launch<a class="headerlink" href="#kernel-definition-launch" title="Link to this heading">¶</a></h2>
 <div class="table-wrapper colwidths-given docutils container">
@@ -279,11 +373,24 @@
 <td><p>Launch kernel with given grid shape and compile-time constants</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.constexpr</span></code></p></td>
-<td><p>Type annotation for compile-time constant parameters</p></td>
+<td><p>Compile-time parameter annotation; pass values by keyword at launch</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">kernel[grid].prepare(*args,</span> <span class="pre">**constexprs)</span></code></p></td>
+<td><p>Execute once, synchronize, and bind a reusable dispatcher to these arguments</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dispatch()</span></code></p></td>
+<td><p>Enqueue work using the prepared buffers, scalar values, and grid</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>Preparation may modify outputs. Use explicit <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> objects when reusing
+a dispatcher: subsequent calls do not repeat implicit NumPy conversion or
+copy results into the original NumPy arrays. The ordinary launch cache also
+depends on input dtypes and relevant compilation settings, not just constexprs.</p>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">STRICT_MATH=True</span></code> to disable Metal fast-math in both compilation paths.
+This boolean is part of compilation cache identity. It does not override an
+explicit fast intrinsic or change the selected matrix arithmetic precision.</p>
 </section>
 <section id="buffers">
 <h2>Buffers<a class="headerlink" href="#buffers" title="Link to this heading">¶</a></h2>
@@ -300,20 +407,26 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Buffer(data=np_array)</span></code></p></td>
-<td><p>Create a GPU buffer from a numpy array (unified memory, zero-copy)</p></td>
+<td><p>Allocate shared Metal storage and copy the array’s contents into it</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Buffer.zeros((size,))</span></code></p></td>
-<td><p>Allocate a zeroed float32 buffer</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Buffer.zeros(shape,</span> <span class="pre">dtype=np.float32)</span></code></p></td>
+<td><p>Allocate a zeroed buffer with the requested shape and storage dtype</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Buffer.from_numpy(np_array)</span></code></p></td>
-<td><p>Create a GPU buffer from a numpy array</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Buffer.empty(shape,</span> <span class="pre">dtype=np.float32)</span></code></p></td>
+<td><p>Allocate a buffer whose initial contents are unspecified</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">buf.numpy()</span></code></p></td>
-<td><p>Return a numpy view of the buffer data</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Buffer.from_numpy(np_array)</span></code></p></td>
+<td><p>Copy a NumPy array into a new shared Metal buffer</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">buf.numpy()</span></code></p></td>
+<td><p>Synchronize pending GPU work and return a writable view of the allocation</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>Keep the buffer alive while using a NumPy view of it. Storage dtypes must be
+supported by the launcher and the selected operation; float64 arrays are not
+supported kernel inputs. Declaring a tensor view does not convert storage.</p>
 </section>
 <section id="program-identity">
 <h2>Program Identity<a class="headerlink" href="#program-identity" title="Link to this heading">¶</a></h2>
@@ -356,8 +469,8 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.arange(start,</span> <span class="pre">size)</span></code></p></td>
-<td><p>Tile of <code class="docutils literal notranslate"><span class="pre">size</span></code> consecutive integers from <code class="docutils literal notranslate"><span class="pre">start</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.arange(start,</span> <span class="pre">end,</span> <span class="pre">*,</span> <span class="pre">layout=None)</span></code></p></td>
+<td><p>Half-open integer range for constant bounds, with optional thread ownership</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.cdiv(a,</span> <span class="pre">b)</span></code></p></td>
 <td><p>Ceiling division: <code class="docutils literal notranslate"><span class="pre">ceil(a</span> <span class="pre">/</span> <span class="pre">b)</span></code></p></td>
@@ -368,6 +481,68 @@
 </tbody>
 </table>
 </div>
+<p>For a traced scalar <code class="docutils literal notranslate"><span class="pre">start</span></code>, the current <code class="docutils literal notranslate"><span class="pre">arange</span></code> overload treats its
+second argument as a length. Prefer <code class="docutils literal notranslate"><span class="pre">offset</span> <span class="pre">+</span> <span class="pre">metile.arange(0,</span> <span class="pre">BLOCK)</span></code> to
+make a dynamic origin explicit.</p>
+</section>
+<section id="thread-ownership">
+<h2>Thread Ownership<a class="headerlink" href="#thread-ownership" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-given docutils container">
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>API</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.ThreadLayout(bit_order,</span> <span class="pre">xor_mask=0,</span> <span class="pre">elements_per_thread=1)</span></code></p></td>
+<td><p>Immutable register/thread-to-logical-index bit permutation, with 1/2/4/8/16/32 values per thread</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.ThreadLayout.identity(size,</span> <span class="pre">elements_per_thread=1)</span></code></p></td>
+<td><p>Identity ownership for a power-of-two tile on 32–1024 threads</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.convert_layout(value,</span> <span class="pre">layout)</span></code></p></td>
+<td><p>Preserve logical values while redistributing physical owners</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>See <a class="reference internal" href="../guide/thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a> for supported operations and communication rules.</p>
+</section>
+<section id="tensor-views">
+<h2>Tensor Views<a class="headerlink" href="#tensor-views" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-given docutils container">
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>API</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tensor(pointer,</span> <span class="pre">*,</span> <span class="pre">shape,</span> <span class="pre">strides=None,</span> <span class="pre">access=&quot;readwrite&quot;,</span> <span class="pre">block_shape=None,</span> <span class="pre">address_space=None)</span></code></p></td>
+<td><p>Declare logical shape, memory layout, and access permissions</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">view.load(indices,</span> <span class="pre">other=0)</span></code></p></td>
+<td><p>Load coordinates with declared bounds and a scalar fill value</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">view.store(indices,</span> <span class="pre">value)</span></code></p></td>
+<td><p>Store coordinates within declared bounds</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>See <a class="reference internal" href="../guide/tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for the full signature, tiled matrix support,
+integer-range constraints, and compiler responsibilities. Strides are in
+elements. Bounds checks use the declared shape; the caller must supply enough
+storage for its valid addresses. Matrix tile loads currently require zero fill.</p>
 </section>
 <section id="element-wise-memory">
 <h2>Element-wise Memory<a class="headerlink" href="#element-wise-memory" title="Link to this heading">¶</a></h2>
@@ -408,20 +583,23 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_load(ptr,</span> <span class="pre">row,</span> <span class="pre">col,</span> <span class="pre">stride,</span> <span class="pre">shape)</span></code></p></td>
-<td><p>Load a 2D tile from row-major memory</p></td>
+<td><p>Legacy two-dimensional tile load with an element row stride</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_store(ptr,</span> <span class="pre">row,</span> <span class="pre">col,</span> <span class="pre">stride,</span> <span class="pre">value,</span> <span class="pre">shape)</span></code></p></td>
-<td><p>Store a 2D tile to row-major memory</p></td>
+<td><p>Legacy two-dimensional tile store with an element row stride</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.zeros(shape,</span> <span class="pre">dtype=&quot;f32&quot;)</span></code></p></td>
 <td><p>Zero-initialized tile (accumulator init)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.dot(a,</span> <span class="pre">b,</span> <span class="pre">acc)</span></code></p></td>
-<td><p>Tile matrix multiply-accumulate: <code class="docutils literal notranslate"><span class="pre">acc</span> <span class="pre">+=</span> <span class="pre">a</span> <span class="pre">&#64;</span> <span class="pre">b</span></code></p></td>
+<td><p>Return the tile matrix multiply-accumulate result <code class="docutils literal notranslate"><span class="pre">acc</span> <span class="pre">+</span> <span class="pre">a</span> <span class="pre">&#64;</span> <span class="pre">b</span></code></p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>For new matrix kernels, prefer <code class="docutils literal notranslate"><span class="pre">tensor(...,</span> <span class="pre">block_shape=...)</span></code> loads and
+stores, which declare full logical bounds. Backend-specific dtype, tile, and
+layout restrictions are described in <a class="reference internal" href="../guide/tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a>.</p>
 </section>
 <section id="control-flow">
 <h2>Control Flow<a class="headerlink" href="#control-flow" title="Link to this heading">¶</a></h2>
@@ -437,8 +615,8 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_range(start,</span> <span class="pre">end,</span> <span class="pre">step)</span></code></p></td>
-<td><p>Tiling loop (K-dimension iteration, multi-pass algorithms)</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_range(start,</span> <span class="pre">end,</span> <span class="pre">step=1,</span> <span class="pre">num_stages=1)</span></code></p></td>
+<td><p>Traced loop with an exclusive end; staging support depends on lowering</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.scalar(value,</span> <span class="pre">dtype=None)</span></code></p></td>
 <td><p>Explicit scalar SSA value for loop-carried recurrences</p></td>
@@ -489,10 +667,15 @@
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.minimum(a,</span> <span class="pre">b)</span></code></p></td>
 <td><p>Element-wise min</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.cast(value,</span> <span class="pre">dtype)</span></code></p></td>
+<td><p>Convert a scalar or tile to a supported IR dtype such as <code class="docutils literal notranslate"><span class="pre">&quot;f32&quot;</span></code></p></td>
+</tr>
 </tbody>
 </table>
 </div>
-<p>Standard Python arithmetic (<code class="docutils literal notranslate"><span class="pre">+</span></code>, <code class="docutils literal notranslate"><span class="pre">-</span></code>, <code class="docutils literal notranslate"><span class="pre">*</span></code>, <code class="docutils literal notranslate"><span class="pre">/</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;</span></code>, <code class="docutils literal notranslate"><span class="pre">&gt;</span></code>, etc.) works inside kernels.</p>
+<p>Supported Python arithmetic and comparisons build elementwise operations.
+<code class="docutils literal notranslate"><span class="pre">where</span></code> selects between already-computed values; it does not make an
+unmasked memory access safe. Mask the load itself or use a tensor view.</p>
 </section>
 <section id="reductions">
 <h2>Reductions<a class="headerlink" href="#reductions" title="Link to this heading">¶</a></h2>
@@ -520,6 +703,9 @@
 </tbody>
 </table>
 </div>
+<p>These reduce a supported logical tile. <code class="docutils literal notranslate"><span class="pre">simd_sum</span></code> and <code class="docutils literal notranslate"><span class="pre">simd_max</span></code> below
+operate only within the current SIMDgroup. Padding and reduction identities
+must match; see <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a>.</p>
 </section>
 <section id="simdgroup-operations">
 <h2>Simdgroup Operations<a class="headerlink" href="#simdgroup-operations" title="Link to this heading">¶</a></h2>
@@ -535,7 +721,7 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role(role,</span> <span class="pre">num_roles)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role(role,</span> <span class="pre">num_roles=2,</span> <span class="pre">num_sgs=0)</span></code></p></td>
 <td><p>Context manager: execute on a subset of simdgroups</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.simd_shuffle_xor(value,</span> <span class="pre">mask)</span></code></p></td>
@@ -551,14 +737,16 @@
 <td><p>Native maximum across the current simdgroup</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code></p></td>
-<td><p>Threadgroup memory barrier</p></td>
+<td><p>Synchronize participating threads and order threadgroup memory accesses</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.shared(size,</span> <span class="pre">dtype)</span></code></p></td>
-<td><p>Allocate threadgroup (shared) memory</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.shared(size,</span> <span class="pre">dtype=&quot;f32&quot;)</span></code></p></td>
+<td><p>Allocate uninitialized threadgroup memory</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>All participating threads must reach a threadgroup barrier. Role regions do
+not synchronize with each other merely because they appear in source order.</p>
 </section>
 <section id="tile-scheduling">
 <h2>Tile Scheduling<a class="headerlink" href="#tile-scheduling" title="Link to this heading">¶</a></h2>
@@ -574,12 +762,21 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_swizzle(pid_m,</span> <span class="pre">pid_n,</span> <span class="pre">pattern,</span> <span class="pre">block_size)</span></code></p></td>
-<td><p>Apply <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hilbert&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;linear&quot;</span></code> scheduling</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Schedule(...)</span></code></p></td>
+<td><p>Checked backend, SIMD-group, staging, vector-width and buffering requirements</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dispatch.explain()</span></code></p></td>
+<td><p>JSON report of the selected schedule and materialized compiler decisions</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tile_swizzle(pid_m,</span> <span class="pre">pid_n,</span> <span class="pre">pattern=&quot;auto&quot;,</span> <span class="pre">block_size=4)</span></code></p></td>
+<td><p>Request automatic, linear, diagonal, grouped2/4/8, Morton, or Hilbert traversal</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>Pass the immutable requirements as <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> to a kernel
+launch or <code class="docutils literal notranslate"><span class="pre">prepare</span></code> call. See <a class="reference internal" href="../guide/execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for supported
+combinations, inspection and pointwise GEMM fusion.</p>
 </section>
 <section id="autotuning">
 <h2>Autotuning<a class="headerlink" href="#autotuning" title="Link to this heading">¶</a></h2>
@@ -598,12 +795,18 @@
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.autotune(configs,</span> <span class="pre">key,</span> <span class="pre">warmup=5,</span> <span class="pre">rep=20,</span> <span class="pre">verbose=True)</span></code></p></td>
 <td><p>Decorator for automatic parameter search</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Config(**constexprs)</span></code></p></td>
-<td><p>A set of constexpr values to benchmark</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.Config(num_simdgroups=None,</span> <span class="pre">num_stages=1,</span> <span class="pre">**constexprs)</span></code></p></td>
+<td><p>Candidate constants and optional SIMDgroup/staging requests</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">autotuned[grid].prepare(*args,</span> <span class="pre">**kwargs)</span></code></p></td>
+<td><p>Select a configuration, execute preparation, and return a bound dispatcher</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>Use a callable grid when candidates change tile dimensions. Tuning runs
+kernels and can modify their outputs; see <a class="reference internal" href="../guide/autotuning.html"><span class="doc">Autotuning</span></a> for cache
+keys and repeated-dispatch behavior.</p>
 </section>
 <section id="block-scaling">
 <h2>Block Scaling<a class="headerlink" href="#block-scaling" title="Link to this heading">¶</a></h2>
@@ -622,18 +825,41 @@
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.BlockScaledWeight.quantize(weight,</span> <span class="pre">format=&quot;mxfp4&quot;)</span></code></p></td>
 <td><p>Quantize a KxN weight to MXFP4 or MXFP8 with E8M0 group scales</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.block_scaled_matmul(activations,</span> <span class="pre">weight,</span> <span class="pre">output=None)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">weight.dequantize()</span></code></p></td>
+<td><p>Reconstruct a dense NumPy array for inspection or reference checks</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.block_scaled_matmul(activations,</span> <span class="pre">weight,</span> <span class="pre">output=None)</span></code></p></td>
 <td><p>Run the automatically tuned fused block-scaled MPP kernel</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.prepare_block_scaled_matmul(activations,</span> <span class="pre">weight,</span> <span class="pre">output)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.prepare_block_scaled_matmul(activations,</span> <span class="pre">weight,</span> <span class="pre">output)</span></code></p></td>
 <td><p>Return a reusable dispatcher for the selected block-scaled tile family</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">autotuned[grid].prepare(*args,</span> <span class="pre">**kwargs)</span></code></p></td>
-<td><p>Autotune once and return a fast dispatcher</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>The block-scaled fast path requires Metal 4 tensor operations, two-dimensional
+activation/output buffers, M and N divisible by 64, and K divisible by 32.
+Quantization changes the represented weights; compare numerical results with
+an appropriate reference and tolerance.</p>
+</section>
+<section id="model-integration">
+<h2>Model Integration<a class="headerlink" href="#model-integration" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.compile(model,</span> <span class="pre">*,</span> <span class="pre">verify=True,</span> <span class="pre">features=...,</span> <span class="pre">tolerance=...)</span></code> modifies
+a loaded MLX-LM model in place and returns a <code class="docutils literal notranslate"><span class="pre">CompileReport</span></code>. The report
+describes accepted and declined replacements; <code class="docutils literal notranslate"><span class="pre">report.restore()</span></code> restores
+the previous implementations. Verification uses a finite probe, not a proof
+over all possible model inputs. See <a class="reference internal" href="../guide/mlx-backend.html"><span class="doc">MLX-LM Backend</span></a> for setup,
+verification settings, and the limitations of that check.</p>
+</section>
+<section id="related-host-apis">
+<h2>Related Host APIs<a class="headerlink" href="#related-host-apis" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">Layout</span></code>, <code class="docutils literal notranslate"><span class="pre">make_layout</span></code>, <code class="docutils literal notranslate"><span class="pre">row_major</span></code>, and <code class="docutils literal notranslate"><span class="pre">col_major</span></code> describe index
+layouts on the host. They are distinct from <code class="docutils literal notranslate"><span class="pre">ThreadLayout</span></code>, which specifies
+physical thread/register ownership inside a kernel.</p>
+<p><code class="docutils literal notranslate"><span class="pre">GlobalAddressSpace</span></code>, <code class="docutils literal notranslate"><span class="pre">TensorView</span></code>, <code class="docutils literal notranslate"><span class="pre">TiledView</span></code>, and <code class="docutils literal notranslate"><span class="pre">KernelPipeline</span></code>
+provide host-side allocation, view, and composition utilities. They are also
+distinct from the traced <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> declaration. For graph construction
+and fusion planning, see <a class="reference internal" href="../guide/graph-fusion.html"><span class="doc">Compute-Graph Fusion</span></a>.</p>
 </section>
 </section>
 
@@ -643,14 +869,14 @@
         
         <div class="related-pages">
           
-          <a class="prev-page" href="../examples/fused-activations.html">
+          <a class="prev-page" href="../guide/references.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Fused Activations &amp; Simdgroup Roles</div>
+                <div class="title">Research references</div>
                 
               </div>
             </a>
@@ -685,10 +911,13 @@
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">API Reference</a><ul>
+<li><a class="reference internal" href="#training-and-manual-vjps">Training and Manual VJPs</a></li>
 <li><a class="reference internal" href="#kernel-definition-launch">Kernel Definition &amp; Launch</a></li>
 <li><a class="reference internal" href="#buffers">Buffers</a></li>
 <li><a class="reference internal" href="#program-identity">Program Identity</a></li>
 <li><a class="reference internal" href="#index-generation">Index Generation</a></li>
+<li><a class="reference internal" href="#thread-ownership">Thread Ownership</a></li>
+<li><a class="reference internal" href="#tensor-views">Tensor Views</a></li>
 <li><a class="reference internal" href="#element-wise-memory">Element-wise Memory</a></li>
 <li><a class="reference internal" href="#tile-memory">Tile Memory</a></li>
 <li><a class="reference internal" href="#control-flow">Control Flow</a></li>
@@ -698,6 +927,8 @@
 <li><a class="reference internal" href="#tile-scheduling">Tile Scheduling</a></li>
 <li><a class="reference internal" href="#autotuning">Autotuning</a></li>
 <li><a class="reference internal" href="#block-scaling">Block Scaling</a></li>
+<li><a class="reference internal" href="#model-integration">Model Integration</a></li>
+<li><a class="reference internal" href="#related-host-apis">Related Host APIs</a></li>
 </ul>
 </li>
 </ul>

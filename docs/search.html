@@ -4,13 +4,15 @@
 <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="#">
+        <link rel="prefetch" href="_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
 <meta name="robots" content="noindex" />
 <title>Search - meTile</title><link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/reference.html">API Reference</a></li>

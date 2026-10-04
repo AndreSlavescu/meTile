@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Tile Operations &amp; Hardware Mapping" href="tile-ops.html"><link rel="prev" title="Language Reference" href="language.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Tile Operations and Hardware Mapping" href="tile-ops.html"><link rel="prev" title="Tensor and Memory Contracts" href="tensor-memory.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Memory Model - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -258,87 +281,100 @@
         <article role="main" id="furo-main-content">
           <section id="memory-model">
 <h1>Memory Model<a class="headerlink" href="#memory-model" title="Link to this heading">¶</a></h1>
-<p>Apple Silicon has a <strong>unified memory architecture</strong> where the CPU and GPU share the same physical
-memory. meTile exposes this directly through <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code>.</p>
-<a class="reference internal image-reference" href="../_images/unified-memory.svg"><img alt="Unified memory: CPU and GPU both access the same physical memory through metile.Buffer" src="../_images/unified-memory.svg" style="width: 100%;" />
+<p>Apple Silicon lets the CPU and GPU access shared physical memory. In meTile,
+<code class="docutils literal notranslate"><span class="pre">Buffer</span></code> owns a Metal allocation in shared storage. This removes the need
+for a separate GPU-to-CPU transfer when reading that allocation, but it does
+not mean every buffer conversion is zero-copy.</p>
+<a class="reference internal image-reference" href="../_images/unified-memory.svg"><img alt="CPU and GPU access a shared Metal buffer; constructing it from NumPy copies the input" src="../_images/unified-memory.svg" style="width: 100%;" />
 </a>
-<section id="buffers">
-<h2>Buffers<a class="headerlink" href="#buffers" title="Link to this heading">¶</a></h2>
+<section id="allocation-and-ownership">
+<h2>Allocation and ownership<a class="headerlink" href="#allocation-and-ownership" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
-<span class="c1"># Create from numpy (zero-copy, the GPU reads the same memory)</span>
-<span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1024</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-
-<span class="c1"># Allocate zeroed</span>
-<span class="n">out</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">1024</span><span class="p">,))</span>
-
-<span class="c1"># Allocate from existing numpy array</span>
-<span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
-<span class="n">buf</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
-
-<span class="c1"># Read results back to numpy (also zero-copy)</span>
-<span class="n">result</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+<span class="n">source</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1024</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">source</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">view</span> <span class="o">=</span> <span class="n">buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+<span class="n">view</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">42.0</span>
+<span class="k">assert</span> <span class="n">source</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mf">0.0</span>
 </pre></div>
 </div>
-<p>There is <strong>no explicit host-to-device copy</strong>. When you create a <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code>, the data lives
-in unified memory accessible to both CPU and GPU. After a kernel writes to a buffer, call
-<code class="docutils literal notranslate"><span class="pre">sync()</span></code> to ensure the GPU has finished, then read the buffer directly:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile.runtime.metal_device</span><span class="w"> </span><span class="kn">import</span> <span class="n">MetalDevice</span>
-
-<span class="n">kernel</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">x</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
-<span class="n">MetalDevice</span><span class="o">.</span><span class="n">get</span><span class="p">()</span><span class="o">.</span><span class="n">sync</span><span class="p">()</span>   <span class="c1"># wait for GPU to finish</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">numpy</span><span class="p">())</span>         <span class="c1"># read results</span>
-</pre></div>
-</div>
+<p><code class="docutils literal notranslate"><span class="pre">Buffer(data=source)</span></code> and <code class="docutils literal notranslate"><span class="pre">Buffer.from_numpy(source)</span></code> copy the source
+into a new Metal allocation. Changing the original array afterward does not
+change an explicit buffer. <code class="docutils literal notranslate"><span class="pre">Buffer.zeros</span></code> initializes storage to zero;
+<code class="docutils literal notranslate"><span class="pre">Buffer.empty</span></code> leaves its initial contents unspecified.</p>
+<p><code class="docutils literal notranslate"><span class="pre">buffer.numpy()</span></code> waits for pending GPU work and returns a writable NumPy
+view of the Metal allocation. It is not a copy. Keep the <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> alive
+for as long as that view is in use, and synchronize before accessing a retained
+view after another dispatch. Calling <code class="docutils literal notranslate"><span class="pre">numpy()</span></code> again performs that wait;
+reading a view returned earlier does not.</p>
+<p>All examples use an explicit storage dtype. NumPy commonly creates float64
+arrays by default, but the kernel launcher does not support arbitrary NumPy
+dtypes. Its current dtype mapping covers float32, float16, int32, uint32, and
+uint8; individual operations and backends support subsets of these. Convert
+inputs to a dtype supported by the chosen kernel.</p>
 </section>
-<section id="inside-kernels">
-<h2>Inside Kernels<a class="headerlink" href="#inside-kernels" title="Link to this heading">¶</a></h2>
-<p>Inside <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> functions, buffer parameters become device pointers. You access memory
-through <code class="docutils literal notranslate"><span class="pre">metile.load</span></code> and <code class="docutils literal notranslate"><span class="pre">metile.store</span></code>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Element-wise access with pointer arithmetic</span>
-<span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-<span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span><span class="p">)</span>
-<span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">x</span> <span class="o">*</span> <span class="mf">2.0</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span><span class="p">)</span>
-
-<span class="c1"># 2D tile access for matrix operations</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">col</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="p">(</span><span class="n">ROWS</span><span class="p">,</span> <span class="n">COLS</span><span class="p">))</span>
-<span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">col</span><span class="p">,</span> <span class="n">stride</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="p">(</span><span class="n">ROWS</span><span class="p">,</span> <span class="n">COLS</span><span class="p">))</span>
-</pre></div>
-</div>
+<section id="passing-numpy-arrays-directly">
+<h2>Passing NumPy arrays directly<a class="headerlink" href="#passing-numpy-arrays-directly" title="Link to this heading">¶</a></h2>
+<p>A normal kernel launch can accept contiguous NumPy arrays. The launcher
+copies their current contents into cached Metal buffers, dispatches, waits,
+and copies the results back. That convenience includes transfer and
+synchronization costs on each launch.</p>
+<p>Use explicit buffers for repeated GPU work. In particular,
+<code class="docutils literal notranslate"><span class="pre">kernel[grid].prepare(...)</span></code> binds resources and returns a dispatcher that
+reuses them; repeated calls do not rerun the NumPy conversion/copy-back path.
+Read results through an explicit output buffer’s <code class="docutils literal notranslate"><span class="pre">numpy()</span></code> method.</p>
+<p>Use contiguous arrays for implicit outputs. A noncontiguous array can be
+converted to a temporary contiguous array, and that temporary does not provide
+a reliable write-back path to the original view. To express strided access,
+allocate an explicit buffer and declare element strides inside the kernel.</p>
 </section>
-<section id="masking">
-<h2>Masking<a class="headerlink" href="#masking" title="Link to this heading">¶</a></h2>
-<p>When the data size is not a multiple of the block size, use masks to prevent out-of-bounds
-memory access:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-<span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>    <span class="c1"># boolean mask: True for valid elements</span>
-
-<span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>       <span class="c1"># masked-off lanes read 0</span>
-<span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>      <span class="c1"># masked-off lanes are skipped</span>
+<section id="logical-bounds">
+<h2>Logical bounds<a class="headerlink" href="#logical-bounds" title="Link to this heading">¶</a></h2>
+<p>Inside a kernel, <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> describes a pointer’s shape, strides,
+and access mode. For example, this fragment loads one tile and doubles it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">inputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">input_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">output_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
+<span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+<span class="n">outputs</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">positions</span><span class="p">,),</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span> <span class="o">*</span> <span class="mf">2.0</span><span class="p">)</span>
 </pre></div>
 </div>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>N = 10, BLOCK = 4, pid = 2 (last instance)
-
-offs = [8, 9, 10, 11]
-mask = [T, T, F, F] # values 10 and 11 are out of bounds
-
-load:  reads x[8], x[9], returns 0 for indices 10, 11
-store: writes out[8], out[9], skips indices 10, 11
+<p>A tensor load checks each coordinate against its declared dimension. Invalid
+coordinates use the scalar <code class="docutils literal notranslate"><span class="pre">other</span></code> value, which defaults to zero; invalid
+stores are skipped. Bounds are logical contracts, not a check against the
+allocation size: the caller must provide enough storage for every valid
+shape/stride address. Index and offset arithmetic must fit signed 32-bit
+indexing. See <a class="reference internal" href="tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for the complete contract.</p>
+<p>The lower-level <code class="docutils literal notranslate"><span class="pre">load</span></code> and <code class="docutils literal notranslate"><span class="pre">store</span></code> operations take pointer expressions
+and optional masks. They do not know the allocation’s bounds:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+<span class="n">valid</span> <span class="o">=</span> <span class="n">positions</span> <span class="o">&lt;</span> <span class="n">count</span>
+<span class="n">values</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">input_ptr</span> <span class="o">+</span> <span class="n">positions</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">valid</span><span class="p">)</span>
+<span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">output_ptr</span> <span class="o">+</span> <span class="n">positions</span><span class="p">,</span> <span class="n">values</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">valid</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Masking is essential for correctness. Without it, the last program instance would read/write
-past the end of the array.</p>
+<p>For <code class="docutils literal notranslate"><span class="pre">count=10</span></code>, <code class="docutils literal notranslate"><span class="pre">BLOCK=4</span></code>, and program 2, the positions are
+<code class="docutils literal notranslate"><span class="pre">[8,</span> <span class="pre">9,</span> <span class="pre">10,</span> <span class="pre">11]</span></code> and the mask is <code class="docutils literal notranslate"><span class="pre">[True,</span> <span class="pre">True,</span> <span class="pre">False,</span> <span class="pre">False]</span></code>.
+The last two loads produce zero and their stores are skipped. A computation
+that can produce negative positions also needs a lower-bound check.</p>
+<p>A masked load’s fill value must suit the reduction that follows. Zero works
+for sums, negative infinity for maxima, and positive infinity for minima.
+After operations such as subtraction or exponentiation, padding may need
+another mask. The <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> and <a class="reference internal" href="../examples/layernorm.html"><span class="doc">Layer Normalization</span></a>
+examples show why.</p>
 </section>
-<section id="shared-threadgroup-memory">
-<h2>Shared (Threadgroup) Memory<a class="headerlink" href="#shared-threadgroup-memory" title="Link to this heading">¶</a></h2>
-<p>For kernels that need inter-thread communication within a threadgroup, use shared memory:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">buf</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">shared</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
-<span class="n">metile</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>   <span class="c1"># synchronize all threads in the threadgroup</span>
-</pre></div>
-</div>
-<p>Shared memory is threadgroup-local and not visible to other threadgroups. Use
-<code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code> to synchronize access within a threadgroup.</p>
+<section id="threadgroup-memory">
+<h2>Threadgroup memory<a class="headerlink" href="#threadgroup-memory" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.shared(size,</span> <span class="pre">dtype=&quot;f32&quot;)</span></code> allocates threadgroup-local scratch
+storage. It is uninitialized and visible only to threads in the same
+threadgroup. Initialize every element that will be read.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code> between a cooperative write and dependent reads
+by other threads. It synchronizes the threadgroup and orders threadgroup
+memory accesses. Every participating thread must reach the barrier; do not
+hide one inside a region executed by only some SIMDgroups. A threadgroup
+barrier does not synchronize separate threadgroups. For a global dependency,
+use separate ordered kernel dispatches.</p>
 </section>
 </section>
 
@@ -352,18 +388,18 @@ past the end of the array.</p>
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Tile Operations &amp; Hardware Mapping</div>
+                <div class="title">Tile Operations and Hardware Mapping</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="language.html">
+          <a class="prev-page" href="tensor-memory.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Language Reference</div>
+                <div class="title">Tensor and Memory Contracts</div>
                 
               </div>
             </a>
@@ -398,10 +434,10 @@ past the end of the array.</p>
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Memory Model</a><ul>
-<li><a class="reference internal" href="#buffers">Buffers</a></li>
-<li><a class="reference internal" href="#inside-kernels">Inside Kernels</a></li>
-<li><a class="reference internal" href="#masking">Masking</a></li>
-<li><a class="reference internal" href="#shared-threadgroup-memory">Shared (Threadgroup) Memory</a></li>
+<li><a class="reference internal" href="#allocation-and-ownership">Allocation and ownership</a></li>
+<li><a class="reference internal" href="#passing-numpy-arrays-directly">Passing NumPy arrays directly</a></li>
+<li><a class="reference internal" href="#logical-bounds">Logical bounds</a></li>
+<li><a class="reference internal" href="#threadgroup-memory">Threadgroup memory</a></li>
 </ul>
 </li>
 </ul>

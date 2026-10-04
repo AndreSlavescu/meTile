@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Compute-Graph Fusion" href="graph-fusion.html"><link rel="prev" title="Tile Operations &amp; Hardware Mapping" href="tile-ops.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Training kernels and gradients" href="training.html"><link rel="prev" title="Thread Ownership and Software Staging" href="thread-layouts.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Autotuning - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -258,16 +281,20 @@
         <article role="main" id="furo-main-content">
           <section id="autotuning">
 <h1>Autotuning<a class="headerlink" href="#autotuning" title="Link to this heading">¶</a></h1>
-<p>Different problem sizes benefit from different tile configurations. meTile’s autotuner
-benchmarks each representation and caches the fastest one per problem shape. Winners
-persist across processes and are invalidated when the device, compiler toolchain, kernel
-source, or candidate family changes.
-The concrete launch grid is part of the cache identity, which prevents a configuration
-measured at one degree of program-level parallelism from leaking into another.</p>
+<p>Different problem sizes work best with different tile configurations.
+<code class="docutils literal notranslate"><span class="pre">metile.autotune</span></code> compiles and times a list of configurations, then caches the
+selected one. The cache includes the device, toolchain, kernel and compiler
+sources, candidate list, launch grid, operand type, dtype, shape, strides, and
+relevant compile-policy overrides. A match on the explicit tuning key alone is
+not enough to reuse a result.</p>
+<p>The general autotuner measures latency but does not compare outputs against a
+reference. Validate every configuration’s numerical behavior before tuning,
+especially when changing precision or reduction order. The optional MLX
+backends add their own numerical gates.</p>
 <section id="basic-usage">
 <h2>Basic Usage<a class="headerlink" href="#basic-usage" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">metile.kernels.gemm</span><span class="w"> </span><span class="kn">import</span> <span class="n">matmul</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile_kernels.gemm</span><span class="w"> </span><span class="kn">import</span> <span class="n">matmul</span>
 
 <span class="n">autotuned_matmul</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">autotune</span><span class="p">(</span>
     <span class="n">configs</span><span class="o">=</span><span class="p">[</span>
@@ -282,14 +309,16 @@ measured at one degree of program-level parallelism from leaking into another.</
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">configs</span></code></dt><dd><p>A list of <code class="docutils literal notranslate"><span class="pre">metile.Config</span></code> objects. Each config is a set of constexpr values to try.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">key</span></code></dt><dd><p>The argument names that determine when to re-tune. When any key value changes,
-the autotuner re-benchmarks all configs.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">key</span></code></dt><dd><p>Argument names that identify the workload. A new key value triggers tuning
+unless a matching cached selection exists.</p>
 </dd>
 </dl>
 </section>
 <section id="launching">
 <h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">¶</a></h2>
-<p>The grid must be a callable that computes the grid shape from the config:</p>
+<p>When tile sizes vary, use a callable to compute the grid from each configuration.
+Here <code class="docutils literal notranslate"><span class="pre">M</span></code>, <code class="docutils literal notranslate"><span class="pre">N</span></code>, and <code class="docutils literal notranslate"><span class="pre">K</span></code> are the matrix dimensions, and <code class="docutils literal notranslate"><span class="pre">A</span></code>, <code class="docutils literal notranslate"><span class="pre">B</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">C</span></code> are their input and output buffers:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">cfg</span><span class="p">,</span> <span class="n">M</span><span class="o">=</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="o">=</span><span class="n">N</span><span class="p">:</span> <span class="p">(</span>
     <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"BLOCK_M"</span><span class="p">]),</span>
     <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="s2">"BLOCK_N"</span><span class="p">]),</span>
@@ -300,16 +329,18 @@ the autotuner re-benchmarks all configs.</p>
 </div>
 <p>On the first call with new key values, the autotuner:</p>
 <ol class="arabic simple">
-<li><p>Compiles every valid config</p></li>
+<li><p>Attempts to compile every configuration, recording failures</p></li>
 <li><p>Benchmarks candidates in rotated, alternating round-robin order, recording both
 GPU timestamps and synchronized launch-to-completion latency</p></li>
 <li><p>Re-benchmarks up to eight candidates within 8% of the provisional winner in a
 30-round rotating finalist tournament</p></li>
-<li><p>Selects the fastest one, using generated-code size only for a sub-percent tie</p></li>
+<li><p>Selects the lowest measured latency, allowing compressed generated-code size
+to break a tie within 0.25%</p></li>
 <li><p>Caches the result and measured latency with the device and toolchain identity</p></li>
 <li><p>Dispatches with the winning config</p></li>
 </ol>
-<p>Subsequent calls with the same key values reuse the winner without re-tuning.</p>
+<p>Subsequent calls with the same key values and compilation contract reuse the
+winner without re-tuning.</p>
 <p>For kernels measured at one millisecond or less, selection uses synchronized end-to-end
 latency because command encoding and completion handling are material parts of the hot
 path. Longer throughput kernels use GPU timestamps so host scheduling noise does not
@@ -317,7 +348,8 @@ distort device execution. The raw GPU latency of the selected candidate is persi
 separately and drives the prepared dispatch completion policy.</p>
 <p>The cache defaults to <code class="docutils literal notranslate"><span class="pre">~/Library/Caches/metile</span></code> on macOS. Set
 <code class="docutils literal notranslate"><span class="pre">METILE_CACHE_DIR</span></code> to relocate it, or <code class="docutils literal notranslate"><span class="pre">METILE_DISABLE_DISK_CACHE=1</span></code> to disable
-persistent autotune choices while debugging.</p>
+persistent autotune choices while debugging. The following timings illustrate
+cache behavior; they are not benchmark results:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>First call (M=1024, N=1024, K=1024):
 +--------------------------------------------------+
 |  Config(BM=64,  BN=64,  BK=32):   1.26ms         |
@@ -348,6 +380,11 @@ Subsequent calls (same M, N, K):
 <p>Any keyword arguments become constexprs passed to the kernel. Parameters not in the
 kernel’s signature are stored in <code class="docutils literal notranslate"><span class="pre">func.constexprs</span></code> and available to the compiler
 (e.g., <code class="docutils literal notranslate"><span class="pre">WM</span></code>, <code class="docutils literal notranslate"><span class="pre">WN</span></code> control the tensor_ops simdgroup layout).
+The reserved <code class="docutils literal notranslate"><span class="pre">num_simdgroups</span></code> constructor argument defaults to <code class="docutils literal notranslate"><span class="pre">None</span></code>
+(automatic). When provided, it sets a checked <code class="docutils literal notranslate"><span class="pre">NUM_SG</span></code> requirement. Caller
+launch overrides take precedence over candidate values
+consistently for compilation and grid evaluation. <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code>
+may be included in configurations; see <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.
 Schedules can be searched alongside tile shapes with <code class="docutils literal notranslate"><span class="pre">SWIZZLE=&quot;linear&quot;</span></code>,
 <code class="docutils literal notranslate"><span class="pre">&quot;grouped2&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;grouped4&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;grouped8&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>,
 <code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hilbert&quot;</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>.
@@ -356,15 +393,14 @@ representations as ordinary autotune candidates; the default <code class="docuti
 compiler’s target-cost and MDL extractor.
 On the aligned M5 NAX path, <code class="docutils literal notranslate"><span class="pre">NAX_OUTER_K</span></code> controls the reduction epoch and
 <code class="docutils literal notranslate"><span class="pre">NAX_K_UNROLL=2</span></code> preloads two 16-wide K fragments before issuing their native MMAs.
-These are candidate parameters rather than global defaults because the winning register
-footprint and epoch width change with matrix shape.
+Tune these parameters for the target shape: increasing the amount of live data
+can outweigh the benefit of fewer loads or fences.
 <code class="docutils literal notranslate"><span class="pre">NAX_SKIP_FIRST_EPOCH_BARRIER</span></code> retains every inter-epoch scheduling fence but skips
 the redundant fence before the first epoch. It is searched as a separate representation
 because the uniform predicate helps medium reductions but the unconditional form can
 remain faster for long reductions.
 <code class="docutils literal notranslate"><span class="pre">NAX_TRAILING_EPOCH_BARRIER</span></code> moves the same inter-epoch fence to the end of each
-non-final epoch. This equivalent placement shortens live ranges on sustained reductions
-and is independently measured rather than selected by a fixed heuristic.
+non-final epoch. The tuner measures this placement as another candidate.
 The block-scaled runtime also measures a paired reduction representation that reuses
 one E8M0 scale load across the two 16-wide steps in each 32-value quantization group.
 It executes the decoded weight fragments sequentially to avoid the register-pressure
@@ -388,12 +424,10 @@ with shifts and masks. Extraction first minimizes a Metal operation-cost model a
 uses the DEFLATE-compressed canonical expression encoding as a deterministic
 minimum-description-length tie-break. Code generation consumes the selected expression
 tree directly, so adding a decoder representation does not add a whole-kernel template.</p>
-<p>This is a finite symmetry group and fundamental-domain construction, not a
-topological fundamental group. Likewise, exact Kolmogorov complexity is
-uncomputable. For cross-kernel autotuning, meTile uses DEFLATE-compressed generated MSL
-length as a reproducible minimum-description-length upper bound. Measured latency is
-always primary: MDL can only choose a smaller representation when it is within 0.25%
-of the fastest result.</p>
+<p>For cross-kernel autotuning, meTile uses DEFLATE-compressed generated MSL
+length as a reproducible description-length metric. It is an approximation,
+not an evaluation of Kolmogorov complexity. Measured latency is primary: MDL
+can only select a smaller representation within 0.25% of the fastest result.</p>
 <p>The same compositional policy applies beyond GEMM traversal. The FFT candidate family
 keeps one kernel expressed from ordinary eDSL operations while searching threadgroup
 width, the number of register-local radix-2 stages, bit-reversed gather versus shared
@@ -404,15 +438,15 @@ shapes search one online-softmax threadgroup per head. Long contexts additionall
 a multi-threadgroup partial pass followed by an online merge pass. Both kernels remain
 ordinary eDSL programs, and the persisted winner is keyed by head grid, context length,
 head dimension, device, toolchain, source, and candidate family.</p>
-<p>The optional MLX backend also includes native MLX itself as a candidate. Framework
-integration adds a 5% switch margin before selecting generated Metal, because an opaque
-custom primitive can change graph scheduling even when isolated timings are nearly tied.
-Attention and RMSNorm choices persist independently by MLX version, device, dtype, and
-shape bucket.</p>
+<p>The optional MLX backend also includes native MLX as a candidate. Attention and
+RMSNorm require 5% headroom before selecting generated Metal; other families
+have their own margins. A custom primitive can change graph scheduling even
+when isolated timings are close. See <a class="reference internal" href="mlx-backend.html"><span class="doc">MLX-LM Backend</span></a> for those policies.</p>
 </section>
 <section id="verbose-output">
 <h2>Verbose Output<a class="headerlink" href="#verbose-output" title="Link to this heading">¶</a></h2>
-<p>With <code class="docutils literal notranslate"><span class="pre">verbose=True</span></code> (the default), the autotuner prints results:</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">verbose=True</span></code> (the default), the autotuner prints results in this form.
+The values here are illustrative:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>autotune matmul [M=1024, N=1024, K=1024]: Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=64, ...)
   Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=32, ...): 1.26ms
   Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=64, ...): 0.62ms &lt;--
@@ -430,12 +464,14 @@ shape bucket.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">metile</span><span class="o">.</span><span class="n">autotune</span><span class="p">(</span>
     <span class="n">configs</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
     <span class="n">key</span><span class="o">=</span><span class="p">[</span><span class="s2">"M"</span><span class="p">,</span> <span class="s2">"N"</span><span class="p">,</span> <span class="s2">"K"</span><span class="p">],</span>
-    <span class="n">warmup</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>      <span class="c1"># warmup iterations per config (default: 5)</span>
-    <span class="n">rep</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>         <span class="c1"># timed iterations per config (default: 20)</span>
-    <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>   <span class="c1"># print results (default: True)</span>
+    <span class="n">warmup</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+    <span class="n">rep</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
+<p>These are the defaults: five warmup rounds and twenty timed rounds per
+configuration, followed by finalist remeasurement when needed.</p>
 </section>
 <section id="prepared-dispatch">
 <h2>Prepared Dispatch<a class="headerlink" href="#prepared-dispatch" title="Link to this heading">¶</a></h2>
@@ -446,13 +482,14 @@ overhead on subsequent calls:</p>
 
 <span class="n">dispatch</span> <span class="o">=</span> <span class="n">autotuned_matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">]</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">)</span>
 
-<span class="c1"># Encode repeated work under one runtime lock. Compatible calls batch until</span>
-<span class="c1"># sync(), numpy(), or an ordinary launch flushes them.</span>
 <span class="n">dispatch</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="mi">1000</span><span class="p">)</span>
 
 <span class="n">MetalDevice</span><span class="o">.</span><span class="n">get</span><span class="p">()</span><span class="o">.</span><span class="n">sync</span><span class="p">()</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">repeat</span></code> encodes repeated work under one runtime lock. Compatible calls batch
+until <code class="docutils literal notranslate"><span class="pre">sync()</span></code>, <code class="docutils literal notranslate"><span class="pre">numpy()</span></code>, or an ordinary launch flushes them. Each repetition
+uses the same bound buffers; account for any in-place updates in the kernel.</p>
 <p>Prepared GEMMs use an ordered encoder. Independent element-wise kernels can use a
 concurrent encoder; the runtime tracks input/output buffer hazards and inserts Metal
 buffer barriers between dependent dispatches. Multi-buffer kernels use one cached
@@ -481,23 +518,23 @@ latency/power tradeoffs; the default cap is 1500 microseconds.</p>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="graph-fusion.html">
+          <a class="next-page" href="training.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Compute-Graph Fusion</div>
+                <div class="title">Training kernels and gradients</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="tile-ops.html">
+          <a class="prev-page" href="thread-layouts.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Tile Operations &amp; Hardware Mapping</div>
+                <div class="title">Thread Ownership and Software Staging</div>
                 
               </div>
             </a>

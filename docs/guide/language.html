@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Memory Model" href="memory.html"><link rel="prev" title="Compiler Architecture" href="architecture.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Tensor and Memory Contracts" href="tensor-memory.html"><link rel="prev" title="Your First Kernel" href="../getting-started/first-kernel.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Language Reference - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -258,322 +281,351 @@
         <article role="main" id="furo-main-content">
           <section id="language-reference">
 <h1>Language Reference<a class="headerlink" href="#language-reference" title="Link to this heading">¶</a></h1>
-<p>meTile provides a Python eDSL (embedded domain-specific language) for writing GPU kernels. Functions
-decorated with <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> are traced and compiled to Metal shaders. They are not executed
-as regular Python.</p>
-<p>This page documents every construct available inside a <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> function.</p>
-<section id="kernel-definition">
-<h2>Kernel Definition<a class="headerlink" href="#kernel-definition" title="Link to this heading">¶</a></h2>
+<p>meTile’s kernel language is embedded in Python. A decorated function executes
+with symbolic arguments during tracing; its operations become a GPU program.
+Python still controls tracing, so a Python <code class="docutils literal notranslate"><span class="pre">if</span></code> or <code class="docutils literal notranslate"><span class="pre">range</span></code> must depend
+on values known at compile time. Use <code class="docutils literal notranslate"><span class="pre">where</span></code> for a per-element selection
+and <code class="docutils literal notranslate"><span class="pre">tile_range</span></code> for a traced loop.</p>
+<p>The snippets on this page illustrate individual operations inside a kernel.
+For complete programs with launch code and numerical checks, start with
+<a class="reference internal" href="../getting-started/first-kernel.html"><span class="doc">Your First Kernel</span></a> or <a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a>.</p>
+<section id="define-and-launch-a-kernel">
+<h2>Define and launch a kernel<a class="headerlink" href="#define-and-launch-a-kernel" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">my_kernel</span><span class="p">(</span><span class="n">ptr_a</span><span class="p">,</span> <span class="n">ptr_b</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">my_kernel</span><span class="p">(</span><span class="n">input_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
     <span class="o">...</span>
+
+<span class="n">my_kernel</span><span class="p">[(</span><span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="mi">256</span><span class="p">),)](</span>
+    <span class="n">input_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span>
+<span class="p">)</span>
 </pre></div>
 </div>
-<p>Parameters are either:</p>
-<ul class="simple">
-<li><p><strong>Pointers</strong>: numpy arrays or <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code> objects become <code class="docutils literal notranslate"><span class="pre">device</span> <span class="pre">float*</span></code> in Metal</p></li>
-<li><p><strong>Scalars</strong>: Python ints/floats become <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">int&amp;</span></code> or <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">float&amp;</span></code></p></li>
-<li><p><strong>Constexprs</strong>: annotated with <code class="docutils literal notranslate"><span class="pre">metile.constexpr</span></code>, baked into the shader at compile time</p></li>
-</ul>
-<p>Constexprs are passed as keyword arguments at launch:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">my_kernel</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
-</pre></div>
-</div>
+<p>Buffer arguments become device pointers with their storage dtype. For example,
+float32 buffers use <code class="docutils literal notranslate"><span class="pre">device</span> <span class="pre">float*</span></code> and float16 buffers use
+<code class="docutils literal notranslate"><span class="pre">device</span> <span class="pre">half*</span></code>. Python integers and floats become 32-bit integer and
+float scalar arguments. Pass runtime arguments in signature order and
+<code class="docutils literal notranslate"><span class="pre">constexpr</span></code> arguments by keyword, as shown above.</p>
+<p>The launcher recognizes the actual <code class="docutils literal notranslate"><span class="pre">metile.constexpr</span></code> annotation object.
+Avoid postponed/string annotations on kernel parameters: a file containing
+<code class="docutils literal notranslate"><span class="pre">from</span> <span class="pre">__future__</span> <span class="pre">import</span> <span class="pre">annotations</span></code> does not currently preserve this
+identity check.</p>
+<p>A launch grid is a tuple of program counts. Elementwise kernels support one,
+two, or three axes; the standard GEMM path uses a two-dimensional output grid.
+Each program is a Metal threadgroup. A grid is not the number of elements or
+the number of threads inside each group.</p>
+<p><code class="docutils literal notranslate"><span class="pre">kernel[grid].prepare(...)</span></code> performs a launch, synchronizes, and returns
+a dispatcher bound to those resources and scalar values. Preparation is not
+a compile-only operation. Prefer explicit <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> arguments when reusing
+a dispatcher; see <a class="reference internal" href="memory.html"><span class="doc">Memory Model</span></a>.</p>
 </section>
-<section id="launching-kernels">
-<h2>Launching Kernels<a class="headerlink" href="#launching-kernels" title="Link to this heading">¶</a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kernel</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">constexprs</span><span class="p">)</span>
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">grid</span></code> is a tuple of 1, 2, or 3 integers specifying the number of program instances
-(threadgroups) along each axis.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">kernel</span><span class="p">[(</span><span class="n">N</span><span class="p">,)](</span><span class="o">...</span><span class="p">)</span>           <span class="c1"># 1D grid</span>
-<span class="n">kernel</span><span class="p">[(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">)](</span><span class="o">...</span><span class="p">)</span>         <span class="c1"># 2D grid</span>
-<span class="n">kernel</span><span class="p">[(</span><span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">Z</span><span class="p">)](</span><span class="o">...</span><span class="p">)</span>     <span class="c1"># 3D grid</span>
-</pre></div>
-</div>
-</section>
-<section id="program-identity">
-<h2>Program Identity<a class="headerlink" href="#program-identity" title="Link to this heading">¶</a></h2>
+<section id="program-identity-and-indices">
+<h2>Program identity and indices<a class="headerlink" href="#program-identity-and-indices" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.program_id">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">program_id</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.program_id" title="Link to this definition">¶</a></dt>
-<dd><p>Returns the index of the current program instance along the given axis.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pid_x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># threadgroup X index</span>
-<span class="n">pid_y</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>   <span class="c1"># threadgroup Y index</span>
-</pre></div>
-</div>
+<dd><p>Return the program’s threadgroup coordinate along axis 0, 1, or 2.</p>
 </dd></dl>
 
-</section>
-<section id="index-generation">
-<h2>Index Generation<a class="headerlink" href="#index-generation" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.arange">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">arange</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">size</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.arange" title="Link to this definition">¶</a></dt>
-<dd><p>Creates a tile of <code class="docutils literal notranslate"><span class="pre">size</span></code> consecutive integers starting at <code class="docutils literal notranslate"><span class="pre">start</span></code>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">idx</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">256</span><span class="p">)</span>   <span class="c1"># [0, 1, 2, ..., 255]</span>
-</pre></div>
-</div>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">arange</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">layout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.arange" title="Link to this definition">¶</a></dt>
+<dd><p>For integer <code class="docutils literal notranslate"><span class="pre">start</span></code> and <code class="docutils literal notranslate"><span class="pre">end</span></code>, create the half-open sequence
+<code class="docutils literal notranslate"><span class="pre">[start,</span> <span class="pre">end)</span></code>. Its length is a compile-time tile size. For clarity,
+write <code class="docutils literal notranslate"><span class="pre">offset</span> <span class="pre">+</span> <span class="pre">metile.arange(0,</span> <span class="pre">BLOCK)</span></code> when the origin is dynamic.</p>
+<p>The current overload also accepts a traced scalar <code class="docutils literal notranslate"><span class="pre">start</span></code>; in that
+form, the second argument is the tile’s length, not an endpoint.</p>
+<p>An optional <code class="docutils literal notranslate"><span class="pre">ThreadLayout</span></code> assigns logical elements to physical
+threads and registers. See <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a> for supported geometry.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.cdiv">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">cdiv</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.cdiv" title="Link to this definition">¶</a></dt>
-<dd><p>Ceiling division. Useful for computing grid sizes.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">grid_size</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>   <span class="c1"># ceil(N / BLOCK)</span>
-</pre></div>
-</div>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">cdiv</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">numerator</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">denominator</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.cdiv" title="Link to this definition">¶</a></dt>
+<dd><p>Ceiling division, commonly used on the host to compute a launch grid.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="metile.next_power_of_2">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">next_power_of_2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.next_power_of_2" title="Link to this definition">¶</a></dt>
+<dd><p>Return the smallest power of two greater than or equal to the value.
+Use it on host integers when selecting a tile size.</p>
 </dd></dl>
 
 </section>
-<section id="element-wise-memory-access">
-<h2>Element-wise Memory Access<a class="headerlink" href="#element-wise-memory-access" title="Link to this heading">¶</a></h2>
-<p>For element-wise kernels (softmax, activations, reductions), use pointer arithmetic
-with <code class="docutils literal notranslate"><span class="pre">load</span></code> and <code class="docutils literal notranslate"><span class="pre">store</span></code>:</p>
+<section id="tensor-declarations">
+<h2>Tensor declarations<a class="headerlink" href="#tensor-declarations" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="metile.tensor">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tensor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pointer</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strides</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">access</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'readwrite'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_shape</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">address_space</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tensor" title="Link to this definition">¶</a></dt>
+<dd><p>Declare a logical view of existing storage. Shapes and strides are tuples;
+strides are measured in elements and default to contiguous row-major
+storage. Access is <code class="docutils literal notranslate"><span class="pre">&quot;read&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;write&quot;</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code>.
+An explicit address space must match the pointer’s allocation.</p>
+<p>Declare views near the start of the kernel, then use <code class="docutils literal notranslate"><span class="pre">view.load(indices,</span>
+<span class="pre">other=0)</span></code> and <code class="docutils literal notranslate"><span class="pre">view.store(indices,</span> <span class="pre">value)</span></code>. Loads and stores check
+logical coordinate bounds. The caller remains responsible for allocation
+capacity and signed 32-bit index/offset arithmetic.</p>
+<p><code class="docutils literal notranslate"><span class="pre">block_shape</span></code> selects supported two-dimensional matrix-tile access.
+It does not allocate memory or set thread/register ownership.
+See <a class="reference internal" href="tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for the full bounds, dtype, and layout contract.</p>
+</dd></dl>
+
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">inputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">input_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">output_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
+<span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+<span class="n">outputs</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">positions</span><span class="p">,),</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span> <span class="o">*</span> <span class="mf">2.0</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="raw-memory-operations">
+<h2>Raw memory operations<a class="headerlink" href="#raw-memory-operations" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.load">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">load</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ptr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.load" title="Link to this definition">¶</a></dt>
-<dd><p>Load elements from memory. Masked-off elements read zero.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-<span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>
-<span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-</pre></div>
-</div>
+<dd><p>Load elements from a pointer expression. Masked-off elements read zero.
+Without a mask, the caller must ensure every address is valid.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.store">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">store</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ptr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.store" title="Link to this definition">¶</a></dt>
-<dd><p>Store elements to memory. Masked-off elements are skipped.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-</pre></div>
-</div>
+<dd><p>Store through a pointer expression. Masked-off stores are skipped.</p>
 </dd></dl>
 
-</section>
-<section id="tile-memory-access">
-<h2>Tile Memory Access<a class="headerlink" href="#tile-memory-access" title="Link to this heading">¶</a></h2>
-<p>For matrix operations (GEMM), use tile-level loads and stores that map to simdgroup
-or tensor_ops hardware:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+<span class="n">valid</span> <span class="o">=</span> <span class="n">positions</span> <span class="o">&lt;</span> <span class="n">count</span>
+<span class="n">values</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">input_ptr</span> <span class="o">+</span> <span class="n">positions</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">valid</span><span class="p">)</span>
+<span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">output_ptr</span> <span class="o">+</span> <span class="n">positions</span><span class="p">,</span> <span class="n">values</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">valid</span><span class="p">)</span>
+</pre></div>
+</div>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.tile_load">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tile_load</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ptr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">row_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">col_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stride</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tile_load" title="Link to this definition">¶</a></dt>
-<dd><p>Load a 2D tile from row-major memory.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>ptr</strong> – base pointer to the matrix</p></li>
-<li><p><strong>row_offset</strong> – row index of tile’s top-left corner</p></li>
-<li><p><strong>col_offset</strong> – column index of tile’s top-left corner</p></li>
-<li><p><strong>stride</strong> – leading dimension (number of columns in the full matrix)</p></li>
-<li><p><strong>shape</strong> – <code class="docutils literal notranslate"><span class="pre">(rows,</span> <span class="pre">cols)</span></code> of the tile to load</p></li>
-</ul>
-</dd>
-</dl>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Load a 128x32 tile of A starting at (pid_m * 128, k)</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
-</pre></div>
-</div>
+<dd><p>Load a two-dimensional tile. <code class="docutils literal notranslate"><span class="pre">stride</span></code> is the row stride in elements;
+<code class="docutils literal notranslate"><span class="pre">shape</span></code> is the tile’s <code class="docutils literal notranslate"><span class="pre">(rows,</span> <span class="pre">columns)</span></code>. This legacy interface
+does not declare full tensor bounds. New matrix kernels should use
+<code class="docutils literal notranslate"><span class="pre">tensor(...,</span> <span class="pre">block_shape=...)</span></code> so lowering can validate dimensions
+and memory layout.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.tile_store">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tile_store</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ptr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">row_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">col_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stride</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tile_store" title="Link to this definition">¶</a></dt>
-<dd><p>Store a 2D tile to row-major memory.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-</pre></div>
-</div>
+<dd><p>Store a matrix tile using the same legacy layout convention.</p>
 </dd></dl>
 
+</section>
+<section id="accumulators-and-matrix-multiply">
+<h2>Accumulators and matrix multiply<a class="headerlink" href="#accumulators-and-matrix-multiply" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.zeros">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">zeros</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'f32'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.zeros" title="Link to this definition">¶</a></dt>
-<dd><p>Create a zero-initialized tile. Used to initialize accumulators.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
-</pre></div>
-</div>
+<dd><p>Create a zero-valued tile, commonly a float32 matrix accumulator.</p>
 </dd></dl>
 
-</section>
-<section id="matrix-multiply">
-<h2>Matrix Multiply<a class="headerlink" href="#matrix-multiply" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.dot">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">acc</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.dot" title="Link to this definition">¶</a></dt>
-<dd><p>Tile-level matrix multiply-accumulate: <code class="docutils literal notranslate"><span class="pre">acc</span> <span class="pre">+=</span> <span class="pre">a</span> <span class="pre">&#64;</span> <span class="pre">b</span></code>.</p>
-<p>The compiler maps this to <code class="docutils literal notranslate"><span class="pre">simdgroup_multiply_accumulate</span></code> (M1-M3) or
-<code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> tensor_ops (M4+) depending on hardware.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
-    <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="mi">128</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="mi">128</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
-    <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="mi">128</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="mi">128</span><span class="p">))</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-</pre></div>
-</div>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">left</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">right</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">accumulator</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.dot" title="Link to this definition">¶</a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">accumulator</span> <span class="pre">+</span> <span class="pre">left</span> <span class="pre">&#64;</span> <span class="pre">right</span></code>. The left and right tile shapes
+must have compatible reduction dimensions. Supported matrix kernels
+accumulate in float32.</p>
+<p>Lowering selects SIMDgroup matrix operations or Metal 4 tensor operations
+according to device/toolchain support and the execution schedule. The
+direct NAX path has additional restrictions. See <a class="reference internal" href="tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a> and
+<a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a>.</p>
 </dd></dl>
 
 </section>
-<section id="control-flow">
-<h2>Control Flow<a class="headerlink" href="#control-flow" title="Link to this heading">¶</a></h2>
+<section id="control-flow-and-scalar-state">
+<h2>Control flow and scalar state<a class="headerlink" href="#control-flow-and-scalar-state" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.tile_range">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tile_range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tile_range" title="Link to this definition">¶</a></dt>
-<dd><p>A tiling loop. Equivalent to <code class="docutils literal notranslate"><span class="pre">range(start,</span> <span class="pre">end,</span> <span class="pre">step)</span></code> but tells the compiler this
-is a tile-level iteration (e.g., the K-loop in GEMM).</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
-    <span class="o">...</span>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tile_range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_stages</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tile_range" title="Link to this definition">¶</a></dt>
+<dd><p>Record a GPU loop with an exclusive end. Its body runs once during tracing,
+producing the operations repeated at execution time. A positive
+compile-time integer step is the usual tiling pattern.</p>
+<p><code class="docutils literal notranslate"><span class="pre">num_stages</span></code> records a staging request; support depends on the chosen
+lowering path. It is not a guarantee of overlapped memory and compute.</p>
+</dd></dl>
+
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">partial_sum</span> <span class="o">=</span> <span class="mf">0.0</span>
+<span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+    <span class="n">positions</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+    <span class="n">partial_sum</span> <span class="o">=</span> <span class="n">partial_sum</span> <span class="o">+</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
+<span class="n">total</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">partial_sum</span><span class="p">)</span>
 </pre></div>
 </div>
+<dl class="py function">
+<dt class="sig sig-object py" id="metile.scalar">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">scalar</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.scalar" title="Link to this definition">¶</a></dt>
+<dd><p>Make explicit scalar SSA state for a loop-carried recurrence. This is
+useful when a state value is scalar per physical thread, as in
+<a class="reference internal" href="../examples/attention.html"><span class="doc">Decode Attention</span></a>.</p>
 </dd></dl>
 
 </section>
-<section id="math-operations">
-<h2>Math Operations<a class="headerlink" href="#math-operations" title="Link to this heading">¶</a></h2>
-<p>All math ops are element-wise and work on both scalars and tiles:</p>
+<section id="math-and-conversions">
+<h2>Math and conversions<a class="headerlink" href="#math-and-conversions" title="Link to this heading">¶</a></h2>
+<p>Arithmetic such as <code class="docutils literal notranslate"><span class="pre">+</span></code>, <code class="docutils literal notranslate"><span class="pre">-</span></code>, <code class="docutils literal notranslate"><span class="pre">*</span></code>, <code class="docutils literal notranslate"><span class="pre">/</span></code>, comparisons, and
+supported integer bit operations builds elementwise IR. Use <code class="docutils literal notranslate"><span class="pre">&amp;</span></code> and
+<code class="docutils literal notranslate"><span class="pre">|</span></code> to combine traced boolean masks; Python <code class="docutils literal notranslate"><span class="pre">and</span></code> and <code class="docutils literal notranslate"><span class="pre">or</span></code> do
+not describe elementwise operations.</p>
 <div class="table-wrapper colwidths-given docutils container">
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 30.0%" />
-<col style="width: 70.0%" />
+<col style="width: 35.0%" />
+<col style="width: 65.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Function</p></th>
-<th class="head"><p>Description</p></th>
+<th class="head"><p>Behavior</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.exp(x)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.exp(value)</span></code></p></td>
 <td><p>Exponential</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.log(x)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.fast_exp(value)</span></code></p></td>
+<td><p>Metal’s fast exponential; accuracy differs from the regular intrinsic</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.log(value)</span></code></p></td>
 <td><p>Natural logarithm</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.sqrt(x)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.sqrt(value)</span></code></p></td>
 <td><p>Square root</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.abs(x)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.abs(value)</span></code></p></td>
 <td><p>Absolute value</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tanh(x)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tanh(value)</span></code></p></td>
 <td><p>Hyperbolic tangent</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.where(cond,</span> <span class="pre">x,</span> <span class="pre">y)</span></code></p></td>
-<td><p>Select <code class="docutils literal notranslate"><span class="pre">x</span></code> where <code class="docutils literal notranslate"><span class="pre">cond</span></code> is true, else <code class="docutils literal notranslate"><span class="pre">y</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.where(condition,</span> <span class="pre">left,</span> <span class="pre">right)</span></code></p></td>
+<td><p>Select a value per element; it is not short-circuit control flow</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.maximum(a,</span> <span class="pre">b)</span></code></p></td>
-<td><p>Element-wise maximum</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.maximum(left,</span> <span class="pre">right)</span></code>, <code class="docutils literal notranslate"><span class="pre">metile.minimum(left,</span> <span class="pre">right)</span></code></p></td>
+<td><p>Elementwise maximum or minimum</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.minimum(a,</span> <span class="pre">b)</span></code></p></td>
-<td><p>Element-wise minimum</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.cast(value,</span> <span class="pre">dtype)</span></code></p></td>
+<td><p>Convert a scalar or tile, for example to <code class="docutils literal notranslate"><span class="pre">&quot;f32&quot;</span></code></p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>Standard Python arithmetic works inside kernels: <code class="docutils literal notranslate"><span class="pre">+</span></code>, <code class="docutils literal notranslate"><span class="pre">-</span></code>, <code class="docutils literal notranslate"><span class="pre">*</span></code>, <code class="docutils literal notranslate"><span class="pre">/</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;</span></code>, <code class="docutils literal notranslate"><span class="pre">&gt;</span></code>, etc.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">where</span></code> around an unmasked load does not make that load safe: its inputs
+are computed before selection. Put the bounds in the load’s mask or use a
+tensor view.</p>
 </section>
 <section id="reductions">
 <h2>Reductions<a class="headerlink" href="#reductions" title="Link to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.sum">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">sum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.sum" title="Link to this definition">¶</a></dt>
-<dd><p>Sum-reduce a tile to a scalar.</p>
-</dd></dl>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">sum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.sum" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.max">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">max</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.max" title="Link to this definition">¶</a></dt>
-<dd><p>Max-reduce a tile to a scalar.</p>
-</dd></dl>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">max</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.max" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.min">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">min</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.min" title="Link to this definition">¶</a></dt>
-<dd><p>Min-reduce a tile to a scalar.</p>
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">min</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.min" title="Link to this definition">¶</a></dt>
+<dd><p>Reduce a supported tile to a scalar sum, maximum, or minimum. Lowering may
+combine register-local work, SIMDgroup operations, and shared memory
+between SIMDgroups.</p>
 </dd></dl>
 
-<p>These compile to simdgroup shuffle reductions on the GPU.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Two-pass softmax: find max, then compute normalized exponentials</span>
-<span class="n">m</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1e38</span>
-<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
-    <span class="n">cols</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-    <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">cols</span> <span class="o">&lt;</span> <span class="n">N</span><span class="p">)</span>
-    <span class="n">m</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span>
-<span class="n">m</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>   <span class="c1"># reduce across the tile</span>
-</pre></div>
-</div>
+<p>Choose padding values appropriate to the reduction, and mask any transformed
+padding that must not contribute. See <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> for maximum
+and exponential-sum reductions over a partial tile. Floating-point reduction
+order may differ from a CPU reference.</p>
 </section>
-<section id="advanced-simdgroup-operations">
-<h2>Advanced: Simdgroup Operations<a class="headerlink" href="#advanced-simdgroup-operations" title="Link to this heading">¶</a></h2>
-<p>For low-level control over Apple GPU simdgroups:</p>
+<section id="thread-and-simdgroup-operations">
+<h2>Thread and SIMDgroup operations<a class="headerlink" href="#thread-and-simdgroup-operations" title="Link to this heading">¶</a></h2>
+<p>These operations expose physical execution details. A SIMDgroup has 32
+threads on the supported Apple GPU paths.</p>
 <dl class="py function">
-<dt class="sig sig-object py" id="metile.simdgroup_role">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simdgroup_role</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_roles</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">body</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_sgs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simdgroup_role" title="Link to this definition">¶</a></dt>
-<dd><p>Execute different code on different simdgroup subsets within a threadgroup.
-Enables producer/consumer patterns.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">metile</span><span class="o">.</span><span class="n">simdgroup_role</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">num_roles</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
-    <span class="c1"># Only the first half of simdgroups run this</span>
-    <span class="o">...</span>
-<span class="k">with</span> <span class="n">metile</span><span class="o">.</span><span class="n">simdgroup_role</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">num_roles</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
-    <span class="c1"># Only the second half run this</span>
-    <span class="o">...</span>
-</pre></div>
-</div>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="metile.simd_shuffle_xor">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simd_shuffle_xor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simd_shuffle_xor" title="Link to this definition">¶</a></dt>
-<dd><p>Exchange data between lanes within a simdgroup using XOR addressing.</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="metile.simd_broadcast">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simd_broadcast</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simd_broadcast" title="Link to this definition">¶</a></dt>
-<dd><p>Broadcast a value from one lane to all lanes in a simdgroup.</p>
+<dt class="sig sig-object py" id="metile.thread_id">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">thread_id</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#metile.thread_id" title="Link to this definition">¶</a></dt>
+<dd><p>Thread index inside the threadgroup.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.simd_lane_id">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simd_lane_id</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#metile.simd_lane_id" title="Link to this definition">¶</a></dt>
-<dd><p>Returns the current thread’s lane index within its simdgroup (0-31).</p>
+<dd><p>Lane index inside its SIMDgroup, from 0 through 31.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="metile.thread_id">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">thread_id</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#metile.thread_id" title="Link to this definition">¶</a></dt>
-<dd><p>Returns the thread’s position within the threadgroup.</p>
+<dt class="sig sig-object py" id="metile.simd_shuffle_xor">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simd_shuffle_xor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simd_shuffle_xor" title="Link to this definition">¶</a></dt>
+<dd><p>Exchange a value with the lane whose index is XORed with <code class="docutils literal notranslate"><span class="pre">mask</span></code>.</p>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="metile.barrier">
-<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">barrier</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#metile.barrier" title="Link to this definition">¶</a></dt>
-<dd><p>Threadgroup memory barrier. Forces all threads to reach this point before proceeding.</p>
+<dt class="sig sig-object py" id="metile.simd_broadcast">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simd_broadcast</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simd_broadcast" title="Link to this definition">¶</a></dt>
+<dd><p>Broadcast a value from one lane inside the SIMDgroup.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="metile.simd_sum">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simd_sum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simd_sum" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="metile.simd_max">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simd_max</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simd_max" title="Link to this definition">¶</a></dt>
+<dd><p>Native reduction across the current SIMDgroup, not the whole threadgroup.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="metile.simdgroup_role">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">simdgroup_role</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_roles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_sgs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.simdgroup_role" title="Link to this definition">¶</a></dt>
+<dd><p>Context manager recording work for a subset of SIMDgroups. <code class="docutils literal notranslate"><span class="pre">num_sgs=0</span></code>
+requests an even division among roles. A role region does not establish
+ordering or data dependencies with another role. See
+<a class="reference internal" href="../examples/fused-activations.html"><span class="doc">Fused Activations and SIMDgroup Roles</span></a>.</p>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.shared">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">shared</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'f32'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.shared" title="Link to this definition">¶</a></dt>
-<dd><p>Allocate threadgroup (shared) memory.</p>
+<dd><p>Allocate uninitialized threadgroup memory. The size and dtype are fixed
+for the specialization.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="metile.barrier">
+<span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">barrier</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#metile.barrier" title="Link to this definition">¶</a></dt>
+<dd><p>Synchronize the threadgroup and order threadgroup memory accesses. All
+participating threads must reach the barrier. It does not synchronize
+separate threadgroups or provide a device-memory producer/consumer protocol.</p>
 </dd></dl>
 
 </section>
-<section id="tile-scheduling">
-<h2>Tile Scheduling<a class="headerlink" href="#tile-scheduling" title="Link to this heading">¶</a></h2>
+<section id="ownership-and-schedules">
+<h2>Ownership and schedules<a class="headerlink" href="#ownership-and-schedules" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.ThreadLayout</span></code> describes physical ownership of tile elements.
+<code class="docutils literal notranslate"><span class="pre">metile.convert_layout(value,</span> <span class="pre">layout)</span></code> preserves logical values while the
+compiler inserts required redistribution. See <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a> for the
+supported operations and communication rules.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.tile_swizzle">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">tile_swizzle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pid_m</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pid_n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pattern</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#metile.tile_swizzle" title="Link to this definition">¶</a></dt>
-<dd><p>Apply a tile scheduling pattern for better cache locality in 2D grids.
-Supported patterns: <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hilbert&quot;</span></code> (4x4), <code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code> (2x2
-Z-order), <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>, and <code class="docutils literal notranslate"><span class="pre">&quot;linear&quot;</span></code>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pid_m</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_swizzle</span><span class="p">(</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
-    <span class="n">pattern</span><span class="o">=</span><span class="s2">"morton"</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-<span class="p">)</span>
-</pre></div>
-</div>
+<dd><p>Record a traversal for output tiles. Patterns include <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&quot;linear&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;diagonal&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;morton&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hilbert&quot;</span></code>, and
+grouped traversals. Unsupported panel geometries fall back to a valid
+traversal. See <a class="reference internal" href="tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a> for the panel-size constraints.</p>
 </dd></dl>
 
+<p>Pass <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> at launch to request a backend,
+SIMDgroup geometry, staging, or supported vector width. The compiler checks
+these requirements. A prepared dispatch’s <code class="docutils literal notranslate"><span class="pre">explain()</span></code> report records the
+selected schedule and materialized decisions; see <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
+<p>Host APIs and specialized integrations are listed in <a class="reference internal" href="../api/reference.html"><span class="doc">API Reference</span></a>.
+They are separate from the traced kernel operations described here.</p>
 </section>
 </section>
 
@@ -582,23 +634,23 @@ Z-order), <code class="docutils literal notranslate"><span class="pre">&quot;dia
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="memory.html">
+          <a class="next-page" href="tensor-memory.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Memory Model</div>
+                <div class="title">Tensor and Memory Contracts</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="architecture.html">
+          <a class="prev-page" href="../getting-started/first-kernel.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Compiler Architecture</div>
+                <div class="title">Your First Kernel</div>
                 
               </div>
             </a>
@@ -633,54 +685,55 @@ Z-order), <code class="docutils literal notranslate"><span class="pre">&quot;dia
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Language Reference</a><ul>
-<li><a class="reference internal" href="#kernel-definition">Kernel Definition</a></li>
-<li><a class="reference internal" href="#launching-kernels">Launching Kernels</a></li>
-<li><a class="reference internal" href="#program-identity">Program Identity</a><ul>
+<li><a class="reference internal" href="#define-and-launch-a-kernel">Define and launch a kernel</a></li>
+<li><a class="reference internal" href="#program-identity-and-indices">Program identity and indices</a><ul>
 <li><a class="reference internal" href="#metile.program_id"><code class="docutils literal notranslate"><span class="pre">metile.program_id()</span></code></a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#index-generation">Index Generation</a><ul>
 <li><a class="reference internal" href="#metile.arange"><code class="docutils literal notranslate"><span class="pre">metile.arange()</span></code></a></li>
 <li><a class="reference internal" href="#metile.cdiv"><code class="docutils literal notranslate"><span class="pre">metile.cdiv()</span></code></a></li>
+<li><a class="reference internal" href="#metile.next_power_of_2"><code class="docutils literal notranslate"><span class="pre">metile.next_power_of_2()</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#element-wise-memory-access">Element-wise Memory Access</a><ul>
+<li><a class="reference internal" href="#tensor-declarations">Tensor declarations</a><ul>
+<li><a class="reference internal" href="#metile.tensor"><code class="docutils literal notranslate"><span class="pre">metile.tensor()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#raw-memory-operations">Raw memory operations</a><ul>
 <li><a class="reference internal" href="#metile.load"><code class="docutils literal notranslate"><span class="pre">metile.load()</span></code></a></li>
 <li><a class="reference internal" href="#metile.store"><code class="docutils literal notranslate"><span class="pre">metile.store()</span></code></a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#tile-memory-access">Tile Memory Access</a><ul>
 <li><a class="reference internal" href="#metile.tile_load"><code class="docutils literal notranslate"><span class="pre">metile.tile_load()</span></code></a></li>
 <li><a class="reference internal" href="#metile.tile_store"><code class="docutils literal notranslate"><span class="pre">metile.tile_store()</span></code></a></li>
-<li><a class="reference internal" href="#metile.zeros"><code class="docutils literal notranslate"><span class="pre">metile.zeros()</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#matrix-multiply">Matrix Multiply</a><ul>
+<li><a class="reference internal" href="#accumulators-and-matrix-multiply">Accumulators and matrix multiply</a><ul>
+<li><a class="reference internal" href="#metile.zeros"><code class="docutils literal notranslate"><span class="pre">metile.zeros()</span></code></a></li>
 <li><a class="reference internal" href="#metile.dot"><code class="docutils literal notranslate"><span class="pre">metile.dot()</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#control-flow">Control Flow</a><ul>
+<li><a class="reference internal" href="#control-flow-and-scalar-state">Control flow and scalar state</a><ul>
 <li><a class="reference internal" href="#metile.tile_range"><code class="docutils literal notranslate"><span class="pre">metile.tile_range()</span></code></a></li>
+<li><a class="reference internal" href="#metile.scalar"><code class="docutils literal notranslate"><span class="pre">metile.scalar()</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#math-operations">Math Operations</a></li>
+<li><a class="reference internal" href="#math-and-conversions">Math and conversions</a></li>
 <li><a class="reference internal" href="#reductions">Reductions</a><ul>
 <li><a class="reference internal" href="#metile.sum"><code class="docutils literal notranslate"><span class="pre">metile.sum()</span></code></a></li>
 <li><a class="reference internal" href="#metile.max"><code class="docutils literal notranslate"><span class="pre">metile.max()</span></code></a></li>
 <li><a class="reference internal" href="#metile.min"><code class="docutils literal notranslate"><span class="pre">metile.min()</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#advanced-simdgroup-operations">Advanced: Simdgroup Operations</a><ul>
-<li><a class="reference internal" href="#metile.simdgroup_role"><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role()</span></code></a></li>
+<li><a class="reference internal" href="#thread-and-simdgroup-operations">Thread and SIMDgroup operations</a><ul>
+<li><a class="reference internal" href="#metile.thread_id"><code class="docutils literal notranslate"><span class="pre">metile.thread_id()</span></code></a></li>
+<li><a class="reference internal" href="#metile.simd_lane_id"><code class="docutils literal notranslate"><span class="pre">metile.simd_lane_id()</span></code></a></li>
 <li><a class="reference internal" href="#metile.simd_shuffle_xor"><code class="docutils literal notranslate"><span class="pre">metile.simd_shuffle_xor()</span></code></a></li>
 <li><a class="reference internal" href="#metile.simd_broadcast"><code class="docutils literal notranslate"><span class="pre">metile.simd_broadcast()</span></code></a></li>
-<li><a class="reference internal" href="#metile.simd_lane_id"><code class="docutils literal notranslate"><span class="pre">metile.simd_lane_id()</span></code></a></li>
-<li><a class="reference internal" href="#metile.thread_id"><code class="docutils literal notranslate"><span class="pre">metile.thread_id()</span></code></a></li>
-<li><a class="reference internal" href="#metile.barrier"><code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code></a></li>
+<li><a class="reference internal" href="#metile.simd_sum"><code class="docutils literal notranslate"><span class="pre">metile.simd_sum()</span></code></a></li>
+<li><a class="reference internal" href="#metile.simd_max"><code class="docutils literal notranslate"><span class="pre">metile.simd_max()</span></code></a></li>
+<li><a class="reference internal" href="#metile.simdgroup_role"><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role()</span></code></a></li>
 <li><a class="reference internal" href="#metile.shared"><code class="docutils literal notranslate"><span class="pre">metile.shared()</span></code></a></li>
+<li><a class="reference internal" href="#metile.barrier"><code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#tile-scheduling">Tile Scheduling</a><ul>
+<li><a class="reference internal" href="#ownership-and-schedules">Ownership and schedules</a><ul>
 <li><a class="reference internal" href="#metile.tile_swizzle"><code class="docutils literal notranslate"><span class="pre">metile.tile_swizzle()</span></code></a></li>
 </ul>
 </li>

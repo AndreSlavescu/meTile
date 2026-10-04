@@ -1,103 +1,116 @@
 Memory Model
 ============
 
-Apple Silicon has a **unified memory architecture** where the CPU and GPU share the same physical
-memory. meTile exposes this directly through ``metile.Buffer``.
+Apple Silicon lets the CPU and GPU access shared physical memory. In meTile,
+``Buffer`` owns a Metal allocation in shared storage. This removes the need
+for a separate GPU-to-CPU transfer when reading that allocation, but it does
+not mean every buffer conversion is zero-copy.
 
 .. image:: /_static/unified-memory.svg
-   :alt: Unified memory: CPU and GPU both access the same physical memory through metile.Buffer
+   :alt: CPU and GPU access a shared Metal buffer; constructing it from NumPy copies the input
    :width: 100%
 
-
-Buffers
--------
+Allocation and ownership
+------------------------
 
 .. code-block:: python
 
    import numpy as np
    import metile
 
-   # Create from numpy (zero-copy, the GPU reads the same memory)
-   x = metile.Buffer(data=np.random.randn(1024).astype(np.float32))
+   source = np.arange(1024, dtype=np.float32)
+   buffer = metile.Buffer(data=source)
+   output = metile.Buffer.zeros(source.shape, dtype=np.float32)
+   view = buffer.numpy()
+   view[0] = 42.0
+   assert source[0] == 0.0
 
-   # Allocate zeroed
-   out = metile.Buffer.zeros((1024,))
+``Buffer(data=source)`` and ``Buffer.from_numpy(source)`` copy the source
+into a new Metal allocation. Changing the original array afterward does not
+change an explicit buffer. ``Buffer.zeros`` initializes storage to zero;
+``Buffer.empty`` leaves its initial contents unspecified.
 
-   # Allocate from existing numpy array
-   arr = np.zeros(1024, dtype=np.float32)
-   buf = metile.Buffer.from_numpy(arr)
+``buffer.numpy()`` waits for pending GPU work and returns a writable NumPy
+view of the Metal allocation. It is not a copy. Keep the ``Buffer`` alive
+for as long as that view is in use, and synchronize before accessing a retained
+view after another dispatch. Calling ``numpy()`` again performs that wait;
+reading a view returned earlier does not.
 
-   # Read results back to numpy (also zero-copy)
-   result = out.numpy()
+All examples use an explicit storage dtype. NumPy commonly creates float64
+arrays by default, but the kernel launcher does not support arbitrary NumPy
+dtypes. Its current dtype mapping covers float32, float16, int32, uint32, and
+uint8; individual operations and backends support subsets of these. Convert
+inputs to a dtype supported by the chosen kernel.
 
-There is **no explicit host-to-device copy**. When you create a ``metile.Buffer``, the data lives
-in unified memory accessible to both CPU and GPU. After a kernel writes to a buffer, call
-``sync()`` to ensure the GPU has finished, then read the buffer directly:
+Passing NumPy arrays directly
+------------------------------
 
-.. code-block:: python
+A normal kernel launch can accept contiguous NumPy arrays. The launcher
+copies their current contents into cached Metal buffers, dispatches, waits,
+and copies the results back. That convenience includes transfer and
+synchronization costs on each launch.
 
-   from metile.runtime.metal_device import MetalDevice
+Use explicit buffers for repeated GPU work. In particular,
+``kernel[grid].prepare(...)`` binds resources and returns a dispatcher that
+reuses them; repeated calls do not rerun the NumPy conversion/copy-back path.
+Read results through an explicit output buffer's ``numpy()`` method.
 
-   kernel[grid](x, out, N, BLOCK=256)
-   MetalDevice.get().sync()   # wait for GPU to finish
-   print(out.numpy())         # read results
+Use contiguous arrays for implicit outputs. A noncontiguous array can be
+converted to a temporary contiguous array, and that temporary does not provide
+a reliable write-back path to the original view. To express strided access,
+allocate an explicit buffer and declare element strides inside the kernel.
 
-
-Inside Kernels
+Logical bounds
 --------------
 
-Inside ``@metile.kernel`` functions, buffer parameters become device pointers. You access memory
-through ``metile.load`` and ``metile.store``:
+Inside a kernel, ``metile.tensor`` describes a pointer's shape, strides,
+and access mode. For example, this fragment loads one tile and doubles it:
 
 .. code-block:: python
 
-   # Element-wise access with pointer arithmetic
-   offs = pid * BLOCK + metile.arange(0, BLOCK)
-   x = metile.load(X + offs, mask=offs < N)
-   metile.store(Out + offs, x * 2.0, mask=offs < N)
+   inputs = metile.tensor(input_ptr, shape=(count,), access="read")
+   outputs = metile.tensor(output_ptr, shape=(count,), access="write")
+   positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
+   outputs.store((positions,), inputs.load((positions,)) * 2.0)
 
-   # 2D tile access for matrix operations
-   a = metile.tile_load(A, row, col, stride, (ROWS, COLS))
-   metile.tile_store(C, row, col, stride, result, (ROWS, COLS))
+A tensor load checks each coordinate against its declared dimension. Invalid
+coordinates use the scalar ``other`` value, which defaults to zero; invalid
+stores are skipped. Bounds are logical contracts, not a check against the
+allocation size: the caller must provide enough storage for every valid
+shape/stride address. Index and offset arithmetic must fit signed 32-bit
+indexing. See :doc:`tensor-memory` for the complete contract.
 
-
-Masking
--------
-
-When the data size is not a multiple of the block size, use masks to prevent out-of-bounds
-memory access:
-
-.. code-block:: python
-
-   offs = pid * BLOCK + metile.arange(0, BLOCK)
-   mask = offs < N    # boolean mask: True for valid elements
-
-   x = metile.load(X + offs, mask=mask)       # masked-off lanes read 0
-   metile.store(Out + offs, x, mask=mask)      # masked-off lanes are skipped
-
-.. code-block:: text
-
-   N = 10, BLOCK = 4, pid = 2 (last instance)
-
-   offs = [8, 9, 10, 11]
-   mask = [T, T, F, F] # values 10 and 11 are out of bounds
-
-   load:  reads x[8], x[9], returns 0 for indices 10, 11
-   store: writes out[8], out[9], skips indices 10, 11
-
-Masking is essential for correctness. Without it, the last program instance would read/write
-past the end of the array.
-
-
-Shared (Threadgroup) Memory
----------------------------
-
-For kernels that need inter-thread communication within a threadgroup, use shared memory:
+The lower-level ``load`` and ``store`` operations take pointer expressions
+and optional masks. They do not know the allocation's bounds:
 
 .. code-block:: python
 
-   buf = metile.shared(size=256, dtype="f32")
-   metile.barrier()   # synchronize all threads in the threadgroup
+   positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
+   valid = positions < count
+   values = metile.load(input_ptr + positions, mask=valid)
+   metile.store(output_ptr + positions, values, mask=valid)
 
-Shared memory is threadgroup-local and not visible to other threadgroups. Use
-``metile.barrier()`` to synchronize access within a threadgroup.
+For ``count=10``, ``BLOCK=4``, and program 2, the positions are
+``[8, 9, 10, 11]`` and the mask is ``[True, True, False, False]``.
+The last two loads produce zero and their stores are skipped. A computation
+that can produce negative positions also needs a lower-bound check.
+
+A masked load's fill value must suit the reduction that follows. Zero works
+for sums, negative infinity for maxima, and positive infinity for minima.
+After operations such as subtraction or exponentiation, padding may need
+another mask. The :doc:`/examples/softmax` and :doc:`/examples/layernorm`
+examples show why.
+
+Threadgroup memory
+------------------
+
+``metile.shared(size, dtype="f32")`` allocates threadgroup-local scratch
+storage. It is uninitialized and visible only to threads in the same
+threadgroup. Initialize every element that will be read.
+
+Use ``metile.barrier()`` between a cooperative write and dependent reads
+by other threads. It synchronizes the threadgroup and orders threadgroup
+memory accesses. Every participating thread must reach the barrier; do not
+hide one inside a region executed by only some SIMDgroups. A threadgroup
+barrier does not synchronize separate threadgroups. For a global dependency,
+use separate ordered kernel dispatches.

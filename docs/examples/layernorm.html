@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Fused Activations &amp; Simdgroup Roles" href="fused-activations.html"><link rel="prev" title="Matrix Multiply (GEMM)" href="matmul.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Fused Activations and SIMDgroup Roles" href="fused-activations.html"><link rel="prev" title="Matrix Multiply (GEMM)" href="matmul.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Layer Normalization - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -173,7 +181,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
         <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
       </label>
     </div>
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -251,78 +274,87 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
             <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
           </label>
         </div>
         <article role="main" id="furo-main-content">
           <section id="layer-normalization">
 <h1>Layer Normalization<a class="headerlink" href="#layer-normalization" title="Link to this heading">¶</a></h1>
-<p>Row-wise layer normalization: <code class="docutils literal notranslate"><span class="pre">Out</span> <span class="pre">=</span> <span class="pre">((X</span> <span class="pre">-</span> <span class="pre">mean)</span> <span class="pre">/</span> <span class="pre">sqrt(var</span> <span class="pre">+</span> <span class="pre">eps))</span> <span class="pre">*</span> <span class="pre">W</span> <span class="pre">+</span> <span class="pre">B</span></code>.</p>
-<section id="kernel">
-<h2>Kernel<a class="headerlink" href="#kernel" title="Link to this heading">¶</a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
+<p>Layer normalization computes a mean and variance for each row, then applies
+per-column scale and bias:
+<code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">=</span> <span class="pre">(input</span> <span class="pre">-</span> <span class="pre">mean)</span> <span class="pre">/</span> <span class="pre">sqrt(variance</span> <span class="pre">+</span> <span class="pre">epsilon)</span> <span class="pre">*</span> <span class="pre">weight</span> <span class="pre">+</span> <span class="pre">bias</span></code>.
+The variance divides by the row width, as in <code class="docutils literal notranslate"><span class="pre">numpy.var</span></code> with its default
+<code class="docutils literal notranslate"><span class="pre">ddof=0</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">layernorm</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">layernorm</span><span class="p">(</span>
+    <span class="n">input_ptr</span><span class="p">,</span> <span class="n">weight_ptr</span><span class="p">,</span> <span class="n">bias_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span>
+    <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="n">inputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">input_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">weights</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">weight_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">columns</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">biases</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">bias_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">columns</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">outputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">output_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
     <span class="n">row</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
 
-    <span class="c1"># Pass 1: compute mean</span>
-    <span class="n">_sum</span> <span class="o">=</span> <span class="mf">0.0</span>
-    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
-        <span class="n">cols</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-        <span class="n">mask</span> <span class="o">=</span> <span class="n">cols</span> <span class="o">&lt;</span> <span class="n">N</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">_sum</span> <span class="o">=</span> <span class="n">_sum</span> <span class="o">+</span> <span class="n">x</span>
-    <span class="n">mean</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">_sum</span><span class="p">)</span> <span class="o">/</span> <span class="n">N</span>
+    <span class="n">local_sum</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+        <span class="n">local_sum</span> <span class="o">=</span> <span class="n">local_sum</span> <span class="o">+</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">))</span>
+    <span class="n">mean</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">local_sum</span><span class="p">)</span> <span class="o">/</span> <span class="n">columns</span>
 
-    <span class="c1"># Pass 2: compute variance</span>
-    <span class="n">_var</span> <span class="o">=</span> <span class="mf">0.0</span>
-    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
-        <span class="n">cols</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-        <span class="n">mask</span> <span class="o">=</span> <span class="n">cols</span> <span class="o">&lt;</span> <span class="n">N</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">diff</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">mean</span>
-        <span class="n">_var</span> <span class="o">=</span> <span class="n">_var</span> <span class="o">+</span> <span class="n">diff</span> <span class="o">*</span> <span class="n">diff</span>
-    <span class="n">var</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">_var</span><span class="p">)</span> <span class="o">/</span> <span class="n">N</span>
+    <span class="n">local_variance</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">))</span>
+        <span class="n">difference</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">positions</span> <span class="o">&lt;</span> <span class="n">columns</span><span class="p">,</span> <span class="n">values</span> <span class="o">-</span> <span class="n">mean</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+        <span class="n">local_variance</span> <span class="o">=</span> <span class="n">local_variance</span> <span class="o">+</span> <span class="n">difference</span> <span class="o">*</span> <span class="n">difference</span>
+    <span class="n">variance</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">local_variance</span><span class="p">)</span> <span class="o">/</span> <span class="n">columns</span>
+    <span class="n">inverse_std</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">metile</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">variance</span> <span class="o">+</span> <span class="n">epsilon</span><span class="p">)</span>
 
-    <span class="c1"># Pass 3: normalize, scale, shift</span>
-    <span class="n">inv_std</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">metile</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">var</span> <span class="o">+</span> <span class="mf">1e-5</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
-        <span class="n">cols</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-        <span class="n">mask</span> <span class="o">=</span> <span class="n">cols</span> <span class="o">&lt;</span> <span class="n">N</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">w</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">W</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">B</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">out</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">mean</span><span class="p">)</span> <span class="o">*</span> <span class="n">inv_std</span> <span class="o">*</span> <span class="n">w</span> <span class="o">+</span> <span class="n">b</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">row</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">cols</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">))</span>
+        <span class="n">normalized</span> <span class="o">=</span> <span class="p">(</span><span class="n">values</span> <span class="o">-</span> <span class="n">mean</span><span class="p">)</span> <span class="o">*</span> <span class="n">inverse_std</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">normalized</span> <span class="o">*</span> <span class="n">weights</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span> <span class="o">+</span> <span class="n">biases</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
+        <span class="n">outputs</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">positions</span><span class="p">),</span> <span class="n">result</span><span class="p">)</span>
+
+<span class="n">rows</span><span class="p">,</span> <span class="n">columns</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">300</span>
+<span class="n">epsilon</span> <span class="o">=</span> <span class="mf">1e-5</span>
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">((</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="o">+</span> <span class="mf">3.0</span>
+<span class="n">weight_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">columns</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">bias_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">columns</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">input_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">data</span><span class="p">)</span>
+<span class="n">weight_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">weight_data</span><span class="p">)</span>
+<span class="n">bias_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">bias_data</span><span class="p">)</span>
+<span class="n">output_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+<span class="n">layernorm</span><span class="p">[(</span><span class="n">rows</span><span class="p">,)](</span>
+    <span class="n">input_buffer</span><span class="p">,</span> <span class="n">weight_buffer</span><span class="p">,</span> <span class="n">bias_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span>
+    <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">mean</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">variance</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">var</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">reference</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span> <span class="o">-</span> <span class="n">mean</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">variance</span> <span class="o">+</span> <span class="n">epsilon</span><span class="p">)</span> <span class="o">*</span> <span class="n">weight_data</span> <span class="o">+</span> <span class="n">bias_data</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
 </pre></div>
 </div>
-</section>
-<section id="launching">
-<h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">¶</a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-
-<span class="n">rows</span><span class="p">,</span> <span class="n">hidden</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">512</span>
-<span class="n">X</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">hidden</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">W</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">hidden</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">B</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">hidden</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">Out</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">rows</span> <span class="o">*</span> <span class="n">hidden</span><span class="p">,))</span>
-
-<span class="n">layernorm</span><span class="p">[(</span><span class="n">rows</span><span class="p">,)](</span><span class="n">X</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">hidden</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="concepts-introduced">
-<h2>Concepts Introduced<a class="headerlink" href="#concepts-introduced" title="Link to this heading">¶</a></h2>
-<ul class="simple">
-<li><p>Three-pass algorithm (mean, variance, normalize)</p></li>
-<li><p>Scalar accumulators across tiled loops</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.sum</span></code> reduction</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.sqrt</span></code>: element-wise square root</p></li>
-<li><p>Loading separate weight/bias arrays (shared across all rows)</p></li>
-</ul>
-</section>
+<p>Each program handles one row. The three passes keep intermediate statistics
+inside the kernel, although they reread the input from device memory. Computing
+variance from centered values avoids subtracting two large, nearly equal
+quantities as <code class="docutils literal notranslate"><span class="pre">mean(x</span> <span class="pre">*</span> <span class="pre">x)</span> <span class="pre">-</span> <span class="pre">mean(x)</span> <span class="pre">**</span> <span class="pre">2</span></code> would.</p>
+<p>The explicit mask in the variance pass matters. A padded load returns zero;
+subtracting the mean would turn that padding into a nonzero squared difference.
+<code class="docutils literal notranslate"><span class="pre">where</span></code> removes it before the reduction. The 300-column example checks this
+partial-tile case with a nonzero input mean.</p>
+<p>Use contiguous float32 inputs, positive dimensions, and a positive epsilon.
+Weights and biases each contain <code class="docutils literal notranslate"><span class="pre">columns</span></code> elements and are shared by all
+rows. Floating-point reductions may differ slightly from NumPy because their
+addition order differs.</p>
 </section>
 
         </article>
@@ -335,7 +367,7 @@
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Fused Activations &amp; Simdgroup Roles</div>
+                <div class="title">Fused Activations and SIMDgroup Roles</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -368,29 +400,8 @@
         
       </footer>
     </div>
-    <aside class="toc-drawer">
+    <aside class="toc-drawer no-toc">
       
-      
-      <div class="toc-sticky toc-scroll">
-        <div class="toc-title-container">
-          <span class="toc-title">
-            On this page
-          </span>
-        </div>
-        <div class="toc-tree-container">
-          <div class="toc-tree">
-            <ul>
-<li><a class="reference internal" href="#">Layer Normalization</a><ul>
-<li><a class="reference internal" href="#kernel">Kernel</a></li>
-<li><a class="reference internal" href="#launching">Launching</a></li>
-<li><a class="reference internal" href="#concepts-introduced">Concepts Introduced</a></li>
-</ul>
-</li>
-</ul>
-
-          </div>
-        </div>
-      </div>
       
       
     </aside>

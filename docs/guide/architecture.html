@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Language Reference" href="language.html"><link rel="prev" title="Your First Kernel" href="../getting-started/first-kernel.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Compute-Graph Fusion" href="graph-fusion.html"><link rel="prev" title="MLX-LM Backend" href="mlx-backend.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Compiler Architecture - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -195,14 +206,16 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/install.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
-<ul class="current">
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Compiler Architecture</a></li>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -258,15 +281,16 @@
         <article role="main" id="furo-main-content">
           <section id="compiler-architecture">
 <h1>Compiler Architecture<a class="headerlink" href="#compiler-architecture" title="Link to this heading">¶</a></h1>
-<p>meTile separates algorithm choice, kernel-local transformation, target lowering,
-and runtime dispatch. A high-level graph may discover a different algorithm or
-kernel boundary, while the Python eDSL remains the composable source of generated
-GPU work. Native framework operations stay available as measured runtime candidates.</p>
+<p>meTile compiles Python kernels to Metal. Its graph frontend can also find
+supported algorithm rewrites and combine operations before choosing kernel
+boundaries. Both paths use Tile IR and Metal IR to describe the generated work.
+The optional MLX backend compares generated kernels with native operations
+before deciding which to run.</p>
 <a class="reference internal image-reference" href="../_images/compilation-pipeline.svg"><img alt="Full meTile compilation flow from graph and eDSL inputs through proof-carrying discovery, fusion, IR lowering, Metal code generation, and guarded runtime dispatch" src="../_images/compilation-pipeline.svg" style="width: 100%;" />
 </a>
 <section id="frontends-and-graph-planning">
 <h2>Frontends and Graph Planning<a class="headerlink" href="#frontends-and-graph-planning" title="Link to this heading">¶</a></h2>
-<p>There are two compiler entry paths:</p>
+<p>There are two ways to enter the compiler:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> traces ordinary Python eDSL operations into kernel-local
 Tile IR.</p></li>
@@ -274,28 +298,27 @@ Tile IR.</p></li>
 been selected. The graph can come from an MLX integration or from an explicit
 compiler client.</p></li>
 </ul>
-<p>The graph path first runs semantic discovery. It recognizes exact private
-subgraphs such as query/key matmul, scale or causal mask, softmax, and value
-matmul. A rewrite must carry a verified reduction certificate. Legal fusion
-neighborhoods use exact max-flow/min-cut models that account for launches,
-materialized intermediates, and target resources. The compiler also solves every
-bipartite region-conflict component globally through a weighted min-cut; arbitrary
-non-bipartite set-packing components retain a deterministic legal fallback. Each
-selected region eventually lowers through the same composable kernel machinery as
-a directly written eDSL kernel.</p>
+<p>The graph path looks for supported subgraphs, including a query/key matmul,
+scale or causal mask, softmax, and value matmul whose intermediate results have
+no other users. A reduction certificate checks the algebra needed to replace
+that chain with online attention. Fusion planning then estimates launch,
+intermediate-storage, and target-resource costs. It uses min-cut for legal
+neighborhoods and for bipartite components of the region-conflict graph;
+non-bipartite components use a deterministic greedy selection. See
+<a class="reference internal" href="graph-fusion.html"><span class="doc">Compute-Graph Fusion</span></a> for the scope of that optimization.</p>
 </section>
 <section id="proof-carrying-discovery">
 <h2>Proof-Carrying Discovery<a class="headerlink" href="#proof-carrying-discovery" title="Link to this heading">¶</a></h2>
-<p>Algorithm discovery is built around reusable reduction laws rather than an
-attention-specific source template.</p>
+<p>Algorithm discovery defines reductions using reusable laws.</p>
 <a class="reference internal image-reference" href="../_images/algorithm-discovery.svg"><img alt="Proof-carrying algorithm discovery from graph pattern and reduction law through algebraic obligations to a certified rewrite or exact fallback" src="../_images/algorithm-discovery.svg" style="width: 100%;" />
 </a>
 <p><code class="docutils literal notranslate"><span class="pre">ReductionLaw</span></code> defines an identity, a binary merge, a singleton lift, and a
 finalization expression. The restricted equational checker verifies left and
-right identity, generated associativity cases, and pair/list homomorphism. The
+right identity, generated associativity cases, and pair homomorphism. The
 weighted-softmax law summarizes a stream with <code class="docutils literal notranslate"><span class="pre">(maximum,</span> <span class="pre">normalizer,</span>
 <span class="pre">numerator)</span></code>; only a verified law may replace the materialized attention chain
-with <code class="docutils literal notranslate"><span class="pre">flash_attention</span></code>. Escaping intermediates, incompatible shapes, an
+with <code class="docutils literal notranslate"><span class="pre">flash_attention</span></code>. These symbolic real-arithmetic checks do not establish
+bitwise equivalence under floating-point reassociation. Escaping intermediates, incompatible shapes, an
 unsupported reduction axis, or a failed obligation preserve the original graph.</p>
 </section>
 <section id="kernel-compilation">
@@ -306,12 +329,30 @@ lowering. Static schedules are canonicalized under the finite symmetry group tha
 is legal for the concrete kernel shape; equivalent orbit members are not searched
 twice. Candidate scalar schedule programs are extracted by a target operation-cost
 model with a compressed-description-length tie break.</p>
+<p>An immutable schedule plan precedes lowering. It resolves backend, SIMD-group
+geometry and supported staging constraints without rewriting the traced Tile IR.
+Materialization and optimization passes enforce expert requirements; the final
+execution report records actual buffering, vectorization and allocations.
+Descriptor GEMM pointwise epilogues lower from a typed scalar dependency DAG,
+including shared branches and runtime coefficients, rather than activation-name
+templates. See <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for the supported contracts and limits.</p>
+<p>Checked per-value thread ownership lowers into identity forwarding, SIMD
+shuffles or verified threadgroup exchanges. Canonical two-stage matrix pipelines
+carry typed buffer slots and publication/recycle phases through IR, rather than
+relying on an emitter flag. See <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a> for the deliberately bounded
+layout subset. Explicit layouts support 1, 2, 4, 8, 16, or 32 scalar values per
+thread; multi-register programs also support FP32 sums. The compiler keeps those
+values live across the reduction and removes proven redundant conversions
+before introducing communication.</p>
 <p>Lowering produces explicit Metal IR primitives: scalar and SIMD operations,
 threadgroup storage, simdgroup matrix fragments, Metal 4 <code class="docutils literal notranslate"><span class="pre">tensor_ops</span></code>, block
 scales, barriers, and multi-output stores. Decomposition and optimization passes
 remain ordinary IR-to-IR transformations. The uniform emitter walks Metal IR to
 produce MSL, then the runtime uses the offline Metal toolchain when available and
 falls back to supported JIT compilation paths.</p>
+<p>Experimental AIR emission and native AGX instruction rewriting are described in
+<a class="reference internal" href="compiler-bypasses.html"><span class="doc">Compiler Bypasses and Native Code</span></a>. These research paths are separate from normal kernel
+compilation and require device-specific correctness and performance checks.</p>
 </section>
 <section id="guarded-runtime">
 <h2>Guarded Runtime<a class="headerlink" href="#guarded-runtime" title="Link to this heading">¶</a></h2>
@@ -320,17 +361,19 @@ the framework for every device and shape.</p>
 <a class="reference internal image-reference" href="../_images/runtime-dispatch.svg"><img alt="Guarded meTile runtime selection across native MLX and generated kernels with validation, finalist tuning, persistent caching, fallback, and zero-copy dispatch" src="../_images/runtime-dispatch.svg" style="width: 100%;" />
 </a>
 <p>Native MLX and generated kernels enter the same selector. Generated results must
-first pass a numerical compatibility gate. Order-interleaved provisional and
-finalist rounds measure the surviving candidates, and framework switches require
-explicit headroom: 5 percent for isolated primitives and 10 percent for graph or
-quantized-MLP boundaries. Decisions persist by device, toolchain or framework
+first pass a numerical compatibility gate. Provisional and finalist rounds
+alternate candidate order. Switching margins depend on the operation family:
+attention and RMSNorm require 5 percent, while graph fusion and block-scaled
+matmul require 10 percent. Other projection families have their own margins;
+see <a class="reference internal" href="mlx-backend.html"><span class="doc">MLX-LM Backend</span></a>. Decisions persist by device, toolchain or framework
 version, source, dtype, shape, launch grid, and candidate family. A cached native
 decision deoptimizes directly to the original operation; a generated decision
 uses zero-copy MLX custom kernels or prepared Metal dispatch with resource-safe
 batching.</p>
-<p>This boundary is deliberately conservative. Correctness rejection, unsupported
-features, compilation failure, or an inconclusive tournament all retain the
-native path instead of attributing a fallback to meTile.</p>
+<p>Unsupported calls, numerical failures, compilation failures, and inconclusive
+timings retain native MLX. Reports identify that selection so a native fallback
+is not counted as a generated-kernel win. The general <code class="docutils literal notranslate"><span class="pre">metile.autotune</span></code> API
+only times configurations; its caller is responsible for numerical validation.</p>
 </section>
 </section>
 
@@ -339,23 +382,23 @@ native path instead of attributing a fallback to meTile.</p>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="language.html">
+          <a class="next-page" href="graph-fusion.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Language Reference</div>
+                <div class="title">Compute-Graph Fusion</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="../getting-started/first-kernel.html">
+          <a class="prev-page" href="mlx-backend.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Your First Kernel</div>
+                <div class="title">MLX-LM Backend</div>
                 
               </div>
             </a>

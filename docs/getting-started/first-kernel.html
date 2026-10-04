@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Compiler Architecture" href="../guide/architecture.html"><link rel="prev" title="Installation" href="install.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Language Reference" href="../guide/language.html"><link rel="prev" title="Installation" href="install.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Your First Kernel - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -258,106 +281,89 @@
         <article role="main" id="furo-main-content">
           <section id="your-first-kernel">
 <h1>Your First Kernel<a class="headerlink" href="#your-first-kernel" title="Link to this heading">¶</a></h1>
-<p>This tutorial walks through writing, launching, and understanding a simple GPU kernel with meTile.</p>
-<section id="the-kernel">
-<h2>The Kernel<a class="headerlink" href="#the-kernel" title="Link to this heading">¶</a></h2>
+<p>This example adds two float32 arrays on the GPU and checks the result with
+NumPy. Save both Python blocks in one file and run it after following
+<a class="reference internal" href="install.html"><span class="doc">Installation</span></a>.</p>
+<section id="write-the-kernel">
+<h2>Write the kernel<a class="headerlink" href="#write-the-kernel" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-    <span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>
-    <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-    <span class="n">y</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">Y</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">left_ptr</span><span class="p">,</span> <span class="n">right_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+    <span class="n">left</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">left_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">right</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">right_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">output_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
+    <span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+    <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">positions</span><span class="p">,),</span> <span class="n">left</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span> <span class="o">+</span> <span class="n">right</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,)))</span>
 </pre></div>
 </div>
-<p>Let’s break this down line by line.</p>
-<dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code></dt><dd><p>Marks this function for GPU compilation. When you call it, meTile traces the Python
-code, compiles it to a Metal shader, and dispatches it on the GPU.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">X,</span> <span class="pre">Y,</span> <span class="pre">Out</span></code></dt><dd><p>Device pointers to GPU memory. These map to <code class="docutils literal notranslate"><span class="pre">device</span> <span class="pre">float*</span></code> in Metal.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">N</span></code></dt><dd><p>A runtime scalar, passed as a <code class="docutils literal notranslate"><span class="pre">constant</span> <span class="pre">int&amp;</span></code> to the shader.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">BLOCK:</span> <span class="pre">metile.constexpr</span></code></dt><dd><p>A <strong>compile-time constant</strong>. The value is baked directly into the shader. Changing it
-triggers recompilation.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">metile.program_id(0)</span></code></dt><dd><p>Returns the index of this program instance along axis 0. If you launch 4 instances,
-they get <code class="docutils literal notranslate"><span class="pre">pid</span> <span class="pre">=</span> <span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">3</span></code>. This is analogous to <code class="docutils literal notranslate"><span class="pre">blockIdx.x</span></code> in CUDA or
-<code class="docutils literal notranslate"><span class="pre">get_program_id(0)</span></code> in Triton.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">metile.arange(0,</span> <span class="pre">BLOCK)</span></code></dt><dd><p>Creates a tile (vector) of consecutive indices <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">...,</span> <span class="pre">BLOCK-1]</span></code>.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">offs</span> <span class="pre">=</span> <span class="pre">pid</span> <span class="pre">*</span> <span class="pre">BLOCK</span> <span class="pre">+</span> <span class="pre">metile.arange(0,</span> <span class="pre">BLOCK)</span></code></dt><dd><p>Each program instance handles a contiguous chunk of <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> elements.
-Instance 0 handles <code class="docutils literal notranslate"><span class="pre">[0..BLOCK-1]</span></code>, instance 1 handles <code class="docutils literal notranslate"><span class="pre">[BLOCK..2*BLOCK-1]</span></code>, etc.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">mask</span> <span class="pre">=</span> <span class="pre">offs</span> <span class="pre">&lt;</span> <span class="pre">N</span></code></dt><dd><p>A boolean mask that prevents out-of-bounds accesses when <code class="docutils literal notranslate"><span class="pre">N</span></code> is not a multiple of <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code>.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">metile.load(X</span> <span class="pre">+</span> <span class="pre">offs,</span> <span class="pre">mask=mask)</span></code></dt><dd><p>Loads <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> elements from memory. Masked-off lanes read zero.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">metile.store(Out</span> <span class="pre">+</span> <span class="pre">offs,</span> <span class="pre">x</span> <span class="pre">+</span> <span class="pre">y,</span> <span class="pre">mask=mask)</span></code></dt><dd><p>Stores results. Masked-off lanes are skipped.</p>
-</dd>
-</dl>
+<p><code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> traces the function with symbolic values when a new
+specialization is needed. The compiler turns that trace into a Metal shader.
+The function body describes GPU work; it does not run on the input arrays as
+ordinary Python.</p>
+<p>The three <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> declarations describe existing buffers. Their
+shapes are logical bounds, and their access modes tell the compiler which
+loads and stores are allowed. They do not allocate memory.</p>
+<p>Each program instance is a threadgroup. <code class="docutils literal notranslate"><span class="pre">program_id(0)</span></code> identifies its
+position in the launch grid, while <code class="docutils literal notranslate"><span class="pre">arange(0,</span> <span class="pre">BLOCK)</span></code> creates the indices
+inside its tile. With <code class="docutils literal notranslate"><span class="pre">BLOCK=256</span></code>, the first program handles elements 0–255,
+the next handles 256–511, and so on.</p>
+<p><code class="docutils literal notranslate"><span class="pre">count</span></code> is a runtime integer. <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> is a compile-time constant: changing
+it creates a different specialization. Tensor views fill out-of-bounds loads
+with zero and skip out-of-bounds stores, so the final tile may be partial.</p>
 </section>
-<section id="launching">
-<h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">¶</a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">N</span> <span class="o">=</span> <span class="mi">1024</span>
-<span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">N</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">y</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">N</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
-<span class="n">out</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">N</span><span class="p">,))</span>
+<section id="launch-and-check-the-result">
+<h2>Launch and check the result<a class="headerlink" href="#launch-and-check-the-result" title="Link to this heading">¶</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">count</span> <span class="o">=</span> <span class="mi">1003</span>
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">left_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">count</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">right_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">count</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">left_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">left_data</span><span class="p">)</span>
+<span class="n">right_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">right_data</span><span class="p">)</span>
+<span class="n">output_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">count</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
 
-<span class="n">grid</span> <span class="o">=</span> <span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="mi">256</span><span class="p">),)</span>   <span class="c1"># ceil(1024 / 256) = 4 program instances</span>
-<span class="n">add</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">numpy</span><span class="p">()[:</span><span class="mi">5</span><span class="p">])</span>
+<span class="n">block</span> <span class="o">=</span> <span class="mi">256</span>
+<span class="n">add</span><span class="p">[(</span><span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="n">block</span><span class="p">),)](</span>
+    <span class="n">left_buffer</span><span class="p">,</span> <span class="n">right_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="n">block</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">left_data</span> <span class="o">+</span> <span class="n">right_data</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[:</span><span class="mi">5</span><span class="p">])</span>
 </pre></div>
 </div>
-<dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code></dt><dd><p>Wraps a Metal buffer in unified memory. CPU and GPU share the same physical memory on
-Apple Silicon, so there is no copy between host and device.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">metile.Buffer.zeros((N,))</span></code></dt><dd><p>Allocates a zeroed buffer of <code class="docutils literal notranslate"><span class="pre">N</span></code> float32 elements.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">metile.cdiv(N,</span> <span class="pre">256)</span></code></dt><dd><p>Ceiling division: <code class="docutils literal notranslate"><span class="pre">ceil(N</span> <span class="pre">/</span> <span class="pre">256)</span></code>. Utility for computing grid sizes.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">add[grid](...)</span></code></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">[grid]</span></code> subscript sets the number of program instances (threadgroups). The kernel
-is compiled on first call and cached for subsequent calls with the same constexprs.</p>
-</dd>
-</dl>
+<p>The grid has four program instances because <code class="docutils literal notranslate"><span class="pre">cdiv</span></code> rounds the division up.
+The uneven input length exercises the last tile’s bounds checks.</p>
+<p><code class="docutils literal notranslate"><span class="pre">Buffer(data=...)</span></code> allocates shared Metal storage and <strong>copies</strong> the NumPy
+data into it. CPU and GPU then access that allocation. <code class="docutils literal notranslate"><span class="pre">numpy()</span></code> waits for
+pending GPU work and returns a NumPy view of the buffer; it does not copy the
+result back to the original array. Keep the buffer alive while using its view.
+See <a class="reference internal" href="../guide/memory.html"><span class="doc">Memory Model</span></a> for ownership and synchronization details.</p>
+<p>The first launch includes tracing and compilation. Later launches reuse a
+cached specialization when its input types, constants, and other compilation
+settings match.</p>
 </section>
-<section id="the-compilation-pipeline">
-<h2>The Compilation Pipeline<a class="headerlink" href="#the-compilation-pipeline" title="Link to this heading">¶</a></h2>
-<p>This section follows the kernel-local path. See <a class="reference internal" href="../guide/architecture.html"><span class="doc">Compiler Architecture</span></a> for
-the complete graph-discovery, fusion, code-generation, and guarded-runtime flow.</p>
-<p>When you call <code class="docutils literal notranslate"><span class="pre">add[grid](...)</span></code>, meTile:</p>
-<ol class="arabic simple">
-<li><p><strong>Traces</strong> the Python function with symbolic values to build a Tile IR</p></li>
-<li><p><strong>Lowers</strong> the Tile IR to Metal IR (Apple GPU-specific primitives)</p></li>
-<li><p><strong>Optimizes</strong> via IR-to-IR passes (vectorization, loop splitting, constant folding)</p></li>
-<li><p><strong>Emits</strong> MSL (Metal Shading Language) source code</p></li>
-<li><p><strong>Compiles</strong> with <code class="docutils literal notranslate"><span class="pre">xcrun</span> <span class="pre">metal</span> <span class="pre">-O2</span></code> (or JIT if Xcode is unavailable)</p></li>
-<li><p><strong>Dispatches</strong> the compute pipeline on the GPU</p></li>
-</ol>
-<a class="reference internal image-reference" href="../_images/compilation-pipeline.svg"><img alt="meTile compilation pipeline: Python to Tile IR to Metal IR to MSL to GPU" src="../_images/compilation-pipeline.svg" style="width: 100%;" />
+<section id="inspect-the-compilation">
+<h2>Inspect the compilation<a class="headerlink" href="#inspect-the-compilation" title="Link to this heading">¶</a></h2>
+<p>The compiler builds Tile IR, selects an execution schedule, lowers to Metal IR,
+runs compiler passes, and emits Metal Shading Language (MSL). The runtime then
+compiles the shader and dispatches it. See <a class="reference internal" href="../guide/architecture.html"><span class="doc">Compiler Architecture</span></a> for the
+full path.</p>
+<a class="reference internal image-reference" href="../_images/compilation-pipeline.svg"><img alt="Python kernel traced to Tile IR, lowered to Metal IR, and compiled to GPU code" src="../_images/compilation-pipeline.svg" style="width: 100%;" />
 </a>
-<p>You can inspect any stage with the <code class="docutils literal notranslate"><span class="pre">METILE_DEBUG</span></code> environment variable:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">METILE_DEBUG</span><span class="o">=</span>msl<span class="w"> </span>python<span class="w"> </span>my_script.py<span class="w">       </span><span class="c1"># see the generated Metal shader</span>
-<span class="nv">METILE_DEBUG</span><span class="o">=</span>tile_ir<span class="w"> </span>python<span class="w"> </span>my_script.py<span class="w">   </span><span class="c1"># see the Tile IR</span>
-<span class="nv">METILE_DEBUG</span><span class="o">=</span>all<span class="w"> </span>python<span class="w"> </span>my_script.py<span class="w">       </span><span class="c1"># see everything</span>
+<p>Run the script in a fresh process with <code class="docutils literal notranslate"><span class="pre">METILE_DEBUG</span></code> to inspect a stage:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">METILE_DEBUG</span><span class="o">=</span>msl<span class="w"> </span>python<span class="w"> </span>my_script.py
+<span class="nv">METILE_DEBUG</span><span class="o">=</span>tile_ir<span class="w"> </span>python<span class="w"> </span>my_script.py
+<span class="nv">METILE_DEBUG</span><span class="o">=</span>all<span class="w"> </span>python<span class="w"> </span>my_script.py
 </pre></div>
 </div>
-</section>
-<section id="what-s-next">
-<h2>What’s Next<a class="headerlink" href="#what-s-next" title="Link to this heading">¶</a></h2>
-<ul class="simple">
-<li><p><a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> for the full language reference</p></li>
-<li><p><a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> for a more complex kernel with reductions and multiple passes</p></li>
-<li><p><a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> for tile-level matrix multiply with <code class="docutils literal notranslate"><span class="pre">dot</span></code> and <code class="docutils literal notranslate"><span class="pre">tile_load</span></code></p></li>
-</ul>
+<p>Debug output appears on standard error and is saved under <code class="docutils literal notranslate"><span class="pre">debug_output/</span></code>.
+<code class="docutils literal notranslate"><span class="pre">METILE_DEBUG_DIR</span></code> changes that directory. Output is generated when a
+specialization is compiled, so an in-process cache hit does not produce a new
+dump.</p>
+<p>Continue with <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> for reductions,
+<a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> for matrix tiles, or <a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> for the
+kernel language.</p>
 </section>
 </section>
 
@@ -366,12 +372,12 @@ the complete graph-discovery, fusion, code-generation, and guarded-runtime flow.
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="../guide/architecture.html">
+          <a class="next-page" href="../guide/language.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Compiler Architecture</div>
+                <div class="title">Language Reference</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -417,10 +423,9 @@ the complete graph-discovery, fusion, code-generation, and guarded-runtime flow.
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">Your First Kernel</a><ul>
-<li><a class="reference internal" href="#the-kernel">The Kernel</a></li>
-<li><a class="reference internal" href="#launching">Launching</a></li>
-<li><a class="reference internal" href="#the-compilation-pipeline">The Compilation Pipeline</a></li>
-<li><a class="reference internal" href="#what-s-next">What’s Next</a></li>
+<li><a class="reference internal" href="#write-the-kernel">Write the kernel</a></li>
+<li><a class="reference internal" href="#launch-and-check-the-result">Launch and check the result</a></li>
+<li><a class="reference internal" href="#inspect-the-compilation">Inspect the compilation</a></li>
 </ul>
 </li>
 </ul>

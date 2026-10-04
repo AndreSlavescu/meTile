@@ -1,0 +1,667 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Kernel coverage and training scope" href="kernel-coverage.html"><link rel="prev" title="Autotuning" href="autotuning.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
+
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Training kernels and gradients - meTile</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f0f0f0;
+  --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">meTile</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
+  
+  <span class="sidebar-brand-text">meTile</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="thread-layouts.html">Thread Ownership and Software Staging</a></li>
+<li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/blob/main/docs/guide/training.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/edit/main/docs/guide/training.rst" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="training-kernels-and-gradients">
+<h1>Training kernels and gradients<a class="headerlink" href="#training-kernels-and-gradients" title="Link to this heading">¶</a></h1>
+<p>The kernel library is a separate package, <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code>. Its modules
+contain DSL kernels; <code class="docutils literal notranslate"><span class="pre">metile.backends</span></code> handles allocation, saved tensors,
+and multi-kernel launches. Install both projects when working from source:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">e</span> <span class="o">.</span> <span class="o">-</span><span class="n">e</span> <span class="o">./</span><span class="n">kernels</span>
+</pre></div>
+</div>
+<p>These APIs return explicit first-order gradients. They do <strong>not</strong> register
+MLX or PyTorch autograd rules, automatically patch models, or implement
+higher-order differentiation. Read <a class="reference internal" href="kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> before treating an
+operation as training-ready. Liger parity is a tracked target, not a claim
+that every upstream operation or option is already supported.</p>
+<p>Most native entry points accept NumPy arrays or <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code> objects.
+NumPy inputs are copied; saved Buffer inputs must not be mutated before
+backward. Returned buffers remain on the device until <code class="docutils literal notranslate"><span class="pre">.numpy()</span></code> is called.
+Floating gradients use FP32 storage even when inputs use FP16. Integer
+indices, boolean masks, geometry, and fixed scalar configuration have no
+gradient. Finite inputs and finite intermediate dot products are required.</p>
+<section id="normalization">
+<h2>Normalization<a class="headerlink" href="#normalization" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_norms</span></code> provides explicit RMSNorm, LayerNorm and
+residual-add RMSNorm forward/backward pairs. Inputs are two-dimensional rows,
+with widths 1–8192 and FP16 or FP32 storage. Statistics and all gradients use
+FP32. Weight and bias have one value per column; parameter gradients are
+reduced across rows in a fixed order without atomics.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.training_norms</span><span class="w"> </span><span class="kn">import</span> <span class="n">layer_norm_forward</span><span class="p">,</span> <span class="n">norm_backward</span>
+
+<span class="n">values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">21</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span> <span class="o">/</span> <span class="mi">10</span>
+<span class="n">output</span><span class="p">,</span> <span class="n">saved</span> <span class="o">=</span> <span class="n">layer_norm_forward</span><span class="p">(</span>
+    <span class="n">values</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">gradients</span> <span class="o">=</span> <span class="n">norm_backward</span><span class="p">(</span><span class="n">saved</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">values</span><span class="p">))</span>
+<span class="k">assert</span> <span class="n">gradients</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">values</span><span class="o">.</span><span class="n">shape</span>
+<span class="k">assert</span> <span class="n">gradients</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">gradients</span><span class="o">.</span><span class="n">bias</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="p">(</span><span class="mi">7</span><span class="p">,)</span>
+</pre></div>
+</div>
+<p>RMSNorm uses the standard zero-offset weight convention. LayerNorm computes
+population variance from centered values. Both default to <code class="docutils literal notranslate"><span class="pre">epsilon=1e-5</span></code>.
+<code class="docutils literal notranslate"><span class="pre">add_rms_norm_forward</span></code> returns <code class="docutils literal notranslate"><span class="pre">(output,</span> <span class="pre">residual_sum,</span> <span class="pre">saved)</span></code> and
+normalizes the unrounded FP32 sum; both outputs use input storage dtype.
+Its backward accepts <code class="docutils literal notranslate"><span class="pre">residual_output_gradient=...</span></code> for the second output,
+defaulting to zero, and returns both source and residual gradients. Cast
+rounding is not differentiated.</p>
+<p>The conservative parameter-partial scratch bound is 128 MiB. There are no
+in-place, BF16, arbitrary-axis or Liger casting-mode variants. See
+<a class="reference internal" href="kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> for the exact dtype, memory and gradient contract.</p>
+</section>
+<section id="gated-activations">
+<h2>Gated activations<a class="headerlink" href="#gated-activations" title="Link to this heading">¶</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.pointwise</span><span class="w"> </span><span class="kn">import</span> <span class="n">activation_forward</span><span class="p">,</span> <span class="n">activation_backward</span>
+
+<span class="n">generator</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">7</span><span class="p">)</span>
+<span class="n">gate</span> <span class="o">=</span> <span class="n">generator</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">128</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">up</span> <span class="o">=</span> <span class="n">generator</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="n">gate</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">output</span><span class="p">,</span> <span class="n">saved</span> <span class="o">=</span> <span class="n">activation_forward</span><span class="p">(</span><span class="n">gate</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"silu"</span><span class="p">,</span> <span class="n">up</span><span class="o">=</span><span class="n">up</span><span class="p">)</span>
+<span class="n">dgate</span><span class="p">,</span> <span class="n">dup</span> <span class="o">=</span> <span class="n">activation_backward</span><span class="p">(</span><span class="n">saved</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">gate</span><span class="p">))</span>
+<span class="k">assert</span> <span class="n">dgate</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">gate</span><span class="o">.</span><span class="n">shape</span>
+</pre></div>
+</div>
+<p>Supplying <code class="docutils literal notranslate"><span class="pre">up</span></code> produces a gated operation; omitting it produces a unary
+operation. Supported names are <code class="docutils literal notranslate"><span class="pre">silu</span></code>, <code class="docutils literal notranslate"><span class="pre">sigmoid</span></code>, <code class="docutils literal notranslate"><span class="pre">gelu_tanh</span></code>,
+<code class="docutils literal notranslate"><span class="pre">quick_gelu</span></code>, <code class="docutils literal notranslate"><span class="pre">relu</span></code>, and <code class="docutils literal notranslate"><span class="pre">tanh</span></code>. <code class="docutils literal notranslate"><span class="pre">silu</span></code> plus <code class="docutils literal notranslate"><span class="pre">up</span></code> is SwiGLU;
+<code class="docutils literal notranslate"><span class="pre">gelu_tanh</span></code> plus <code class="docutils literal notranslate"><span class="pre">up</span></code> is the tanh-GELU GeGLU variant. The legacy
+sigmoid-based GELU approximation is called <code class="docutils literal notranslate"><span class="pre">quick_gelu</span></code> here. They are not
+interchangeable. ReLU uses derivative zero at zero.</p>
+</section>
+<section id="rotary-embeddings">
+<h2>Rotary embeddings<a class="headerlink" href="#rotary-embeddings" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.pointwise.rope_forward(values,</span> <span class="pre">cosine,</span> <span class="pre">sine,</span> <span class="pre">...)</span></code> accepts
+<code class="docutils literal notranslate"><span class="pre">values[rows,</span> <span class="pre">dimension]</span></code> and already gathered, expanded coefficient tables
+<code class="docutils literal notranslate"><span class="pre">[rows,</span> <span class="pre">rotary_dim</span> <span class="pre">/</span> <span class="pre">2]</span></code>. <code class="docutils literal notranslate"><span class="pre">rotary_dim</span></code> defaults to the full dimension.
+<code class="docutils literal notranslate"><span class="pre">interleaved=False</span></code> pairs the two rotary halves; <code class="docutils literal notranslate"><span class="pre">True</span></code> pairs adjacent
+components. The unrotated suffix is copied.</p>
+<p><code class="docutils literal notranslate"><span class="pre">rope_backward(saved,</span> <span class="pre">gradient)</span></code> returns gradients for the values, cosine,
+and sine arrays. It uses the transpose of the supplied rotation, not an
+assumed inverse: coefficients need not have unit norm. When coefficient rows
+were broadcast by a model adapter, that adapter must sum their gradients.
+Q and K with different head counts require separate calls. Position IDs,
+YaRN frequency construction, MRoPE axis selection, and cache layouts remain
+the adapter’s responsibility. See the original <a class="reference external" href="https://arxiv.org/abs/2104.09864">RoFormer paper</a>.</p>
+</section>
+<section id="softmax-and-cross-entropy">
+<h2>Softmax and cross entropy<a class="headerlink" href="#softmax-and-cross-entropy" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_losses</span></code> normalizes the final axis of contiguous
+FP32 arrays. <code class="docutils literal notranslate"><span class="pre">softmax_forward</span></code> and <code class="docutils literal notranslate"><span class="pre">log_softmax_forward</span></code> return device
+buffers; their backward functions take that saved output and an equally
+shaped cotangent. The log-softmax path subtracts the row maximum before the
+log denominator, so it does not compute <code class="docutils literal notranslate"><span class="pre">log(softmax(x))</span></code> after underflow.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.training_losses</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">softmax_forward</span><span class="p">,</span> <span class="n">softmax_backward</span><span class="p">,</span>
+    <span class="n">cross_entropy_forward</span><span class="p">,</span> <span class="n">cross_entropy_backward</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">logits</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span> <span class="p">[</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">probabilities</span> <span class="o">=</span> <span class="n">softmax_forward</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
+<span class="n">dprobabilities</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
+<span class="n">dlogits</span> <span class="o">=</span> <span class="n">softmax_backward</span><span class="p">(</span><span class="n">probabilities</span><span class="p">,</span> <span class="n">dprobabilities</span><span class="p">)</span>
+
+<span class="n">targets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">100</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+<span class="n">loss</span><span class="p">,</span> <span class="n">saved</span> <span class="o">=</span> <span class="n">cross_entropy_forward</span><span class="p">(</span>
+    <span class="n">logits</span><span class="p">,</span> <span class="n">targets</span><span class="p">,</span> <span class="n">reduction</span><span class="o">=</span><span class="s2">"mean"</span><span class="p">,</span> <span class="n">ignore_index</span><span class="o">=-</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">label_smoothing</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">z_loss</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">dlogits</span> <span class="o">=</span> <span class="n">cross_entropy_backward</span><span class="p">(</span><span class="n">saved</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">dlogits</span><span class="o">.</span><span class="n">numpy</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Cross entropy accepts integer class indices. Uniform label smoothing uses
+<code class="docutils literal notranslate"><span class="pre">(1</span> <span class="pre">-</span> <span class="pre">epsilon)</span> <span class="pre">*</span> <span class="pre">one_hot</span> <span class="pre">+</span> <span class="pre">epsilon</span> <span class="pre">/</span> <span class="pre">classes</span></code>. The optional <code class="docutils literal notranslate"><span class="pre">z_loss</span></code>
+coefficient adds <code class="docutils literal notranslate"><span class="pre">z_loss</span> <span class="pre">*</span> <span class="pre">logsumexp(logits)**2</span></code> to each non-ignored row
+before reduction. <code class="docutils literal notranslate"><span class="pre">reduction</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;none&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;sum&quot;</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;mean&quot;</span></code>;
+mean divides by the number of non-ignored rows. An all-ignored loss and its
+gradient are zero, including mean reduction. Backward defaults to unit
+cotangents; an explicit cotangent has the loss shape, which is scalar for
+sum/mean and the input’s leading shape for no reduction.</p>
+<p>The implementation supports 1–262144 columns, at most 65536 rows, and a
+256 MiB bound on new outputs/workspace, excluding NumPy input copies.
+It saves the maximum and log denominator separately to preserve small loss
+differences on large common logit shifts. Targets are range-checked on the
+CPU, so Buffer targets synchronize. Reductions use fixed-order sums rather
+than atomics. FP16/BF16 storage, class weights, soft targets, and fused-linear
+cross entropy are not implemented by this API.</p>
+</section>
+<section id="dense-products">
+<h2>Dense products<a class="headerlink" href="#dense-products" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_matmul.matmul_forward(left,</span> <span class="pre">right)</span></code> implements
+<code class="docutils literal notranslate"><span class="pre">A[M,K]</span> <span class="pre">&#64;</span> <span class="pre">B[K,N]</span></code> with FP32 output. <code class="docutils literal notranslate"><span class="pre">matmul_backward(saved,</span> <span class="pre">gradient)</span></code>
+returns <code class="docutils literal notranslate"><span class="pre">dA</span> <span class="pre">=</span> <span class="pre">gradient</span> <span class="pre">&#64;</span> <span class="pre">B.T</span></code> and <code class="docutils literal notranslate"><span class="pre">dB</span> <span class="pre">=</span> <span class="pre">A.T</span> <span class="pre">&#64;</span> <span class="pre">gradient</span></code>. Optional
+<code class="docutils literal notranslate"><span class="pre">activation=&quot;relu&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;silu&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;quick_gelu&quot;</span></code>, or another supported
+activation saves the unrounded preactivation for its derivative.</p>
+<p>This baseline packs operands into FP32 and selects the SIMD-group matrix
+backend explicitly. It does not silently select a reduced-precision matrix
+backend. Transposes and both gradient products execute as DSL kernels. The
+default per-call workspace bound is 256 MiB, excluding caller inputs and
+NumPy input copies. This is not a fused-linear loss, batched product,
+quantized-weight gradient, or optimized throughput claim.</p>
+</section>
+<section id="stable-softmax-attention">
+<h2>Stable softmax attention<a class="headerlink" href="#stable-softmax-attention" title="Link to this heading">¶</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.attention</span><span class="w"> </span><span class="kn">import</span> <span class="n">attention_forward</span><span class="p">,</span> <span class="n">attention_backward</span>
+
+<span class="n">generator</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">query</span> <span class="o">=</span> <span class="n">generator</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">32</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">key</span> <span class="o">=</span> <span class="n">generator</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">32</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">value</span> <span class="o">=</span> <span class="n">generator</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="n">key</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">output</span><span class="p">,</span> <span class="n">saved</span> <span class="o">=</span> <span class="n">attention_forward</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">causal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">dquery</span><span class="p">,</span> <span class="n">dkey</span><span class="p">,</span> <span class="n">dvalue</span> <span class="o">=</span> <span class="n">attention_backward</span><span class="p">(</span><span class="n">saved</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">query</span><span class="p">))</span>
+<span class="k">assert</span> <span class="n">dkey</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">key</span><span class="o">.</span><span class="n">shape</span>
+</pre></div>
+</div>
+<p>Layouts are <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">heads,</span> <span class="pre">sequence,</span> <span class="pre">dimension]</span></code>. Query heads must be a
+multiple of KV heads; head dimensions are multiples of 32 from 32 through
+256. The default causal offset is <code class="docutils literal notranslate"><span class="pre">key_length</span> <span class="pre">-</span> <span class="pre">query_length</span></code>, appropriate
+for cached suffix queries. Set <code class="docutils literal notranslate"><span class="pre">causal_offset=0</span></code> for top-left causality.
+Boolean/uint8 masks mean <em>nonzero is visible</em>, not additive score bias.
+Fully masked rows produce zero output and zero gradients.</p>
+<p>The implementation independently adopts the numerical lessons in
+<a class="reference external" href="https://github.com/KohakuBlueleaf/KohakuFA/blob/041ac512ac474709ad910e505c545a1ab94853c2/docs/precision.md">KohakuFA’s precision analysis</a>:</p>
+<ul class="simple">
+<li><p>Store the raw score maximum and log denominator separately.</p></li>
+<li><p>Subtract the raw maximum before applying the attention scale.</p></li>
+<li><p>Keep accumulation and saved, unrounded output in FP32; apply dQ/dK scale
+after accumulation.</p></li>
+</ul>
+<p>The kernels use output ownership and deterministic reductions, not
+floating-point atomics. No quadratic attention matrix is saved. This is a
+bounded correctness-oriented Metal implementation, not a port of KohakuFA’s
+CUDA schedule; its upstream GPU performance numbers do not apply here.</p>
+</section>
+<section id="different-attention-mechanisms-stay-different">
+<h2>Different attention mechanisms stay different<a class="headerlink" href="#different-attention-mechanisms-stay-different" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.gated_delta</span></code> implements decay-before-correction delta
+recurrences with explicit initial and final states. Query/key use
+<code class="docutils literal notranslate"><span class="pre">[B,T,H,K]</span></code>; values use <code class="docutils literal notranslate"><span class="pre">[B,T,H,V]</span></code>; state uses <code class="docutils literal notranslate"><span class="pre">[B,H,K,V]</span></code>.
+Scalar <code class="docutils literal notranslate"><span class="pre">log_decay[B,T,H]</span></code> gives Gated DeltaNet; per-key-channel
+<code class="docutils literal notranslate"><span class="pre">log_decay[B,T,H,K]</span></code> gives the Kimi Delta Attention core. These layouts
+deliberately differ from softmax attention. All heads must match.</p>
+<p>For each token, the recurrence is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">decayed</span> <span class="o">=</span> <span class="n">exp</span><span class="p">(</span><span class="n">log_decay</span><span class="p">)[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">previous_state</span>
+<span class="n">error</span> <span class="o">=</span> <span class="n">value</span> <span class="o">-</span> <span class="n">decayed</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">key</span>
+<span class="n">state</span> <span class="o">=</span> <span class="n">decayed</span> <span class="o">+</span> <span class="n">beta</span> <span class="o">*</span> <span class="n">outer</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">error</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">state</span><span class="o">.</span><span class="n">T</span> <span class="o">@</span> <span class="n">query</span>
+</pre></div>
+</div>
+<p>Call <code class="docutils literal notranslate"><span class="pre">gated_delta_forward(...,</span> <span class="pre">save_states=True)</span></code> when backward is needed.
+<code class="docutils literal notranslate"><span class="pre">gated_delta_backward</span></code> consumes those states and both output and final-state
+cotangents. It returns all six tensor-input gradients, including the initial
+state. This supports differentiated state chains rather than detaching the
+cache silently. The initial implementation is FP32 only, with documented
+shape and workspace bounds; saving every state and per-value gradient partials
+can be expensive.</p>
+<p>The formula follows <a class="reference external" href="https://arxiv.org/html/2510.26692v1">Kimi Linear, equation (1)</a>; the scalar-decay model context is
+<a class="reference external" href="https://qwen.ai/blog?id=qwen3-next">Qwen3-Next</a>. Normalization, short
+convolution, gate transformations, grouped-head expansion, padding policy,
+and model-specific cache conversion are not part of this recurrence kernel.
+It is not a claim of complete Kimi or Qwen model compatibility.</p>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.dual_chunk_attention</span></code> implements three <strong>already rotated</strong>
+query branches: intra-chunk, successive-chunk, and inter-chunk. Keys are
+partitioned by global chunk coordinates and causality. Branches merge under
+one global softmax denominator; summing three independently normalized outputs
+would be wrong. Backward returns three query gradients and combined K/V
+gradients. The positional helper follows pinned
+<a class="reference external" href="https://github.com/HKUNLP/ChunkLlama/tree/2add4d7c99d24dcc1ab03414cc602abb2e28cf2c">ChunkLlama semantics</a>;
+see also the <a class="reference external" href="https://arxiv.org/abs/2402.17463">Dual Chunk Attention paper</a>
+and <a class="reference external" href="https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2.5-1M/Qwen2_5_1M_Technical_Report.pdf">Qwen2.5-1M report</a>.
+This reference path materializes partition masks with a workspace guard. It
+is causal, not bidirectional Qwen attention, and is not a complete RoPE/YaRN
+or model-loading implementation.</p>
+<p><code class="docutils literal notranslate"><span class="pre">metile.ir.attention_graph</span></code> exposes distinct typed builders for these
+mechanisms. <code class="docutils literal notranslate"><span class="pre">compile_native_attention_graph</span></code> in
+<code class="docutils literal notranslate"><span class="pre">metile.backends.native_attention_graph</span></code> dispatches those explicit nodes;
+it rejects unrelated operators. Ordinary softmax graph patterns must not be
+rewritten into delta recurrences or Dual Chunk Attention: their semantics and
+state requirements differ.</p>
+<p>The native executable also supplies an explicit reverse pass for all four
+operators. <code class="docutils literal notranslate"><span class="pre">forward_with_context</span></code> records a tape; <code class="docutils literal notranslate"><span class="pre">backward</span></code> consumes
+output cotangents and returns input gradients in graph-input order:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.ir.graph_ir</span><span class="w"> </span><span class="kn">import</span> <span class="n">GraphBuilder</span><span class="p">,</span> <span class="n">TensorSpec</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.ir.attention_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">stable_attention</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.native_attention_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">compile_native_attention_graph</span>
+
+<span class="n">generator</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">9</span><span class="p">)</span>
+<span class="n">arrays</span> <span class="o">=</span> <span class="p">[</span><span class="n">generator</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">32</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+          <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)]</span>
+<span class="n">builder</span> <span class="o">=</span> <span class="n">GraphBuilder</span><span class="p">()</span>
+<span class="n">query</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">builder</span><span class="o">.</span><span class="n">input</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">TensorSpec</span><span class="p">(</span><span class="n">array</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">"f32"</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">array</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">((</span><span class="s2">"query"</span><span class="p">,</span> <span class="s2">"key"</span><span class="p">,</span> <span class="s2">"value"</span><span class="p">),</span> <span class="n">arrays</span><span class="p">)</span>
+<span class="p">]</span>
+<span class="n">output_node</span> <span class="o">=</span> <span class="n">stable_attention</span><span class="p">(</span><span class="n">builder</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">causal</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">executable</span> <span class="o">=</span> <span class="n">compile_native_attention_graph</span><span class="p">(</span><span class="n">builder</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="n">output_node</span><span class="p">))</span>
+<span class="n">output</span><span class="p">,</span> <span class="n">tape</span> <span class="o">=</span> <span class="n">executable</span><span class="o">.</span><span class="n">forward_with_context</span><span class="p">(</span><span class="o">*</span><span class="n">arrays</span><span class="p">)</span>
+<span class="n">dquery</span><span class="p">,</span> <span class="n">dkey</span><span class="p">,</span> <span class="n">dvalue</span> <span class="o">=</span> <span class="n">executable</span><span class="o">.</span><span class="n">backward</span><span class="p">(</span><span class="n">tape</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">arrays</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+</pre></div>
+</div>
+<p>For multiple graph outputs, supply a tuple or list of cotangents in output
+order. <code class="docutils literal notranslate"><span class="pre">None</span></code> supplies zero, including for an unused recurrent final state.
+GDN and KDA nodes expose both output and final state, so state edges between
+nodes participate in the reverse pass. Shared inputs and repeated graph
+outputs accumulate every contribution in FP32 without atomics. Disconnected
+floating inputs receive zero buffers; masks receive <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+<p>Recording snapshots NumPy inputs, but device inputs and saved buffers must
+remain unchanged until backward finishes. Graph structure and metadata changes
+invalidate the tape. Backward does not overwrite inputs or cotangents. Calling
+the executable normally does not retain a tape or recurrent state history.
+Per-operator workspace limits do not bound the entire graph tape and its
+accumulated gradients. This API does not register framework autograd or
+differentiate operators outside the four explicit attention families.</p>
+</section>
+<section id="expression-vjps-inside-the-dsl">
+<h2>Expression VJPs inside the DSL<a class="headerlink" href="#expression-vjps-inside-the-dsl" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.vjp(output,</span> <span class="pre">inputs,</span> <span class="pre">cotangent)</span></code> constructs a reverse expression
+during tracing. For example, inside a kernel:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
+<span class="n">seed</span> <span class="o">=</span> <span class="n">seeds</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
+<span class="n">transformed</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">*</span> <span class="n">values</span>
+<span class="n">gradients</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">positions</span><span class="p">,),</span> <span class="n">metile</span><span class="o">.</span><span class="n">vjp</span><span class="p">(</span><span class="n">transformed</span><span class="p">,</span> <span class="n">values</span><span class="p">,</span> <span class="n">seed</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>It supports FP16/FP32 scalar and one-dimensional expressions: arithmetic,
+exp/log/sqrt/tanh/abs, floating casts, selections, and sum/max/min reductions.
+Requested inputs are differentiation leaves. Loads not requested as inputs
+are frozen coefficients; memory is not automatically given a gradient buffer.
+Scalar broadcast cotangents reduce back to the scalar; max/min ties split
+equally; abs uses derivative zero at zero. Floating casts use the usual
+real-arithmetic training convention, not a derivative of discrete rounding.</p>
+<p>Unsupported differentiated operations raise <code class="docutils literal notranslate"><span class="pre">NotImplementedError</span></code>. This is
+not whole-kernel autodiff: matrix dot, loop reversal, memory scatter adjoints,
+layout/collective transposes and alias-aware accumulation still need dedicated
+rules. <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code> uses the exponential derivative convention rather than a
+proof about the hardware approximation’s derivative.</p>
+</section>
+<section id="explicit-state-and-strict-math">
+<h2>Explicit state and strict math<a class="headerlink" href="#explicit-state-and-strict-math" title="Link to this heading">¶</a></h2>
+<p>Loaded loop state must not depend on inference from Python rebinding:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">state</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">loop_state</span><span class="p">(</span><span class="n">initial</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,)))</span>
+<span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">steps</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
+    <span class="n">previous</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">value</span>
+    <span class="n">state</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">previous</span> <span class="o">*</span> <span class="mf">0.9</span> <span class="o">+</span> <span class="n">increments</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">step</span><span class="p">,</span> <span class="n">positions</span><span class="p">)))</span>
+<span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">positions</span><span class="p">,),</span> <span class="n">state</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">.value</span></code> creates a snapshot at that program point; <code class="docutils literal notranslate"><span class="pre">.update</span></code> assigns
+same-dtype, same-shape state. A zero-trip loop keeps its initial value.
+State is per-thread scalar/one-dimensional tile storage, not shared memory.
+Explicit <code class="docutils literal notranslate"><span class="pre">ThreadLayout</span></code> state is not supported yet. A state declaration
+must dominate its uses. This API enables recurrences, not their automatic
+reverse-mode differentiation.</p>
+<p>Training backends pass <code class="docutils literal notranslate"><span class="pre">STRICT_MATH=True</span></code>. That setting disables Metal
+fast-math in both offline and runtime compilation and is included in cache
+identity. It does not turn explicit <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code> into an accurate intrinsic,
+prove every compiler rewrite IEEE-exact, or change a selected matrix backend’s
+precision. Geometry and bounds contracts still apply.</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="kernel-coverage.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Kernel coverage and training scope</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="autotuning.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Autotuning</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Andre Slavescu
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Training kernels and gradients</a><ul>
+<li><a class="reference internal" href="#normalization">Normalization</a></li>
+<li><a class="reference internal" href="#gated-activations">Gated activations</a></li>
+<li><a class="reference internal" href="#rotary-embeddings">Rotary embeddings</a></li>
+<li><a class="reference internal" href="#softmax-and-cross-entropy">Softmax and cross entropy</a></li>
+<li><a class="reference internal" href="#dense-products">Dense products</a></li>
+<li><a class="reference internal" href="#stable-softmax-attention">Stable softmax attention</a></li>
+<li><a class="reference internal" href="#different-attention-mechanisms-stay-different">Different attention mechanisms stay different</a></li>
+<li><a class="reference internal" href="#expression-vjps-inside-the-dsl">Expression VJPs inside the DSL</a></li>
+<li><a class="reference internal" href="#explicit-state-and-strict-math">Explicit state and strict math</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=8a448e45"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>

@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="API Reference" href="../api/reference.html"><link rel="prev" title="Layer Normalization" href="layernorm.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Benchmarks" href="../guide/benchmarks.html"><link rel="prev" title="Layer Normalization" href="layernorm.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Fused Activations &amp; Simdgroup Roles - meTile</title>
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Fused Activations and SIMDgroup Roles - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -256,114 +279,73 @@
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="fused-activations-simdgroup-roles">
-<h1>Fused Activations &amp; Simdgroup Roles<a class="headerlink" href="#fused-activations-simdgroup-roles" title="Link to this heading">¶</a></h1>
-<p>This example shows two patterns: simple element-wise activations, and using <code class="docutils literal notranslate"><span class="pre">simdgroup_role</span></code>
-to run different computations on different simdgroup subsets within a single kernel.</p>
-<section id="simple-activations">
-<h2>Simple Activations<a class="headerlink" href="#simple-activations" title="Link to this heading">¶</a></h2>
-<p>Element-wise kernels follow the same pattern as vector add (load, compute, store):</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
+          <section id="fused-activations-and-simdgroup-roles">
+<h1>Fused Activations and SIMDgroup Roles<a class="headerlink" href="#fused-activations-and-simdgroup-roles" title="Link to this heading">¶</a></h1>
+<p>Pointwise fusion keeps related arithmetic in one kernel. This example computes
+a gated activation from two float32 arrays:</p>
+<p><code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">=</span> <span class="pre">gelu_approx(gate)</span> <span class="pre">*</span> <span class="pre">up</span></code>, with
+<code class="docutils literal notranslate"><span class="pre">gelu_approx(value)</span> <span class="pre">=</span> <span class="pre">value</span> <span class="pre">/</span> <span class="pre">(1</span> <span class="pre">+</span> <span class="pre">exp(-1.702</span> <span class="pre">*</span> <span class="pre">value))</span></code>.</p>
+<p>This sigmoid approximation is sometimes called QuickGELU. It differs from
+both the exact Gaussian-error-function GELU and its common tanh approximation.
+Use the same definition when checking against a model or reference library.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">gelu</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-    <span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>
-    <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-    <span class="c1"># GELU approximation: x / (1 + exp(-1.702 * x))</span>
-    <span class="n">out</span> <span class="o">=</span> <span class="n">x</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.702</span> <span class="o">*</span> <span class="n">x</span><span class="p">))</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">geglu</span><span class="p">(</span><span class="n">gate_ptr</span><span class="p">,</span> <span class="n">up_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+    <span class="n">gates</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">gate_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">ups</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">up_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">outputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">output_ptr</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">count</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
+    <span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+    <span class="n">gate</span> <span class="o">=</span> <span class="n">gates</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
+    <span class="n">up</span> <span class="o">=</span> <span class="n">ups</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
+    <span class="n">activated</span> <span class="o">=</span> <span class="n">gate</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.702</span> <span class="o">*</span> <span class="n">gate</span><span class="p">))</span>
+    <span class="n">outputs</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">positions</span><span class="p">,),</span> <span class="n">activated</span> <span class="o">*</span> <span class="n">up</span><span class="p">)</span>
 
-<span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">silu</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-    <span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>
-    <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-    <span class="c1"># SiLU (Swish): x / (1 + exp(-x))</span>
-    <span class="n">out</span> <span class="o">=</span> <span class="n">x</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">))</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+<span class="n">count</span> <span class="o">=</span> <span class="mi">1003</span>
+<span class="n">rng</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">gate_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">count</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">up_data</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">standard_normal</span><span class="p">(</span><span class="n">count</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">gate_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">gate_data</span><span class="p">)</span>
+<span class="n">up_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">up_data</span><span class="p">)</span>
+<span class="n">output_buffer</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Buffer</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">count</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">geglu</span><span class="p">[(</span><span class="n">metile</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="mi">256</span><span class="p">),)](</span>
+    <span class="n">gate_buffer</span><span class="p">,</span> <span class="n">up_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">256</span>
+<span class="p">)</span>
+<span class="n">reference</span> <span class="o">=</span> <span class="n">gate_data</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.702</span> <span class="o">*</span> <span class="n">gate_data</span><span class="p">))</span> <span class="o">*</span> <span class="n">up_data</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>Each lane computes the activation and product before storing once. No program
+needs to read another program’s partially computed output. For SiLU, use
+<code class="docutils literal notranslate"><span class="pre">value</span> <span class="pre">/</span> <span class="pre">(1.0</span> <span class="pre">+</span> <span class="pre">metile.exp(-value))</span></code>.</p>
+<section id="gemm-epilogues">
+<h2>GEMM epilogues<a class="headerlink" href="#gemm-epilogues" title="Link to this heading">¶</a></h2>
+<p>A supported pointwise expression after a <code class="docutils literal notranslate"><span class="pre">dot</span></code> recurrence can be fused
+into its epilogue. The <a class="reference internal" href="matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> example includes a complete GEMM-plus-ReLU
+kernel; the same mechanism supports expressions such as this QuickGELU
+approximation when they satisfy the compiler’s epilogue constraints.</p>
+<p>Fusion avoids an intermediate device-memory round trip. It does not make the
+activation free: exponentials, divides, and extra live values still affect
+execution time. Use <code class="docutils literal notranslate"><span class="pre">dispatch.explain()</span></code> and the generated MSL to inspect
+the selected implementation.</p>
 </section>
-<section id="fused-gemm-activation">
-<h2>Fused GEMM + Activation<a class="headerlink" href="#fused-gemm-activation" title="Link to this heading">¶</a></h2>
-<p>When an activation follows a <code class="docutils literal notranslate"><span class="pre">dot</span></code> operation, the compiler fuses it into the GEMM epilogue.
-The activation runs on register-resident data, no global memory round-trip:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">matmul_gelu</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span>
-                <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
-                <span class="n">BLOCK_K</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid_m</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
-        <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
-        <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-        <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-    <span class="c1"># Fused GELU epilogue, runs on accumulator registers</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.702</span> <span class="o">*</span> <span class="n">acc</span><span class="p">))</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">tile_store</span><span class="p">(</span><span class="n">C</span><span class="p">,</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">*</span> <span class="n">BLOCK_N</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-</pre></div>
-</div>
-</section>
-<section id="simdgroup-roles">
-<h2>Simdgroup Roles<a class="headerlink" href="#simdgroup-roles" title="Link to this heading">¶</a></h2>
-<p>Apple GPUs organize threads into 32-thread <strong>simdgroups</strong>. A threadgroup can contain
-multiple simdgroups. With <code class="docutils literal notranslate"><span class="pre">simdgroup_role</span></code>, you can assign different work to different
-simdgroup subsets, useful for computing multiple outputs in a single dispatch:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">exp_sqrt</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">out_exp</span><span class="p">,</span> <span class="n">out_sqrt</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-    <span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>
-
-    <span class="k">with</span> <span class="n">metile</span><span class="o">.</span><span class="n">simdgroup_role</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">num_roles</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
-        <span class="c1"># First half of simdgroups compute exp</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">out_exp</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-
-    <span class="k">with</span> <span class="n">metile</span><span class="o">.</span><span class="n">simdgroup_role</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">num_roles</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
-        <span class="c1"># Second half compute sqrt(abs(x))</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">out_sqrt</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">metile</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x</span><span class="p">)),</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-</pre></div>
-</div>
-<p>With <code class="docutils literal notranslate"><span class="pre">num_roles=2</span></code>, the threadgroup’s simdgroups are split in half. Role 0 computes
-exponentials while role 1 computes square roots, simultaneously, in the same kernel launch.</p>
-</section>
-<section id="geglu-gated-gelu">
-<h2>GEGLU (Gated GELU)<a class="headerlink" href="#geglu-gated-gelu" title="Link to this heading">¶</a></h2>
-<p>A practical use of simdgroup roles for computing the gate and up projections of GEGLU
-in parallel:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">geglu</span><span class="p">(</span><span class="n">X_gate</span><span class="p">,</span> <span class="n">X_up</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-    <span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>
-
-    <span class="k">with</span> <span class="n">metile</span><span class="o">.</span><span class="n">simdgroup_role</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">num_roles</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
-        <span class="n">gate</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X_gate</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">gate</span> <span class="o">=</span> <span class="n">gate</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mf">1.702</span> <span class="o">*</span> <span class="n">gate</span><span class="p">))</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">gate</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-
-    <span class="k">with</span> <span class="n">metile</span><span class="o">.</span><span class="n">simdgroup_role</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">num_roles</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
-        <span class="n">up</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X_up</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">gate</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-        <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">gate</span> <span class="o">*</span> <span class="n">up</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="concepts-introduced">
-<h2>Concepts Introduced<a class="headerlink" href="#concepts-introduced" title="Link to this heading">¶</a></h2>
-<ul class="simple">
-<li><p>Element-wise activation patterns</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.exp</span></code> for activation functions</p></li>
-<li><p>Fused GEMM epilogues: zero-cost post-GEMM operations</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role</span></code>: split work across simdgroup subsets</p></li>
-<li><p>Multiple outputs from a single kernel</p></li>
-</ul>
+<section id="when-to-use-simdgroup-roles">
+<h2>When to use SIMDgroup roles<a class="headerlink" href="#when-to-use-simdgroup-roles" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">metile.simdgroup_role(role,</span> <span class="pre">num_roles=2,</span> <span class="pre">num_sgs=0)</span></code> records a region
+assigned to a subset of the threadgroup’s 32-thread SIMDgroups. This is a
+lower-level tool for specialized kernels, not a dependency or synchronization
+mechanism.</p>
+<p>Role regions appear in Python source order, but that does not make one role
+finish before another starts. A producer writing values that a consumer reads
+needs an appropriate memory and synchronization design. Threadgroup barriers
+must be reached by every participating thread; placing a barrier inside only
+one role can deadlock.</p>
+<p>For this gated activation, all dependent operations belong to the same lane,
+so ordinary pointwise fusion is sufficient. Independent outputs are a better
+starting point for role specialization. Study
+<code class="docutils literal notranslate"><span class="pre">kernels/src/metile_kernels/simdgroup_specialized_elementwise.py</span></code> and verify the
+generated indexing before introducing communication between roles.</p>
 </section>
 </section>
 
@@ -372,12 +354,12 @@ in parallel:</p>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="../api/reference.html">
+          <a class="next-page" href="../guide/benchmarks.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">API Reference</div>
+                <div class="title">Benchmarks</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -422,12 +404,9 @@ in parallel:</p>
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Fused Activations &amp; Simdgroup Roles</a><ul>
-<li><a class="reference internal" href="#simple-activations">Simple Activations</a></li>
-<li><a class="reference internal" href="#fused-gemm-activation">Fused GEMM + Activation</a></li>
-<li><a class="reference internal" href="#simdgroup-roles">Simdgroup Roles</a></li>
-<li><a class="reference internal" href="#geglu-gated-gelu">GEGLU (Gated GELU)</a></li>
-<li><a class="reference internal" href="#concepts-introduced">Concepts Introduced</a></li>
+<li><a class="reference internal" href="#">Fused Activations and SIMDgroup Roles</a><ul>
+<li><a class="reference internal" href="#gemm-epilogues">GEMM epilogues</a></li>
+<li><a class="reference internal" href="#when-to-use-simdgroup-roles">When to use SIMDgroup roles</a></li>
 </ul>
 </li>
 </ul>

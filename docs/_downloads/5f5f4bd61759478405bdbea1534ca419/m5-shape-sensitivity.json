@@ -1,0 +1,253 @@
+{
+  "batch_sweep": [
+    {
+      "format": "bf16",
+      "metile_bandwidth": 124.45222796022067,
+      "metile_seconds": 0.0006635105,
+      "mlx_bandwidth": 123.64857155264194,
+      "mlx_seconds": 0.000667823,
+      "rows": 1,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": 112.22657505556941,
+      "metile_seconds": 0.000183947875,
+      "mlx_bandwidth": 111.65750671192896,
+      "mlx_seconds": 0.000184885375,
+      "rows": 1,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": 119.18861163734778,
+      "metile_seconds": 0.00034640625,
+      "mlx_bandwidth": 119.48503368754238,
+      "mlx_seconds": 0.000345546875,
+      "rows": 1,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 118.35049581224527,
+      "metile_seconds": 0.00069771875,
+      "mlx_bandwidth": 73.35243715907671,
+      "mlx_seconds": 0.001125734375,
+      "rows": 2,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": 111.07542603949062,
+      "metile_seconds": 0.00018585425,
+      "mlx_bandwidth": 111.93494449365842,
+      "mlx_seconds": 0.000184427125,
+      "rows": 2,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": 117.47877353121942,
+      "metile_seconds": 0.000351448,
+      "mlx_bandwidth": 117.1697197587797,
+      "mlx_seconds": 0.000352375,
+      "rows": 2,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 95.24662583162011,
+      "metile_seconds": 0.000866963625,
+      "mlx_bandwidth": 61.54159629224212,
+      "mlx_seconds": 0.00134178125,
+      "rows": 4,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": 92.2758597569493,
+      "metile_seconds": 0.00022371875,
+      "mlx_bandwidth": 92.49550266031925,
+      "mlx_seconds": 0.0002231875,
+      "rows": 4,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": 120.43623762188508,
+      "metile_seconds": 0.00034281775,
+      "mlx_bandwidth": 119.77567994975462,
+      "mlx_seconds": 0.000344708375,
+      "rows": 4,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 125.1961758287909,
+      "metile_seconds": 0.00065956775,
+      "mlx_bandwidth": 74.84066179883493,
+      "mlx_seconds": 0.001103348875,
+      "rows": 8,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": 70.89535093367675,
+      "metile_seconds": 0.0002911875,
+      "mlx_bandwidth": 52.44336760211169,
+      "mlx_seconds": 0.000393640625,
+      "rows": 8,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": 84.75968053720415,
+      "metile_seconds": 0.000487114625,
+      "mlx_bandwidth": 84.70805469300582,
+      "mlx_seconds": 0.0004874115,
+      "rows": 8,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 108.14486044036998,
+      "metile_seconds": 0.0007635625,
+      "mlx_bandwidth": 69.5859726414345,
+      "mlx_seconds": 0.00118666675,
+      "rows": 16,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": 44.45709283375784,
+      "metile_seconds": 0.00046435425,
+      "mlx_bandwidth": 33.836577929099825,
+      "mlx_seconds": 0.00061010425,
+      "rows": 16,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": 62.284783722075694,
+      "metile_seconds": 0.0006628855,
+      "mlx_bandwidth": 62.37203026021656,
+      "mlx_seconds": 0.00066195825,
+      "rows": 16,
+      "weight_bytes": 41287680
+    },
+    {
+      "format": "bf16",
+      "metile_bandwidth": 73.35956468628538,
+      "metile_seconds": 0.001125625,
+      "mlx_bandwidth": 67.51179151762902,
+      "mlx_seconds": 0.001223125,
+      "rows": 32,
+      "weight_bytes": 82575360
+    },
+    {
+      "format": "int4",
+      "metile_bandwidth": 37.17658202943859,
+      "metile_seconds": 0.0005552915,
+      "mlx_bandwidth": 30.890449085130452,
+      "mlx_seconds": 0.000668292,
+      "rows": 32,
+      "weight_bytes": 20643840
+    },
+    {
+      "format": "int8",
+      "metile_bandwidth": 56.52780135707205,
+      "metile_seconds": 0.000730396,
+      "mlx_bandwidth": 56.772334135441724,
+      "mlx_seconds": 0.00072725,
+      "rows": 32,
+      "weight_bytes": 41287680
+    }
+  ],
+  "hardware": {
+    "chip": "Apple M5",
+    "machine": "arm64",
+    "memory": "32 GB",
+    "model_name": "Mac17,2",
+    "processor": "arm",
+    "release": "25.2.0",
+    "system": "Darwin"
+  },
+  "precision_comparison": {
+    "class": "same_representation",
+    "same_weight_representation": true
+  },
+  "prefill_rows": 127,
+  "recorded_at": "2026-07-29T09:48:24.304084+00:00",
+  "reduction": 8192,
+  "revision": "74fad7054f61947bc62fef6cad96631e10d532b6",
+  "rounds": 15,
+  "schema_version": 1,
+  "scope": "shape_sensitivity",
+  "shape": {
+    "hidden": 1536,
+    "intermediate": 8960
+  },
+  "software": {
+    "mlx": "0.32.0",
+    "mlx_lm": "0.31.3",
+    "python": "3.12.12"
+  },
+  "width_sweep": [
+    {
+      "metile_seconds": 0.000230802,
+      "mlx_seconds": 0.000649604,
+      "model": "",
+      "output_features": 1024,
+      "speedup": 2.8145510004246064
+    },
+    {
+      "metile_seconds": 0.00034246875,
+      "mlx_seconds": 0.00095054175,
+      "model": "Qwen2.5 1.5B",
+      "output_features": 1536,
+      "speedup": 2.775557623870791
+    },
+    {
+      "metile_seconds": 0.000389552,
+      "mlx_seconds": 0.00123134375,
+      "model": "Llama 3.2 1B",
+      "output_features": 2048,
+      "speedup": 3.1609226752782686
+    },
+    {
+      "metile_seconds": 0.00041665625,
+      "mlx_seconds": 0.00049010425,
+      "model": "",
+      "output_features": 2560,
+      "speedup": 1.1762796069901746
+    },
+    {
+      "metile_seconds": 0.00053844775,
+      "mlx_seconds": 0.00057290625,
+      "model": "Llama 3.2 3B",
+      "output_features": 3072,
+      "speedup": 1.0639959958974663
+    },
+    {
+      "metile_seconds": 0.0006863125,
+      "mlx_seconds": 0.00074747925,
+      "model": "",
+      "output_features": 4096,
+      "speedup": 1.0891237592204717
+    },
+    {
+      "metile_seconds": 0.0007853125,
+      "mlx_seconds": 0.0009059585,
+      "model": "",
+      "output_features": 5120,
+      "speedup": 1.1536280143255073
+    },
+    {
+      "metile_seconds": 0.00141003125,
+      "mlx_seconds": 0.00140791675,
+      "model": "",
+      "output_features": 8192,
+      "speedup": 0.998500387846014
+    }
+  ]
+}

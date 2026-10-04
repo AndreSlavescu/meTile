@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 900" role="img" aria-labelledby="title description">
   <title id="title">meTile compiler and guarded runtime architecture</title>
-  <desc id="description">A left-to-right compiler diagram. High-level compute graphs pass through proof-carrying FlashAttention discovery and cut-exact fusion selection, while Python kernel programs trace into Tile IR. Both paths enter composable optimization and linear, Morton, or Hilbert schedule search, lower through M5-aware Metal IR to MSL and the Metal toolchain, then race generated candidates against a preserved native MLX candidate under guarded runtime dispatch. A dedicated bottom gutter carries measured tuning feedback without crossing the compiler flow.</desc>
+  <desc id="description">A left-to-right compiler diagram. High-level compute graphs pass through proof-carrying FlashAttention discovery and fusion selection, using min-cut for bipartite conflicts and greedy selection otherwise. Python kernel programs trace into Tile IR. Both paths enter optimization and schedule search, then lower through Metal IR to MSL and the Metal toolchain. MLX integration compares generated candidates with a native MLX reference under guarded runtime dispatch. Custom kernels require their own numerical checks. A bottom gutter carries measured tuning feedback.</desc>
   <defs>
     <style>
       text {
@@ -78,8 +78,8 @@
 
   <g id="graph-fusion">
     <rect x="504" y="156" width="202" height="128" rx="5" fill="#f6e1e6" class="box"/>
-    <text x="518" y="181" class="title">Cut-exact graph fusion</text>
-    <text x="518" y="204" class="small">global bipartite min-cut</text>
+    <text x="518" y="181" class="title">Conflict-aware fusion</text>
+    <text x="518" y="204" class="small">bipartite min-cut / greedy</text>
     <text x="518" y="224" class="small">legality + resource limits</text>
     <text x="518" y="244" class="small">profitable disjoint regions</text>
     <text x="518" y="266" class="mono tiny">flash_attn · add+rms_norm</text>
@@ -236,6 +236,6 @@
     <text x="647" y="850" class="small">optimization search</text>
     <rect x="807" y="840" width="12" height="12" fill="#e9ddf5" stroke="#282d35"/>
     <text x="829" y="850" class="small">framework / toolchain</text>
-    <text x="42" y="880" class="subheading">Every speculative rewrite or generated kernel retains a proof, numerical gate, or exact reference path.</text>
+    <text x="42" y="880" class="subheading">Symbolic proofs and target checks guide lowering; MLX integrations add numerical gates. Test custom kernels before tuning.</text>
   </g>
 </svg>

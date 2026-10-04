@@ -4,13 +4,15 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="next" title="Installation" href="getting-started/install.html">
+        <link rel="prefetch" href="_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+    <link rel="shortcut icon" href="_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>meTile</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="#">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="guide/architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="guide/language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="guide/memory.html">Memory Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="guide/autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="guide/graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="guide/mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/reference.html">API Reference</a></li>
@@ -258,86 +281,115 @@
         <article role="main" id="furo-main-content">
           <section id="metile">
 <h1>meTile<a class="headerlink" href="#metile" title="Link to this heading">¶</a></h1>
-<p><strong>Tile-based GPU programming in Python for Apple Silicon.</strong></p>
-<p>Write GPU kernels in Python, compile them to Metal. No Objective-C, no Swift, no CUDA.</p>
+<p><strong>GPU kernels in Python. Compiled for Apple silicon.</strong></p>
+<p>Write the computation in Python without writing Objective-C, Swift or a Metal
+shader by hand. Declare tensor memory at the top of the kernel, then let meTile
+lower the operations. Explicit layouts and schedules give you more control when
+you need it.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">Out</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
-    <span class="n">pid</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">offs</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
-    <span class="n">mask</span> <span class="o">=</span> <span class="n">offs</span> <span class="o">&lt;</span> <span class="n">N</span>
-    <span class="n">x</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">X</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-    <span class="n">y</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">Y</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
-    <span class="n">metile</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">Out</span> <span class="o">+</span> <span class="n">offs</span><span class="p">,</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="n">left</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">N</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">right</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">N</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">Out</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">N</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
+    <span class="n">offsets</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
+    <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">offsets</span><span class="p">,),</span> <span class="n">left</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">offsets</span><span class="p">,))</span> <span class="o">+</span> <span class="n">right</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">offsets</span><span class="p">,)))</span>
 </pre></div>
 </div>
-<p>meTile traces your Python function, lowers it through multiple IR layers, and emits optimized
-<a class="reference external" href="https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf">Metal Shading Language</a>
-targeting simdgroup matrix ops and Metal 4 tensor_ops.</p>
-<section id="getting-started">
-<h2>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading">¶</a></h2>
+<p>Tensor descriptors generate the bounds masks in this example. The
+<a class="reference internal" href="getting-started/first-kernel.html"><span class="doc">first-kernel tutorial</span></a> includes allocation,
+launch and a numerical check.</p>
+<p>meTile traces Python into Tile IR, lowers it to Metal IR and emits Metal Shading
+Language. Apple’s compiler produces the device code. Available matrix backends
+depend on the GPU and toolchain; native tensor operations are not available on
+every Apple silicon Mac. See <a class="reference internal" href="guide/architecture.html"><span class="doc">Compiler Architecture</span></a> for the full path.</p>
+<section id="start-here">
+<h2>Start here<a class="headerlink" href="#start-here" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Write a kernel:</strong> install meTile and work through the first example.</p></li>
+<li><p><strong>Tune a kernel:</strong> learn tensor declarations before layouts and schedules.</p></li>
+<li><p><strong>Use MLX:</strong> read the integration guide and its correctness checks.</p></li>
+<li><p><strong>Evaluate performance:</strong> start with the benchmark methodology, not a headline speedup.</p></li>
+</ul>
 <div class="toctree-wrapper compound">
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="getting-started/install.html">Installation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/install.html#requirements">Requirements</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/install.html#install">Install</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/install.html#xcode-command-line-tools-optional">Xcode Command Line Tools (optional)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/install.html#verify-installation">Verify Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/install.html#install-from-the-repository">Install from the repository</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/install.html#metal-compiler-and-feature-support">Metal compiler and feature support</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/install.html#check-the-installation">Check the installation</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="getting-started/first-kernel.html">Your First Kernel</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/first-kernel.html#the-kernel">The Kernel</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/first-kernel.html#launching">Launching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/first-kernel.html#the-compilation-pipeline">The Compilation Pipeline</a></li>
-<li class="toctree-l2"><a class="reference internal" href="getting-started/first-kernel.html#what-s-next">What’s Next</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/first-kernel.html#write-the-kernel">Write the kernel</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/first-kernel.html#launch-and-check-the-result">Launch and check the result</a></li>
+<li class="toctree-l2"><a class="reference internal" href="getting-started/first-kernel.html#inspect-the-compilation">Inspect the compilation</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </section>
-<section id="programming-guide">
-<h2>Programming Guide<a class="headerlink" href="#programming-guide" title="Link to this heading">¶</a></h2>
+<section id="write-and-tune-kernels">
+<h2>Write and tune kernels<a class="headerlink" href="#write-and-tune-kernels" title="Link to this heading">¶</a></h2>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="guide/architecture.html">Compiler Architecture</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="guide/architecture.html#frontends-and-graph-planning">Frontends and Graph Planning</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/architecture.html#proof-carrying-discovery">Proof-Carrying Discovery</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/architecture.html#kernel-compilation">Kernel Compilation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/architecture.html#guarded-runtime">Guarded Runtime</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/language.html">Language Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#define-and-launch-a-kernel">Define and launch a kernel</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#program-identity-and-indices">Program identity and indices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#tensor-declarations">Tensor declarations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#raw-memory-operations">Raw memory operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#accumulators-and-matrix-multiply">Accumulators and matrix multiply</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#control-flow-and-scalar-state">Control flow and scalar state</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#math-and-conversions">Math and conversions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#reductions">Reductions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#thread-and-simdgroup-operations">Thread and SIMDgroup operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/language.html#ownership-and-schedules">Ownership and schedules</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="guide/language.html">Language Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#kernel-definition">Kernel Definition</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#launching-kernels">Launching Kernels</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#program-identity">Program Identity</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#index-generation">Index Generation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#element-wise-memory-access">Element-wise Memory Access</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#tile-memory-access">Tile Memory Access</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#matrix-multiply">Matrix Multiply</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#control-flow">Control Flow</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#math-operations">Math Operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#reductions">Reductions</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#advanced-simdgroup-operations">Advanced: Simdgroup Operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/language.html#tile-scheduling">Tile Scheduling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/tensor-memory.html">Tensor and Memory Contracts</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#declare-data-before-computation">Declare data before computation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#three-separate-compiler-facts">Three separate compiler facts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#legality-before-optimization">Legality before optimization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#related-compiler-designs">Related compiler designs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#placement-and-fusion-on-apple-gpus">Placement and fusion on Apple GPUs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#pipeline-and-synchronization-requirements">Pipeline and synchronization requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#current-coverage-and-next-steps">Current coverage and next steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tensor-memory.html#reproduce-the-tensor-kernel-comparison">Reproduce the tensor-kernel comparison</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="guide/memory.html">Memory Model</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#buffers">Buffers</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#inside-kernels">Inside Kernels</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#masking">Masking</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#shared-threadgroup-memory">Shared (Threadgroup) Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#allocation-and-ownership">Allocation and ownership</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#passing-numpy-arrays-directly">Passing NumPy arrays directly</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#logical-bounds">Logical bounds</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/memory.html#threadgroup-memory">Threadgroup memory</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="guide/tile-ops.html">Tile Operations &amp; Hardware Mapping</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#the-two-backends">The Two Backends</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#how-tiling-works">How Tiling Works</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#compiler-constexprs">Compiler Constexprs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#fused-epilogues">Fused Epilogues</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#tile-scheduling">Tile Scheduling</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#composable-nax-fragment-lowering">Composable NAX Fragment Lowering</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#block-scaled-register-fragments">Block-Scaled Register Fragments</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#affine-uint4-register-fragments">Affine Uint4 Register Fragments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/tile-ops.html">Tile Operations and Hardware Mapping</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#matrix-backends">Matrix backends</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#how-tiling-works">How tiling works</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#pointwise-epilogues">Pointwise epilogues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#tile-traversal">Tile traversal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#fragment-operations-and-live-values">Fragment operations and live values</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/tile-ops.html#packed-weight-paths">Packed-weight paths</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guide/execution-schedules.html">Execution Schedules and Fusion</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/execution-schedules.html#checked-expert-controls">Checked expert controls</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/execution-schedules.html#inspect-the-materialized-kernel">Inspect the materialized kernel</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/execution-schedules.html#pointwise-gemm-epilogues">Pointwise GEMM epilogues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/execution-schedules.html#tuning-and-measurement">Tuning and measurement</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/execution-schedules.html#recorded-results">Recorded results</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="guide/thread-layouts.html">Thread Ownership and Software Staging</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#declare-memory-first-then-ownership">Declare memory first, then ownership</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#compiler-selected-communication">Compiler-selected communication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#register-tiled-reductions">Register-tiled reductions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#contiguous-register-memory">Contiguous register memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#eliminating-redundant-conversions">Eliminating redundant conversions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#verified-two-stage-matrix-pipelines">Verified two-stage matrix pipelines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#research-and-remaining-work">Research and remaining work</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/thread-layouts.html#measurements-and-reproduction">Measurements and reproduction</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="guide/autotuning.html">Autotuning</a><ul>
@@ -350,71 +402,94 @@ targeting simdgroup matrix ops and Metal 4 tensor_ops.</p>
 <li class="toctree-l2"><a class="reference internal" href="guide/autotuning.html#prepared-dispatch">Prepared Dispatch</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="guide/graph-fusion.html">Compute-Graph Fusion</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="guide/graph-fusion.html#automatic-gated-epilogues">Automatic Gated Epilogues</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/graph-fusion.html#max-flow-selection">Max-Flow Selection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/graph-fusion.html#measured-dispatch">Measured Dispatch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/training.html">Training kernels and gradients</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#normalization">Normalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#gated-activations">Gated activations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#rotary-embeddings">Rotary embeddings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#softmax-and-cross-entropy">Softmax and cross entropy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#dense-products">Dense products</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#stable-softmax-attention">Stable softmax attention</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#different-attention-mechanisms-stay-different">Different attention mechanisms stay different</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#expression-vjps-inside-the-dsl">Expression VJPs inside the DSL</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/training.html#explicit-state-and-strict-math">Explicit state and strict math</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="guide/mlx-backend.html">MLX-LM Backend</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="guide/mlx-backend.html#dispatch-policy">Dispatch Policy</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/mlx-backend.html#block-scaled-mlx-primitive">Block-Scaled MLX Primitive</a></li>
-<li class="toctree-l2"><a class="reference internal" href="guide/mlx-backend.html#model-benchmark">Model Benchmark</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/kernel-coverage.html">Kernel coverage and training scope</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#status-key">Status key</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#normalization">Normalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#activations-projections-and-positions">Activations, projections and positions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#reductions-and-attention-like-operators">Reductions and attention-like operators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#losses">Losses</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#experimental-operators-and-metile-extras">Experimental operators and meTile extras</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#exact-native-normalization-contract">Exact native normalization contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guide/kernel-coverage.html#what-remains-before-claiming-parity">What remains before claiming parity</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </section>
 <section id="kernel-examples">
-<h2>Kernel Examples<a class="headerlink" href="#kernel-examples" title="Link to this heading">¶</a></h2>
+<h2>Kernel examples<a class="headerlink" href="#kernel-examples" title="Link to this heading">¶</a></h2>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="examples/vector-add.html">Vector Addition</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="examples/vector-add.html#concepts-introduced">Concepts Introduced</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="examples/vector-add.html">Vector Addition</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples/softmax.html">Softmax</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="examples/softmax.html#launching">Launching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/softmax.html#concepts-introduced">Concepts Introduced</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/softmax.html#mask-the-reduction-too">Mask the reduction, too</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="examples/attention.html">Decode Attention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/attention.html">Decode Attention</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="examples/attention.html#run-a-small-gqa-example">Run a small GQA example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/attention.html#preparation-and-reuse">Preparation and reuse</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/attention.html#inside-the-recurrence">Inside the recurrence</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="examples/matmul.html">Matrix Multiply (GEMM)</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#basic-gemm">Basic GEMM</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#launching">Launching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#how-it-works">How It Works</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#fused-gemm-relu">Fused GEMM + ReLU</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#tile-swizzle-for-cache-locality">Tile Swizzle for Cache Locality</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#autotuning">Autotuning</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#concepts-introduced">Concepts Introduced</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#how-the-tiles-fit-together">How the tiles fit together</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#fuse-an-activation">Fuse an activation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/matmul.html#tune-the-tile-sizes">Tune the tile sizes</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="examples/layernorm.html">Layer Normalization</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="examples/layernorm.html#kernel">Kernel</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/layernorm.html#launching">Launching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/layernorm.html#concepts-introduced">Concepts Introduced</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="examples/fused-activations.html#simple-activations">Simple Activations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/fused-activations.html#fused-gemm-activation">Fused GEMM + Activation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/fused-activations.html#simdgroup-roles">Simdgroup Roles</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/fused-activations.html#geglu-gated-gelu">GEGLU (Gated GELU)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="examples/fused-activations.html#concepts-introduced">Concepts Introduced</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/layernorm.html">Layer Normalization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="examples/fused-activations.html#gemm-epilogues">GEMM epilogues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples/fused-activations.html#when-to-use-simdgroup-roles">When to use SIMDgroup roles</a></li>
 </ul>
 </li>
 </ul>
 </div>
 </section>
+<section id="benchmarks-and-integration">
+<h2>Benchmarks and integration<a class="headerlink" href="#benchmarks-and-integration" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+</div>
+</section>
+<section id="compiler-internals">
+<h2>Compiler internals<a class="headerlink" href="#compiler-internals" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="guide/architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide/references.html">Research references</a></li>
+</ul>
+</div>
+</section>
 <section id="api-reference">
-<h2>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h2>
+<h2>API reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h2>
 <div class="toctree-wrapper compound">
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/reference.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/reference.html#training-and-manual-vjps">Training and Manual VJPs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#kernel-definition-launch">Kernel Definition &amp; Launch</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#buffers">Buffers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#program-identity">Program Identity</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#index-generation">Index Generation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/reference.html#thread-ownership">Thread Ownership</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/reference.html#tensor-views">Tensor Views</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#element-wise-memory">Element-wise Memory</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#tile-memory">Tile Memory</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#control-flow">Control Flow</a></li>
@@ -424,6 +499,8 @@ targeting simdgroup matrix ops and Metal 4 tensor_ops.</p>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#tile-scheduling">Tile Scheduling</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#autotuning">Autotuning</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/reference.html#block-scaling">Block Scaling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/reference.html#model-integration">Model Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/reference.html#related-host-apis">Related Host APIs</a></li>
 </ul>
 </li>
 </ul>
@@ -477,10 +554,12 @@ targeting simdgroup matrix ops and Metal 4 tensor_ops.</p>
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">meTile</a><ul>
-<li><a class="reference internal" href="#getting-started">Getting Started</a></li>
-<li><a class="reference internal" href="#programming-guide">Programming Guide</a></li>
-<li><a class="reference internal" href="#kernel-examples">Kernel Examples</a></li>
-<li><a class="reference internal" href="#api-reference">API Reference</a></li>
+<li><a class="reference internal" href="#start-here">Start here</a></li>
+<li><a class="reference internal" href="#write-and-tune-kernels">Write and tune kernels</a></li>
+<li><a class="reference internal" href="#kernel-examples">Kernel examples</a></li>
+<li><a class="reference internal" href="#benchmarks-and-integration">Benchmarks and integration</a></li>
+<li><a class="reference internal" href="#compiler-internals">Compiler internals</a></li>
+<li><a class="reference internal" href="#api-reference">API reference</a></li>
 </ul>
 </li>
 </ul>

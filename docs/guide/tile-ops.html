@@ -3,14 +3,16 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Autotuning" href="autotuning.html"><link rel="prev" title="Memory Model" href="memory.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Execution Schedules and Fusion" href="execution-schedules.html"><link rel="prev" title="Memory Model" href="memory.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
 
-    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Tile Operations &amp; Hardware Mapping - meTile</title>
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Tile Operations and Hardware Mapping - meTile</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
     
     
 
@@ -19,18 +21,24 @@
   body {
     --color-code-background: #f0f0f0;
   --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
   
   }
   @media not print {
     body[data-theme="dark"] {
       --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
     }
     @media (prefers-color-scheme: dark) {
       body:not([data-theme="light"]) {
         --color-code-background: #272822;
   --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
   
       }
     }
@@ -182,6 +190,9 @@
     <div class="sidebar-container">
       
       <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
   
   <span class="sidebar-brand-text">meTile</span>
   
@@ -196,13 +207,15 @@
 <li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
 </ul>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Tile Operations &amp; Hardware Mapping</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="thread-layouts.html">Thread Ownership and Software Staging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
-<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
-<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
@@ -210,7 +223,17 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations &amp; Simdgroup Roles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
@@ -256,178 +279,171 @@
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section id="tile-operations-hardware-mapping">
-<h1>Tile Operations &amp; Hardware Mapping<a class="headerlink" href="#tile-operations-hardware-mapping" title="Link to this heading">¶</a></h1>
-<p>meTile’s tile operations are the bridge between your Python code and Apple GPU hardware.
-This page explains how <code class="docutils literal notranslate"><span class="pre">dot</span></code>, <code class="docutils literal notranslate"><span class="pre">tile_load</span></code>, and <code class="docutils literal notranslate"><span class="pre">tile_store</span></code> map to the actual
-hardware instructions.</p>
-<section id="the-two-backends">
-<h2>The Two Backends<a class="headerlink" href="#the-two-backends" title="Link to this heading">¶</a></h2>
-<p>meTile automatically selects the best backend for your hardware when compiling GEMM kernels:</p>
-<dl class="simple">
-<dt><strong>Simdgroup Matrix</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;float,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code>, Apple’s 8x8 matrix multiply-accumulate
-primitive. Each simdgroup (32 threads) collaboratively computes an 8x8 tile.
-The compiler tiles the output across multiple simdgroups and uses threadgroup
-(shared) memory to stage data.</p>
-</dd>
-<dt><strong>Metal 4 Tensor Ops</strong></dt><dd><p>Uses <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> with <code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code>, Metal 4’s hardware matrix multiply
-descriptors. On supported GPU/toolchain combinations, each simdgroup can load
-data from device memory into register-resident cooperative tensors and run the MMA.
-The tuned M5 path also supports explicit NAX fragment load/MMA/store operations.</p>
-</dd>
-</dl>
-<p>You write the same kernel code for both. The <code class="docutils literal notranslate"><span class="pre">lower()</span></code> function in the compiler inspects
-your hardware and chooses the right path.</p>
+          <section id="tile-operations-and-hardware-mapping">
+<h1>Tile Operations and Hardware Mapping<a class="headerlink" href="#tile-operations-and-hardware-mapping" title="Link to this heading">¶</a></h1>
+<p>A matrix tile describes a piece of the computation, not a fixed set of GPU
+instructions. The compiler chooses how threads load that tile, hold its
+accumulators, and perform <code class="docutils literal notranslate"><span class="pre">dot</span></code>. Tile sizes, dtype, device capabilities,
+and schedule requirements all constrain that choice.</p>
+<p>Start with <a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> for a runnable example. New kernels should
+declare <code class="docutils literal notranslate"><span class="pre">metile.tensor(...,</span> <span class="pre">block_shape=...)</span></code> views so the compiler knows
+their dimensions, bounds, and memory layouts. The older <code class="docutils literal notranslate"><span class="pre">tile_load</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tile_store</span></code> interface remains available for existing kernels.</p>
+<section id="matrix-backends">
+<h2>Matrix backends<a class="headerlink" href="#matrix-backends" title="Link to this heading">¶</a></h2>
+<p><strong>SIMDgroup matrix operations</strong> use <code class="docutils literal notranslate"><span class="pre">simdgroup_matrix&lt;...,</span> <span class="pre">8,</span> <span class="pre">8&gt;</span></code> fragments.
+Threads cooperate to stage inputs in threadgroup memory, and each 32-thread
+SIMDgroup computes matrix fragments. Several fragments and SIMDgroups cover a
+larger program-owned output tile.</p>
+<p><strong>Metal 4 tensor operations</strong> use <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> and <code class="docutils literal notranslate"><span class="pre">cooperative_tensor</span></code>.
+meTile checks both the runtime GPU family and whether the selected offline
+compiler accepts the required Metal 4 headers and language standard. The
+standard GEMM planner selects direct device loads for this path. Explicit
+threadgroup-staging requirements select the SIMDgroup matrix path instead.</p>
+<p><strong>NAX fragment lowering</strong> expresses the direct tensor-ops path as smaller
+Metal IR operations. It is tuned for the M5 workloads measured in this
+repository. Its current matrix schedule requires 32-by-32 output fragments
+per SIMDgroup, a reduction tile of 16, and aligned output-column and reduction
+dimensions. It is not a fallback for arbitrary ragged matrices.</p>
+<p>Automatic selection chooses an admissible lowering; it does not benchmark
+every backend during an ordinary kernel launch. Use autotuning to compare
+candidate schedules, or <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> to request a
+specific supported plan. See <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
 </section>
 <section id="how-tiling-works">
-<h2>How Tiling Works<a class="headerlink" href="#how-tiling-works" title="Link to this heading">¶</a></h2>
-<p>A GEMM kernel tiles the computation into blocks. Each program instance computes
-one output tile, iterating over K to accumulate partial products:</p>
-<a class="reference internal image-reference" href="../_images/tiling-overview.svg"><img alt="Output matrix tiled into blocks, with K-loop detail showing tile_load and dot accumulation" src="../_images/tiling-overview.svg" style="width: 100%;" />
+<h2>How tiling works<a class="headerlink" href="#how-tiling-works" title="Link to this heading">¶</a></h2>
+<a class="reference internal image-reference" href="../_images/tiling-overview.svg"><img alt="Programs own output tiles and accumulate products from paired tiles along the reduction axis" src="../_images/tiling-overview.svg" style="width: 100%;" />
 </a>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">):</span>
-    <span class="n">a</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">row</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="p">))</span>
-    <span class="n">b</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_load</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">col</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="p">(</span><span class="n">BLOCK_K</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">))</span>
-    <span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>    <span class="c1"># acc += a @ b</span>
-</pre></div>
-</div>
-</section>
-<section id="compiler-constexprs">
-<h2>Compiler Constexprs<a class="headerlink" href="#compiler-constexprs" title="Link to this heading">¶</a></h2>
-<p>The tile sizes are compile-time constants that control how the hardware is used:</p>
-<div class="table-wrapper docutils container">
+<p>A program owns one <code class="docutils literal notranslate"><span class="pre">BLOCK_M</span></code>-by-<code class="docutils literal notranslate"><span class="pre">BLOCK_N</span></code> output tile. It initializes
+a float32 accumulator, then iterates over the reduction dimension in
+<code class="docutils literal notranslate"><span class="pre">BLOCK_K</span></code> steps. Each <code class="docutils literal notranslate"><span class="pre">dot</span></code> adds a left/right tile product to that
+accumulator. The completed tile is stored once after the loop.</p>
+<p>Tensor descriptors supply logical bounds for partial loads and stores.
+Current matrix lowering requires matching float32 or float16 input/output
+storage and supported contiguous row-major layouts. The output must use a
+separate allocation from the inputs. Declaring arbitrary strides does not
+make them valid for every backend, and the caller must provide the storage
+described by the declared bounds.</p>
+<div class="table-wrapper colwidths-given docutils container">
 <table class="docutils align-default">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 50.0%" />
+<col style="width: 30.0%" />
+</colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>Constexpr</p></th>
+<tr class="row-odd"><th class="head"><p>Setting</p></th>
 <th class="head"><p>Meaning</p></th>
-<th class="head"><p>Typical Values</p></th>
+<th class="head"><p>Example values</p></th>
 </tr>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BLOCK_M</span></code></p></td>
-<td><p>Output tile rows</p></td>
-<td><p>64, 128</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BLOCK_N</span></code></p></td>
-<td><p>Output tile columns</p></td>
-<td><p>64, 128</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BLOCK_K</span></code></p></td>
-<td><p>K-loop step size</p></td>
+<td><p>Output rows owned by a program</p></td>
 <td><p>32, 64, 128</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">WM</span></code></p></td>
-<td><p>Simdgroup grid rows (tensor_ops only)</p></td>
-<td><p>2, 4</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BLOCK_N</span></code></p></td>
+<td><p>Output columns owned by a program</p></td>
+<td><p>32, 64, 128</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">WN</span></code></p></td>
-<td><p>Simdgroup grid cols (tensor_ops only)</p></td>
-<td><p>2, 4</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BLOCK_K</span></code></p></td>
+<td><p>Reduction tile width</p></td>
+<td><p>16, 32, 64</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">WM</span></code>, <code class="docutils literal notranslate"><span class="pre">WN</span></code></p></td>
+<td><p>Requested SIMDgroup grid over the output tile</p></td>
+<td><p>2-by-2 or 4-by-4</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">WM</span></code> and <code class="docutils literal notranslate"><span class="pre">WN</span></code> control how many simdgroups tile the output block. With <code class="docutils literal notranslate"><span class="pre">WM=4,</span> <span class="pre">WN=4</span></code>,
-16 simdgroups each handle a <code class="docutils literal notranslate"><span class="pre">(BLOCK_M/WM)</span> <span class="pre">x</span> <span class="pre">(BLOCK_N/WN)</span></code> = 32x32 subtile:</p>
-<a class="reference internal image-reference" href="../_images/simdgroup-layout.svg"><img alt="4x4 simdgroup grid layout, 16 simdgroups each handling a 32x32 subtile" src="../_images/simdgroup-layout.svg" style="width: 100%;" />
+<p>These values are examples, not freely interchangeable options. The planner
+checks thread count, matrix fragment geometry, shared memory, and backend
+constraints. With a 128-by-128 output tile and a 4-by-4 tensor-ops SIMDgroup
+grid, each of the 16 SIMDgroups owns a 32-by-32 subtile:</p>
+<a class="reference internal image-reference" href="../_images/simdgroup-layout.svg"><img alt="Sixteen SIMDgroups divide a 128 by 128 output tile into 32 by 32 subtiles" src="../_images/simdgroup-layout.svg" style="width: 100%;" />
 </a>
+<p>Float16 input storage can reduce bandwidth and register use while retaining
+float32 accumulation on supported paths. Float32 tensor-ops configurations
+may request relaxed precision. The accumulation dtype alone does not promise
+bitwise agreement with a CPU or another backend; validate the selected path
+against the accuracy requirements of the application.</p>
 </section>
-<section id="fused-epilogues">
-<h2>Fused Epilogues<a class="headerlink" href="#fused-epilogues" title="Link to this heading">¶</a></h2>
-<p>The compiler detects element-wise operations applied to the accumulator after the GEMM loop
-and fuses them into the kernel. No extra memory traffic:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">acc</span><span class="p">)</span>
-
-<span class="c1"># These are fused into the GEMM, no global memory round-trip</span>
-<span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">acc</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">acc</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>      <span class="c1"># ReLU</span>
-<span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">*</span> <span class="n">scale</span>                          <span class="c1"># scale</span>
-<span class="n">acc</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">acc</span><span class="p">)</span>                      <span class="c1"># unary</span>
-</pre></div>
-</div>
-<p>Supported epilogues: <code class="docutils literal notranslate"><span class="pre">where</span></code> (ReLU), <code class="docutils literal notranslate"><span class="pre">exp</span></code>, <code class="docutils literal notranslate"><span class="pre">log</span></code>, <code class="docutils literal notranslate"><span class="pre">sqrt</span></code>, <code class="docutils literal notranslate"><span class="pre">abs</span></code>, <code class="docutils literal notranslate"><span class="pre">tanh</span></code>,
-scalar multiply, scalar add.</p>
+<section id="pointwise-epilogues">
+<h2>Pointwise epilogues<a class="headerlink" href="#pointwise-epilogues" title="Link to this heading">¶</a></h2>
+<p>Supported arithmetic after the reduction loop can be applied before the
+output store. ReLU, scaling, and suitable GELU or SiLU expressions can thereby
+avoid an intermediate device-memory write/read and a second kernel launch.</p>
+<p>The descriptor epilogue extractor follows the stored expression’s dependency
+graph. It supports selected unary, arithmetic, comparison, selection, and cast
+operations rooted in the float32 accumulator, with independent scalar
+coefficients. Extra memory accesses, reductions, incompatible tile types,
+and unsupported control flow are outside this contract.</p>
+<p>Fusion still costs arithmetic and registers. Whether it is faster depends
+on the complete kernel. Inspect <code class="docutils literal notranslate"><span class="pre">dispatch.explain()</span></code> and measure the
+fused candidate rather than treating every epilogue as free. The complete
+contract is in <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
 </section>
-<section id="tile-scheduling">
-<h2>Tile Scheduling<a class="headerlink" href="#tile-scheduling" title="Link to this heading">¶</a></h2>
-<p>For 2D grids, the order in which tiles are assigned to threadgroups affects L2 cache locality.
-meTile supports several scheduling patterns:</p>
-<a class="reference internal image-reference" href="../_images/morton-swizzle.svg"><img alt="Morton Z-order vs linear tile scheduling, showing how 2x2 blocks share L2 cache" src="../_images/morton-swizzle.svg" style="width: 100%;" />
+<section id="tile-traversal">
+<h2>Tile traversal<a class="headerlink" href="#tile-traversal" title="Link to this heading">¶</a></h2>
+<p>Changing the mapping from threadgroups to output coordinates can improve
+reuse of input regions in cache. It does not guarantee the order in which
+the GPU physically executes threadgroups.</p>
+<a class="reference internal image-reference" href="../_images/morton-swizzle.svg"><img alt="Linear and Morton mappings visit output tiles in different coordinate orders" src="../_images/morton-swizzle.svg" style="width: 100%;" />
 </a>
-<dl class="simple">
-<dt><strong>Diagonal</strong>:</dt><dd><p>Column assignment is rotated by the row index. Distributes memory traffic.</p>
-</dd>
-<dt><strong>Linear</strong>:</dt><dd><p>Simple row-major assignment. No locality optimization.</p>
-</dd>
-<dt><strong>Grouped-2/4/8</strong>:</dt><dd><p>Visits a short group of neighboring M tiles before advancing N, increasing reuse
-of the same B region for shapes where that order wins.</p>
-</dd>
-<dt><strong>Morton</strong>:</dt><dd><p>Visits complete 2x2 panels in Z order.</p>
-</dd>
-<dt><strong>Hilbert</strong>:</dt><dd><p>Visits complete 4x4 panels along a Hilbert curve with unit-distance steps
-inside each panel.</p>
-</dd>
-</dl>
-<p>The compiler represents each schedule as a finite permutation, removes candidates
-that are equivalent under shape-preserving symmetries, and searches the remaining
-representatives. You can override it:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pid_m</span><span class="p">,</span> <span class="n">pid_n</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_swizzle</span><span class="p">(</span>
+<p>The supported patterns include:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">linear</span></code>: a simple baseline mapping.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">diagonal</span></code>: rotate a column coordinate according to its row.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">grouped2</span></code>, <code class="docutils literal notranslate"><span class="pre">grouped4</span></code>, <code class="docutils literal notranslate"><span class="pre">grouped8</span></code>: traverse small groups of
+neighboring output-row tiles before moving across columns.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">morton</span></code>: traverse complete 2-by-2 panels in Z order.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hilbert</span></code>: traverse complete 4-by-4 panels with a Hilbert mapping.</p></li>
+</ul>
+<p>Inside a matrix kernel, an explicit request looks like this:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">tile_row</span><span class="p">,</span> <span class="n">tile_column</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_swizzle</span><span class="p">(</span>
     <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
     <span class="n">pattern</span><span class="o">=</span><span class="s2">"morton"</span><span class="p">,</span> <span class="n">block_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">block_size=4</span></code> for Hilbert. Morton and Hilbert requests fall back to
+a valid traversal when the grid cannot be divided into their required panels.
+With <code class="docutils literal notranslate"><span class="pre">pattern=&quot;auto&quot;</span></code>, schedule algebra compares finite permutations and
+removes equivalent candidates before selection. This compiler search is
+distinct from timing candidates on the GPU.</p>
 </section>
-<section id="composable-nax-fragment-lowering">
-<h2>Composable NAX Fragment Lowering<a class="headerlink" href="#composable-nax-fragment-lowering" title="Link to this heading">¶</a></h2>
-<p>The M5 register path does not emit a whole GEMM template. Initial lowering produces
-compact NAX setup, reduction, epilogue, and store operations. The
-<code class="docutils literal notranslate"><span class="pre">decompose_nax_fragments</span></code> Metal IR pass expands them into independently transformable
-operations for tile/lane layout, accumulator initialization, vector fragment loads,
-cooperative-tensor packing, native <code class="docutils literal notranslate"><span class="pre">matmul2d</span></code> MMA, per-fragment element-wise apply,
-and fragment stores. GELU, SiLU, ReLU, and other detected chains therefore remain
-register-resident on the direct NAX path rather than forcing a slower lowering family.</p>
-<p>The autotuner can therefore vary reduction epochs and preload two adjacent K fragments
-before issuing their MMAs without changing the frontend kernel. Epoch pointers reduce
-address arithmetic, static aligned dimensions remove scalar buffer bindings, and the
-runtime measures one- and two-fragment representations per problem shape. A separate
-candidate skips only the redundant first epoch barrier while preserving the fences that
-bound compiler scheduling and register live ranges between epochs. Another candidate
-moves those fences to the tails of non-final epochs, which gives the Metal compiler a
-different but equivalent live-range boundary for sustained reductions. The preload
-form is retained only for dense GEMM; measurements show that applying it to fused MXFP
-decode increases register pressure. Block-scaled lowering instead keeps decoded weights
-single-step-live while optionally pairing two K steps and reusing their common E8M0
-scale fragments. This reduces scale traffic and loop overhead without retaining both
-decoded weight fragments across an MMA.</p>
+<section id="fragment-operations-and-live-values">
+<h2>Fragment operations and live values<a class="headerlink" href="#fragment-operations-and-live-values" title="Link to this heading">¶</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">decompose_nax_fragments</span></code> pass expands NAX setup, reduction,
+epilogue, and store operations into smaller pieces: tile/lane layout,
+accumulator initialization, vector fragment loads, cooperative-tensor
+packing, matrix multiply, pointwise apply, and fragment stores. Passes can
+then transform those pieces without substituting an entire shader template.</p>
+<p>Dense GEMM candidates vary reduction epochs and may preload two adjacent
+reduction fragments before their matrix operations. Other candidates move
+epoch fences or omit a redundant initial fence. These choices change address
+arithmetic and the lifetimes of values, so their benefit depends on the shape
+and target. They belong to the measured search policy, not to the mathematical
+definition of <code class="docutils literal notranslate"><span class="pre">dot</span></code>.</p>
 </section>
-<section id="block-scaled-register-fragments">
-<h2>Block-Scaled Register Fragments<a class="headerlink" href="#block-scaled-register-fragments" title="Link to this heading">¶</a></h2>
-<p>MXFP4 and MXFP8 matmul lowering is composed from Metal IR operations for schedule
-selection, vectorized E2M1/E4M3 plus E8M0 decoding, fragment MMA, and stores. The
-autotuner compares conventional threadgroup staging with a direct M5 path that keeps
-decoded fragments and accumulators in registers. No dense weight tensor is
-materialized in global memory. Float and bfloat right-fragment representations
-are both measured because bfloat lowers register footprint on sustained M5 workloads
-while float can remain faster for launch-limited shapes. One- and two-step reduction
-forms are measured independently because paired scale reuse wins at small and medium K
-but can reduce occupancy on larger problems.</p>
-</section>
-<section id="affine-uint4-register-fragments">
-<h2>Affine Uint4 Register Fragments<a class="headerlink" href="#affine-uint4-register-fragments" title="Link to this heading">¶</a></h2>
-<p>Affine weight-only lowering uses the same fragment IR rather than a dedicated whole-kernel
-template. <code class="docutils literal notranslate"><span class="pre">MNaxLoadAffineParameters</span></code> reuses one FP16 scale/bias vector across a 64-value
-K group, <code class="docutils literal notranslate"><span class="pre">MNaxLoadAffineFragment</span></code> decodes K-major uint4 nibbles directly into half
-cooperative-tensor inputs, and masked left loads/stores specialize the one-row decode case.
-<code class="docutils literal notranslate"><span class="pre">MNaxBinaryFragment</span></code> composes gate and up accumulators with SwiGLU while they remain in
-registers. The MLX backend can therefore compare scalar output-major execution, native MLX,
-and this NAX representation without changing fusion legality or the frontend model graph.</p>
-<p>One-row gated projections can instead select a sequential fragment lifetime. The lowering
-uses <code class="docutils literal notranslate"><span class="pre">MNaxSpillFragment</span></code> and <code class="docutils literal notranslate"><span class="pre">MNaxReloadFragment</span></code> around
-<code class="docutils literal notranslate"><span class="pre">MNaxAccumulatorReset</span></code> rather than owning a second kernel template. Per-lane fragments are
-transposed in threadgroup scratch as <code class="docutils literal notranslate"><span class="pre">element</span> <span class="pre">*</span> <span class="pre">32</span> <span class="pre">+</span> <span class="pre">lane</span></code> so every SIMDgroup memory
-instruction reaches all 32 banks without conflict. Only the two live output fragments are
-computed; the masked rows that cannot contribute to a one-token result never receive an MMA.</p>
+<section id="packed-weight-paths">
+<h2>Packed-weight paths<a class="headerlink" href="#packed-weight-paths" title="Link to this heading">¶</a></h2>
+<p>MXFP4 and MXFP8 lowering decodes E2M1/E4M3 values and E8M0 scales as fragments
+are consumed. It can compare threadgroup staging with direct fragment
+execution without materializing the full dense weight matrix in device
+memory. Candidate fragment representations and paired reduction steps trade
+scale reuse against register pressure.</p>
+<p>Affine uint4 lowering uses the same fragment IR. Scale/bias loads are reused
+over supported 64-value reduction groups, and packed nibbles are decoded into
+half-precision matrix inputs. SwiGLU can combine gate and up accumulators
+while they are live. A sequential variant spills and reloads an intermediate
+fragment through threadgroup scratch to shorten overlapping lifetimes.</p>
+<p>These specialized paths have format, shape, and toolchain restrictions.
+The public block-scaled runtime currently requires output dimensions divisible
+by 64 and a reduction dimension divisible by 32, plus Metal 4 tensor-ops
+support. See <a class="reference internal" href="../api/reference.html"><span class="doc">API Reference</span></a> for its entry points and
+<a class="reference internal" href="mlx-backend.html"><span class="doc">MLX-LM Backend</span></a> for model-level integration.</p>
 </section>
 </section>
 
@@ -436,12 +452,12 @@ computed; the masked rows that cannot contribute to a one-token result never rec
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="autotuning.html">
+          <a class="next-page" href="execution-schedules.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Autotuning</div>
+                <div class="title">Execution Schedules and Fusion</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -486,15 +502,13 @@ computed; the masked rows that cannot contribute to a one-token result never rec
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Tile Operations &amp; Hardware Mapping</a><ul>
-<li><a class="reference internal" href="#the-two-backends">The Two Backends</a></li>
-<li><a class="reference internal" href="#how-tiling-works">How Tiling Works</a></li>
-<li><a class="reference internal" href="#compiler-constexprs">Compiler Constexprs</a></li>
-<li><a class="reference internal" href="#fused-epilogues">Fused Epilogues</a></li>
-<li><a class="reference internal" href="#tile-scheduling">Tile Scheduling</a></li>
-<li><a class="reference internal" href="#composable-nax-fragment-lowering">Composable NAX Fragment Lowering</a></li>
-<li><a class="reference internal" href="#block-scaled-register-fragments">Block-Scaled Register Fragments</a></li>
-<li><a class="reference internal" href="#affine-uint4-register-fragments">Affine Uint4 Register Fragments</a></li>
+<li><a class="reference internal" href="#">Tile Operations and Hardware Mapping</a><ul>
+<li><a class="reference internal" href="#matrix-backends">Matrix backends</a></li>
+<li><a class="reference internal" href="#how-tiling-works">How tiling works</a></li>
+<li><a class="reference internal" href="#pointwise-epilogues">Pointwise epilogues</a></li>
+<li><a class="reference internal" href="#tile-traversal">Tile traversal</a></li>
+<li><a class="reference internal" href="#fragment-operations-and-live-values">Fragment operations and live values</a></li>
+<li><a class="reference internal" href="#packed-weight-paths">Packed-weight paths</a></li>
 </ul>
 </li>
 </ul>

@@ -1,0 +1,5 @@
+Asset: metile-logo.png
+Method: built-in image_gen, transparent background.
+
+Final prompt:
+Use case: logo-brand. Create one original, polished logo MARK ONLY for meTile, a tile-based Python GPU compiler for Apple silicon. No text, no letters spelled out, no slogan. An intelligent geometric monogram suggesting a lowercase m built from a small, precise arrangement of interlocking square/parallelogram tiles, with a subtle ascending diagonal rhythm suggesting tiles being compiled into a fast execution path. Distinct silhouette, deliberate negative space, crisp geometric edges, sophisticated open-source developer-tool identity, not a generic processor icon. Flat graphic design with restrained depth from two contrasting blue/teal faces, consistent with blue and green technical charts. No neon glow, no chrome, no circuitry, no micro-details, no enclosing app-icon square, no Apple logo. Centered large mark, balanced margin, genuinely transparent background. Must read at small sizes on both white and dark navy documentation backgrounds. Produce a single square transparent PNG asset ready for a README and documentation header.

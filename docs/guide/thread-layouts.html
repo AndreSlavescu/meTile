@@ -1,0 +1,724 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Autotuning" href="autotuning.html"><link rel="prev" title="Execution Schedules and Fusion" href="execution-schedules.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
+
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Thread Ownership and Software Staging - meTile</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f0f0f0;
+  --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">meTile</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
+  
+  <span class="sidebar-brand-text">meTile</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Thread Ownership and Software Staging</a></li>
+<li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/blob/main/docs/guide/thread-layouts.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/edit/main/docs/guide/thread-layouts.rst" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="thread-ownership-and-software-staging">
+<h1>Thread Ownership and Software Staging<a class="headerlink" href="#thread-ownership-and-software-staging" title="Link to this heading">¶</a></h1>
+<p>Tensor declarations describe logical memory. Thread layouts describe which GPU
+thread owns each logical value. Keeping these separate lets the compiler select
+communication without putting pointer arithmetic, scratch arrays and barriers
+into every kernel definition.</p>
+<p>Explicit layouts support 1, 2, 4, 8, 16, or 32 scalar values per thread in
+straight-line programs using tensor descriptors. Multi-register paths also
+support FP32 sum reductions. The subset is deliberately limited; existing
+kernels keep their automatic execution path.</p>
+<section id="declare-memory-first-then-ownership">
+<h2>Declare memory first, then ownership<a class="headerlink" href="#declare-memory-first-then-ownership" title="Link to this heading">¶</a></h2>
+<p>This batched transpose reads contiguous input elements, redistributes ownership,
+and writes contiguous output elements:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
+
+<span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">transpose8</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">destination</span><span class="p">,</span> <span class="n">batches</span><span class="p">,</span> <span class="n">OUTPUT_LAYOUT</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+    <span class="n">inputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">batches</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">outputs</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">destination</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">batches</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
+    <span class="n">batch</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span>
+    <span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">batch</span><span class="p">,</span> <span class="n">positions</span> <span class="o">//</span> <span class="mi">8</span><span class="p">,</span> <span class="n">positions</span> <span class="o">%</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="n">converted</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">convert_layout</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">OUTPUT_LAYOUT</span><span class="p">)</span>
+    <span class="n">owned</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">layout</span><span class="o">=</span><span class="n">OUTPUT_LAYOUT</span><span class="p">)</span>
+    <span class="n">outputs</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">batch</span><span class="p">,</span> <span class="n">owned</span> <span class="o">%</span> <span class="mi">8</span><span class="p">,</span> <span class="n">owned</span> <span class="o">//</span> <span class="mi">8</span><span class="p">),</span> <span class="n">converted</span><span class="p">)</span>
+
+<span class="n">transpose_layout</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">ThreadLayout</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+<span class="n">dispatch</span> <span class="o">=</span> <span class="n">transpose8</span><span class="p">[(</span><span class="n">batches</span><span class="p">,)]</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span>
+    <span class="n">source</span><span class="p">,</span> <span class="n">destination</span><span class="p">,</span> <span class="n">batches</span><span class="p">,</span> <span class="n">OUTPUT_LAYOUT</span><span class="o">=</span><span class="n">transpose_layout</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">dispatch</span><span class="o">.</span><span class="n">explain</span><span class="p">())</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">convert_layout</span></code> preserves the logical values; the changed output coordinates
+perform the transpose. It does not change tensor shape, strides or address space.
+The compiler inserts the required temporary storage and barriers.</p>
+<p><code class="docutils literal notranslate"><span class="pre">ThreadLayout(bit_order,</span> <span class="pre">xor_mask=0,</span> <span class="pre">elements_per_thread=1)</span></code> is an immutable
+bijection. Physical coordinates pack thread bits first, followed by register-slot
+bits. Entry <code class="docutils literal notranslate"><span class="pre">bit_order[logical_bit]</span></code> selects the packed physical bit placed at
+that logical bit position; <code class="docutils literal notranslate"><span class="pre">xor_mask</span></code> is then applied to the logical index. For example,
+<code class="docutils literal notranslate"><span class="pre">ThreadLayout((1,</span> <span class="pre">0,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">4))</span></code> exchanges the first two index bits within a
+32-thread SIMD group. <code class="docutils literal notranslate"><span class="pre">ThreadLayout.identity(size)</span></code> constructs identity
+ownership. <code class="docutils literal notranslate"><span class="pre">logical_index(thread,</span> <span class="pre">register=0)</span></code>, <code class="docutils literal notranslate"><span class="pre">owner(index)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">register(index)</span></code> expose the forward and inverse maps. <code class="docutils literal notranslate"><span class="pre">size</span></code> counts logical
+elements; <code class="docutils literal notranslate"><span class="pre">thread_count</span></code> counts physical threads. The representation supports
+bit permutations plus an XOR constant, rather than arbitrary binary linear
+transformations.</p>
+<p>The compiler propagates ownership through arithmetic, comparisons, selections,
+casts and descriptor loads. Uniform scalar values broadcast. Combining tiles
+with different owners requires an explicit <code class="docutils literal notranslate"><span class="pre">convert_layout</span></code>; implicit
+ownership means identity when it interacts with an explicit layout. A legacy
+operation that loses per-thread ownership by reporting a nonuniform scalar is
+rejected rather than treated as a uniform broadcast.</p>
+</section>
+<section id="compiler-selected-communication">
+<h2>Compiler-selected communication<a class="headerlink" href="#compiler-selected-communication" title="Link to this heading">¶</a></h2>
+<p>The source-to-destination owner map determines the implementation:</p>
+<div class="table-wrapper colwidths-given docutils container">
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Ownership change</p></th>
+<th class="head"><p>Lowering</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>None</p></td>
+<td><p>Forward the existing SSA value; no communication.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Within each SIMD group</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">simd_shuffle</span></code> with the exact source lane, not a uniform broadcast.</p></td>
+</tr>
+<tr class="row-even"><td><p>Across SIMD groups</p></td>
+<td><p>Store to typed threadgroup scratch, publish with a threadgroup barrier,
+load from the source owner, then release with a second barrier.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every launched thread participates in an exchange, even when its logical device
+load or store is out of bounds. Scratch can be reused by later conversions of
+the same dtype only after the release barrier. A post-pass verifier checks the
+allocation, owner map, geometry, unconditional barriers and access sequence.
+<code class="docutils literal notranslate"><span class="pre">execution_report.value_layouts</span></code> records per-value ownership;
+<code class="docutils literal notranslate"><span class="pre">layout_conversions</span></code> records each chosen mechanism and scratch identity.
+<code class="docutils literal notranslate"><span class="pre">allocations</span></code> includes the actual byte count.</p>
+<p>The supported geometry is a power-of-two, one-dimensional tile on 32 through
+1024 physical threads. Each thread owns a power-of-two number of scalar values
+from 1 through 32: a tile contains <code class="docutils literal notranslate"><span class="pre">thread_count</span> <span class="pre">*</span> <span class="pre">elements_per_thread</span></code> logical
+elements, up to 32768. Tile sizes and register counts must agree within a
+kernel. Origins must be uniform integer scalars and tensor base pointers must
+be uniform. Converted types are <code class="docutils literal notranslate"><span class="pre">f16</span></code>, <code class="docutils literal notranslate"><span class="pre">f32</span></code>, <code class="docutils literal notranslate"><span class="pre">i32</span></code>, <code class="docutils literal notranslate"><span class="pre">u32</span></code>
+and <code class="docutils literal notranslate"><span class="pre">bool</span></code>. Device-backed tensor views are required. Loops, matrix
+operations, raw lane collectives and shared tensor views are not supported in
+this subset. Multi-register tiles must carry explicit ownership; an unannotated
+tile is not silently reinterpreted as a multi-register tile. Only identity
+conversions are currently supported for multi-register layouts. Explicit vector
+widths other than one reject;
+<code class="docutils literal notranslate"><span class="pre">Schedule(staging=&quot;device&quot;)</span></code> cannot conceal a required cross-group exchange.</p>
+<p>The 1024-thread ceiling is an IR limit, not a guarantee that every compiled
+kernel can launch that many threads. meTile checks the compiled pipeline’s
+<code class="docutils literal notranslate"><span class="pre">maxTotalThreadsPerThreadgroup</span></code> before caching or dispatching it and raises
+<code class="docutils literal notranslate"><span class="pre">OutOfResources</span></code> when the requested geometry exceeds that limit. Reduce the
+tile’s physical thread count or register pressure explicitly; ownership is
+never silently remapped. See Apple’s <a class="reference external" href="https://developer.apple.com/documentation/metal/mtlcomputepipelinestate/maxtotalthreadsperthreadgroup">pipeline threadgroup limit</a>.</p>
+</section>
+<section id="register-tiled-reductions">
+<h2>Register-tiled reductions<a class="headerlink" href="#register-tiled-reductions" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ThreadLayout.identity(1024,</span> <span class="pre">elements_per_thread=4)</span></code> launches 256 threads.
+Thread <code class="docutils literal notranslate"><span class="pre">thread</span></code> owns logical indices <code class="docutils literal notranslate"><span class="pre">thread</span> <span class="pre">+</span> <span class="pre">register</span> <span class="pre">*</span> <span class="pre">256</span></code> for register
+slots zero through three. Moving the two register bits to the low logical
+positions, with <code class="docutils literal notranslate"><span class="pre">ThreadLayout((8,</span> <span class="pre">9,</span> <span class="pre">0,</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">4,</span> <span class="pre">5,</span> <span class="pre">6,</span> <span class="pre">7),</span>
+<span class="pre">elements_per_thread=4)</span></code>, instead gives each thread four adjacent elements.
+This is logical register ownership, not a promise of specific hardware register
+numbers, vector memory instructions, occupancy or spill-free machine code.</p>
+<p>The compiler scalarizes ordinary pointwise operations into one SSA value per
+register slot, preserving each slot’s address, bounds mask, fill and dtype.
+An FP32 <code class="docutils literal notranslate"><span class="pre">sum</span></code> first combines local values in a balanced tree, then uses the
+SIMD/threadgroup reduction primitive. Every thread participates, including
+threads with masked
+device accesses. A one-SIMD-group reduction needs no shared storage; larger
+groups allocate one FP32 partial per SIMD group. The result is uniform and can
+broadcast into subsequent tile arithmetic. Other reduction operations and
+FP16 accumulation reject; cast to FP32 before summing.</p>
+<p>Lowering also makes the verified physical-thread range visible to Apple’s
+compiler. It masks the thread index to <code class="docutils literal notranslate"><span class="pre">thread_count</span> <span class="pre">-</span> <span class="pre">1</span></code> once before adding
+register offsets. This is an identity for every legal launched thread, but
+exposes known zero bits that simplify ownership permutations and eliminate
+redundant bounds checks. The launch geometry remains a checked contract, not
+an assumption about an arbitrary caller-supplied index.</p>
+<p>For private reduction scratch, every SIMD group reads the published partials
+and independently computes the final sum. This removes the second barrier and
+shared-result broadcast from the legacy reduction. The initial threadgroup
+publication barrier remains mandatory. The verifier requires a dedicated,
+immutable-after-publication allocation, rejecting later writers, pointer aliases,
+other users and unrecorded requests for this mode. Each sequential reduction
+gets separate scratch, so no release barrier is needed for buffer reuse.</p>
+<p>The opt-in <code class="docutils literal notranslate"><span class="pre">rmsnorm_register</span></code> kernel retains its input values across the
+reduction instead of reloading them for the normalization pass. Its default
+remains four values per thread; an explicit <code class="docutils literal notranslate"><span class="pre">LAYOUT</span></code> selects another legal
+register/thread partition:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile_kernels.rmsnorm</span><span class="w"> </span><span class="kn">import</span> <span class="n">rmsnorm_register</span>
+
+<span class="n">dispatch</span> <span class="o">=</span> <span class="n">rmsnorm_register</span><span class="p">[(</span><span class="n">rows</span><span class="p">,)]</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span>
+    <span class="n">inputs</span><span class="p">,</span> <span class="n">weights</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="mf">1e-5</span><span class="p">,</span>
+    <span class="n">N</span><span class="o">=</span><span class="mi">1009</span><span class="p">,</span> <span class="n">BLOCK</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span> <span class="n">RELAXED_PRECISION</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>For example, <code class="docutils literal notranslate"><span class="pre">LAYOUT=metile.ThreadLayout.identity(1024,</span> <span class="pre">elements_per_thread=16)</span></code>
+uses 64 threads and sixteen values per thread. With 32 values per thread,
+the same logical tile uses one SIMD group and no reduction scratch or
+threadgroup barrier. This trades parallelism for per-thread work and live
+values; fewer threads are not automatically faster. The compiler still owns
+scalarization, reduction trees, scratch allocation and barrier placement.</p>
+<p><code class="docutils literal notranslate"><span class="pre">N</span></code> and <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> are compile-time values; <code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">&lt;</span> <span class="pre">N</span> <span class="pre">&lt;=</span> <span class="pre">BLOCK</span></code> is required.
+The supplied buffers must contain <code class="docutils literal notranslate"><span class="pre">rows</span> <span class="pre">*</span> <span class="pre">N</span></code> input/output elements and <code class="docutils literal notranslate"><span class="pre">N</span></code>
+weights. Tensor views remain declared at kernel entry, with uniform row offsets.
+The kernel uses FP32 reduction and epilogue arithmetic, rounding only on the
+output store. Existing <code class="docutils literal notranslate"><span class="pre">rmsnorm</span></code> retains its runtime-width, loop-based path.
+The same register lowering handles pointwise programs and sequential FP32 sums.</p>
+<p><code class="docutils literal notranslate"><span class="pre">execution_report.register_reductions</span></code> records the operation, dtype, physical
+thread count, register count and scratch identity. Post-pass validation checks
+uniform placement, FP32 semantics, geometry and storage. Per-value ownership
+remains available in <code class="docutils literal notranslate"><span class="pre">value_layouts</span></code>.</p>
+</section>
+<section id="contiguous-register-memory">
+<h2>Contiguous register memory<a class="headerlink" href="#contiguous-register-memory" title="Link to this heading">¶</a></h2>
+<p>Within a single tensor load or store, the compiler can group four FP16 or FP32
+accesses when their final indices are contiguous for every physical thread.
+The proof includes the register/thread permutation, uniform pointer offsets
+and arithmetic strides. Striped ownership, nonunit strides or unsupported
+index expressions retain scalar accesses. No access moves across another
+tensor memory operation, including operations on pointers that might alias.</p>
+<p>Grouped loads produce typed vector values and explicit scalar extracts, keeping
+the original scalar SSA results. Stores preserve each value’s storage cast.
+The emitted packed vector path requires all four masks to hold and checks
+consecutivity using widened indices; the latter also protects against wrapping
+32-bit runtime origins. Otherwise each original scalar mask, index and fill is
+used independently. This does not speculatively read beyond a ragged tensor.</p>
+<p><code class="docutils literal notranslate"><span class="pre">packed_float4</span></code> and <code class="docutils literal notranslate"><span class="pre">packed_half4</span></code> need only scalar alignment (four and two
+bytes respectively), unlike native <code class="docutils literal notranslate"><span class="pre">float4</span></code> and <code class="docutils literal notranslate"><span class="pre">half4</span></code>. This permits
+shifted scalar pointers and ragged row origins without an undocumented
+vector-alignment promise. See Apple’s <a class="reference external" href="https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf">Metal Shading Language specification,
+sections 2.2.3 and 2.5</a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">execution_report.grouped_loads</span></code> and <code class="docutils literal notranslate"><span class="pre">grouped_stores</span></code> count guarded emitted
+memory groups. These are not counts of final GPU vector instructions: Apple’s
+compiler may scalarize packed accesses. <code class="docutils literal notranslate"><span class="pre">Schedule(vector_width=1)</span></code> disables
+grouping while preserving ownership and range propagation. Forced width four
+still rejects for explicit ownership because grouping is conditional, not a
+guarantee that every access can be vectorized. A late verifier checks types,
+geometry, contiguity and vector extraction dominance after optimization.</p>
+</section>
+<section id="eliminating-redundant-conversions">
+<h2>Eliminating redundant conversions<a class="headerlink" href="#eliminating-redundant-conversions" title="Link to this heading">¶</a></h2>
+<p>Before planning, the compiler validates ownership and simplifies adjacent pure
+layout conversions. Identity conversions disappear, inverse pairs cancel, and
+compatible chains compose into a single conversion. An intermediate conversion
+with other users remains live. SSA references, including tensor metadata, are
+rewritten on a cloned IR; unchanged programs are returned without cloning.
+<code class="docutils literal notranslate"><span class="pre">execution_report.layout_optimizations</span></code> records the proofs and counts.</p>
+<p>This eliminates barriers only when the communication itself is proven redundant.
+It does not indiscriminately remove release barriers, move communication across
+memory effects, support nonidentity multi-register conversions or weaken the
+staging lifetime contract.</p>
+</section>
+<section id="verified-two-stage-matrix-pipelines">
+<h2>Verified two-stage matrix pipelines<a class="headerlink" href="#verified-two-stage-matrix-pipelines" title="Link to this heading">¶</a></h2>
+<p>The SIMD-group GEMM path represents software double buffering in typed IR.
+Request it through the schedule interface:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">schedule</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">Schedule</span><span class="p">(</span>
+    <span class="n">backend</span><span class="o">=</span><span class="s2">"simdgroup"</span><span class="p">,</span> <span class="n">staging</span><span class="o">=</span><span class="s2">"threadgroup"</span><span class="p">,</span> <span class="n">double_buffer</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>The supported canonical matrix K-loop has two independent operand buffers and
+two slots per buffer. Its <code class="docutils literal notranslate"><span class="pre">SoftwarePipeline</span></code> records typed storage and the
+following dependency sequence:</p>
+<ol class="arabic simple">
+<li><p>Copy the first tiles and publish them with a threadgroup barrier.</p></li>
+<li><p>Copy the next tiles into free slots while the current slots remain readable.</p></li>
+<li><p>Consume the current tiles, then publish the next slots and release the current
+slots with a barrier before rotating the slot identities.</p></li>
+<li><p>Consume and release the final tiles. An empty K dimension skips the pipeline.</p></li>
+</ol>
+<p>Validation checks copy ownership, fragment bounds, uniform control flow,
+publication, slot reuse, types and memory capacity. An unsupported loop is not
+partially rewritten. Materialization is idempotent; only the operand allocations
+are duplicated, not unrelated scratch. The emitter consumes verified phases
+without mutating the original loop. <code class="docutils literal notranslate"><span class="pre">execution_report.pipelines</span></code> exposes this
+contract and the allocation report exposes its storage cost.</p>
+<p>This is synchronous software staging. It does not claim hardware-asynchronous
+copies or guaranteed load/compute overlap. Native MPP/device staging remains the
+automatic path where already selected; explicit shared-memory staging is not
+assumed to be faster. Specialized producer/consumer kernels retain a separate,
+restricted implementation rather than pretending to share this general proof.</p>
+</section>
+<section id="research-and-remaining-work">
+<h2>Research and remaining work<a class="headerlink" href="#research-and-remaining-work" title="Link to this heading">¶</a></h2>
+<p><a class="reference external" href="https://triton-lang.org/main/getting-started/tutorials/gluon/layouts.html">Triton’s Gluon layout tutorial</a>
+separates logical tensors from distributed ownership. Its broader
+<a class="reference external" href="https://github.com/triton-lang/triton/blob/main/include/triton/Tools/LinearLayout.h">LinearLayout representation</a>
+and the <a class="reference external" href="https://arxiv.org/abs/2505.23819">Linear Layouts paper</a> motivate an
+explicit algebra for register, lane and group ownership. meTile currently models
+only a bijective register/thread-bit subset; it does not yet model replicated
+values, arbitrary register counts or arbitrary linear maps.</p>
+<p>Apple’s <a class="reference external" href="https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf">Metal Performance Primitives programming guide</a>
+describes device-memory tensor operations and the tradeoffs between reuse,
+threadgroup storage and occupancy. This is why native tensor operations and
+explicit scalar communication remain separate choices rather than forcing every
+kernel through shared-memory templates. The research-only AIR and native AGX
+routes remain separate; see <a class="reference internal" href="compiler-bypasses.html"><span class="doc">Compiler Bypasses and Native Code</span></a>.</p>
+<p>Next steps include broader reduction/layout composition, multi-register
+redistribution, cost-based conversion selection, and native tensor chaining.
+Each needs correctness and performance evidence before changing defaults.</p>
+</section>
+<section id="measurements-and-reproduction">
+<h2>Measurements and reproduction<a class="headerlink" href="#measurements-and-reproduction" title="Link to this heading">¶</a></h2>
+<p><a class="reference internal" href="benchmarks.html"><span class="doc">Benchmarks</span></a> collects charts, raw artifacts, and detailed methodology.
+These experiments measure different changes and use different baselines.</p>
+<section id="ownership-conversion-and-software-staging">
+<h3>Ownership conversion and software staging<a class="headerlink" href="#ownership-conversion-and-software-staging" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.thread_layouts<span class="w"> </span>--output-json<span class="w"> </span>/tmp/thread-layouts.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.thread_layouts<span class="w"> </span>--scatter-only<span class="w"> </span>--metile-root<span class="w"> </span>/path/to/pre-change/tree<span class="w"> </span>--output-json<span class="w"> </span>/tmp/thread-layouts-baseline.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.staged_gemm<span class="w"> </span>--baseline-root<span class="w"> </span>/path/to/pre-change/tree<span class="w"> </span>--output<span class="w"> </span>/tmp/staging.json
+</pre></div>
+</div>
+<p>The ownership benchmark materializes batched transposes with ownership
+conversion, scalar scatter, and MLX contiguous transpose. It checks bitwise
+correctness, including signed zeros, before alternating synchronized wall-time
+measurements. Inputs are resident; meTile preallocates outputs while MLX manages
+its storage. The 16-case M5 manifest covers FP16/FP32, four tile shapes, and two
+batch sizes. Ownership conversion has geometric-mean ratios of 0.992x scalar
+scatter and 0.985x MLX, so it showed no speedup on this manifest. The path remains
+opt-in. The separate-process baseline samples are not a controlled interleaved
+compiler comparison.</p>
+<p>The eight-case staging comparison requests the SIMD-group backend and double
+buffering on both revisions, with identical 64-by-64-by-16 tiles and relaxed
+precision disabled. All 32 executions pass the stated NumPy-reference
+tolerances. In <code class="docutils literal notranslate"><span class="pre">m5-verified-staging.json</span></code>, baseline/current GPU ratios range
+from 0.960x to 1.017x and wall ratios from 0.974x to 1.002x. The checked lifetime
+implementation incurs up to about 4.2% GPU-time overhead in this manifest.
+These differences do not isolate the cost of any individual barrier.</p>
+</section>
+<section id="register-rmsnorm-loop-based-baseline">
+<h3>Register RMSNorm: loop-based baseline<a class="headerlink" href="#register-rmsnorm-loop-based-baseline" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.register_rmsnorm<span class="w"> </span>--baseline-root<span class="w"> </span>/path/to/pre-register-tree<span class="w"> </span>--rounds<span class="w"> </span><span class="m">3</span><span class="w"> </span>--warmup-ms<span class="w"> </span><span class="m">100</span><span class="w"> </span>--rep-ms<span class="w"> </span><span class="m">250</span><span class="w"> </span>--output<span class="w"> </span>/tmp/register-rmsnorm.json
+</pre></div>
+</div>
+<p>This experiment compares the static-width register kernel with the earlier
+runtime-width loop kernel. The driver exports frozen baseline MSL and its ABI,
+recompiles it through the candidate’s Metal toolchain, and alternates resident
+dispatches in one process. Width specialization and input retention both differ
+between the arms, so a gain cannot be attributed solely to register retention.</p>
+<p><code class="docutils literal notranslate"><span class="pre">m5-register-rmsnorm-final.json</span></code> is the corrected record: all 36 shader
+compilations use the same offline path and <code class="docutils literal notranslate"><span class="pre">-O2</span> <span class="pre">-ffast-math</span></code> flags. Ragged
+throughput cases improve, but three aligned cases miss the required 1.10x GPU
+speedup against both controls. The promotion gate fails and the kernel remains
+opt-in.</p>
+<p>The earlier <code class="docutils literal notranslate"><span class="pre">m5-register-rmsnorm.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">m5-register-rmsnorm-broadcast.json</span></code> mix a JIT-compiled frozen baseline with
+offline-compiled candidates. They remain available with caveats, but their
+frozen-baseline ratios are <strong>invalid as controlled compiler speedups</strong>. The
+corrected driver rejects mixed compilation paths.</p>
+<p>The primary MLX comparator is a compiled FP32 normalization graph with one
+final cast. The separate <code class="docutils literal notranslate"><span class="pre">mx.fast.rms_norm</span></code> arm differs for FP16: MLX 0.32.0
+rounds normalized values before the weight multiply, while this kernel keeps
+both operations in FP32 until storage. Each arm is checked against its own
+reference. See the <a class="reference external" href="https://github.com/ml-explore/mlx/blob/v0.32.0/mlx/backend/metal/kernels/rms_norm.metal">versioned MLX RMSNorm implementation</a>.
+MLX ratios use synchronized wall time; meTile command-buffer timestamps are
+not an MLX GPU-time measurement.</p>
+</section>
+<section id="bounded-tiling-prior-register-baseline">
+<h3>Bounded tiling: prior register baseline<a class="headerlink" href="#bounded-tiling-prior-register-baseline" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span><span class="nb">export</span><span class="w"> </span>--root<span class="w"> </span>/path/to/pre-tiling-tree<span class="w"> </span>--output<span class="w"> </span>/tmp/prior-register4.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span>tune<span class="w"> </span>--baseline-json<span class="w"> </span>/tmp/prior-register4.json<span class="w"> </span>--manifest<span class="w"> </span>/tmp/tiling-selection.json<span class="w"> </span>--output<span class="w"> </span>/tmp/tiling-tuning.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span>validate<span class="w"> </span>--baseline-json<span class="w"> </span>/tmp/prior-register4.json<span class="w"> </span>--manifest<span class="w"> </span>/tmp/tiling-selection.json<span class="w"> </span>--output<span class="w"> </span>/tmp/tiling-heldout.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span>validate<span class="w"> </span>--baseline-json<span class="w"> </span>/tmp/prior-register4.json<span class="w"> </span>--manifest<span class="w"> </span>/tmp/tiling-selection.json<span class="w"> </span>--output<span class="w"> </span>/tmp/tiling-heldout-repeat.json
+</pre></div>
+</div>
+<p>This later experiment freezes the previous static-width, four-register kernel.
+Both arms retain inputs and use the same offline toolchain and flags. A tuning
+run chooses one policy for all twelve dtype/width/batch cases; two fresh-process
+validation runs use a different input seed and reject changed source or tuning
+evidence.</p>
+<p>The nine candidates vary striped ownership over 2/4/8/16/32 values per thread
+and four-adjacent-element ownership over 4/8/16/32. The selected policy remains
+striped ownership with four values per thread and scalar memory accesses.
+Larger ownership and packed-memory candidates did not replace it.</p>
+<p>On aligned width 1024, the two held-out runs record <strong>1.070–1.079x FP16 GPU
+speedup</strong> over the prior register compiler. FP32 stays near parity at
+1.000–1.024x. Both runs pass the 3% wall and ragged-GPU regression guards, but
+all four aligned throughput cases miss the 10% improvement requirement.
+<strong>The promotion gate fails.</strong> Four-value ownership remains the register
+kernel’s default; larger layouts stay explicit experiments, and the loop-based
+<code class="docutils literal notranslate"><span class="pre">rmsnorm</span></code> remains unchanged.</p>
+<p>The AIR inspection records fewer conditional branches after exposing the
+physical-thread range: 14 to 2 for width 1024 and 14 to 5 for width 1009.
+These are intermediate-IR counts. They neither count final AGX instructions
+nor isolate the cause of every timing change.</p>
+<p>The artifacts are <code class="docutils literal notranslate"><span class="pre">m5-rmsnorm-tiling-selection.json</span></code>,
+<code class="docutils literal notranslate"><span class="pre">m5-rmsnorm-tiling-heldout.json</span></code>, <code class="docutils literal notranslate"><span class="pre">m5-rmsnorm-tiling-heldout-repeat.json</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">m5-rmsnorm-tiling-air.json</span></code> in <code class="docutils literal notranslate"><span class="pre">benchmarks/results/</span></code>. Across both
+held-out runs, matched-policy compiled-MLX wall ratios range from 0.992x to
+1.144x. Fast-MLX ratios range from 0.980x to 1.021x with geometric means below
+one and the FP16 rounding caveat above. These repeated point estimates do not
+establish a general MLX win; compilation latency is excluded.</p>
+</section>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="autotuning.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Autotuning</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="execution-schedules.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Execution Schedules and Fusion</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Andre Slavescu
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Thread Ownership and Software Staging</a><ul>
+<li><a class="reference internal" href="#declare-memory-first-then-ownership">Declare memory first, then ownership</a></li>
+<li><a class="reference internal" href="#compiler-selected-communication">Compiler-selected communication</a></li>
+<li><a class="reference internal" href="#register-tiled-reductions">Register-tiled reductions</a></li>
+<li><a class="reference internal" href="#contiguous-register-memory">Contiguous register memory</a></li>
+<li><a class="reference internal" href="#eliminating-redundant-conversions">Eliminating redundant conversions</a></li>
+<li><a class="reference internal" href="#verified-two-stage-matrix-pipelines">Verified two-stage matrix pipelines</a></li>
+<li><a class="reference internal" href="#research-and-remaining-work">Research and remaining work</a></li>
+<li><a class="reference internal" href="#measurements-and-reproduction">Measurements and reproduction</a><ul>
+<li><a class="reference internal" href="#ownership-conversion-and-software-staging">Ownership conversion and software staging</a></li>
+<li><a class="reference internal" href="#register-rmsnorm-loop-based-baseline">Register RMSNorm: loop-based baseline</a></li>
+<li><a class="reference internal" href="#bounded-tiling-prior-register-baseline">Bounded tiling: prior register baseline</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=8a448e45"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>
