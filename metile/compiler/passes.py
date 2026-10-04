@@ -1121,27 +1121,27 @@ def _try_fold(op: mir.MOp):
 
         # Case 3: Identity elimination
         # x + 0 -> x, x - 0 -> x
-        if op.op in ("add", "sub") and _is_constant_val(op.rhs, 0):
+        if op.op in ("add", "sub") and _is_constant_val(op.rhs, 0) and op.lhs.defining_op:
             op.result.defining_op = op.lhs.defining_op
             return
         # 0 + x -> x
-        if op.op == "add" and _is_constant_val(op.lhs, 0):
+        if op.op == "add" and _is_constant_val(op.lhs, 0) and op.rhs.defining_op:
             op.result.defining_op = op.rhs.defining_op
             return
         # x * 1 -> x
-        if op.op == "mul" and _is_constant_val(op.rhs, 1):
+        if op.op == "mul" and _is_constant_val(op.rhs, 1) and op.lhs.defining_op:
             op.result.defining_op = op.lhs.defining_op
             return
         # 1 * x -> x
-        if op.op == "mul" and _is_constant_val(op.lhs, 1):
+        if op.op == "mul" and _is_constant_val(op.lhs, 1) and op.rhs.defining_op:
             op.result.defining_op = op.rhs.defining_op
             return
         # x | 0 -> x, x ^ 0 -> x
-        if op.op in ("or", "xor") and _is_constant_val(op.rhs, 0):
+        if op.op in ("or", "xor") and _is_constant_val(op.rhs, 0) and op.lhs.defining_op:
             op.result.defining_op = op.lhs.defining_op
             return
         # 0 | x -> x, 0 ^ x -> x
-        if op.op in ("or", "xor") and _is_constant_val(op.lhs, 0):
+        if op.op in ("or", "xor") and _is_constant_val(op.lhs, 0) and op.rhs.defining_op:
             op.result.defining_op = op.rhs.defining_op
             return
 
@@ -1207,6 +1207,8 @@ def _cse_recursive(ops: list[mir.MOp], seen: dict):
       with outer-scope values, but inner discoveries don't leak outward.
     """
     for op in ops:
+        if isinstance(op, mir.MVarAssign):
+            seen.clear()
         key = _cse_key(op)
         if key is not None:
             if key in seen:
@@ -1221,6 +1223,8 @@ def _cse_recursive(ops: list[mir.MOp], seen: dict):
             _cse_recursive(op.body, {})  # fresh scope for loops
         elif isinstance(op, (mir.IfBlock, mir.MSimdgroupRoleBlock)):
             _cse_recursive(op.body, dict(seen))  # copy for if/role blocks
+        if hasattr(op, "body"):
+            seen.clear()
 
 
 def _dce_constants(ops: list[mir.MOp]) -> list[mir.MOp]:

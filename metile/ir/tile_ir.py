@@ -82,6 +82,37 @@ class Constant(Op):
 
 
 @dataclass
+class LoopState(Op):
+    """An explicitly mutable per-lane scalar or tile, initialized once."""
+
+    value: Value = None
+
+    def result_type(self):
+        return self.value.type
+
+
+@dataclass
+class ReadLoopState(Op):
+    """Snapshot a mutable state at this point in program order."""
+
+    state: Value = None
+
+    def result_type(self):
+        return self.state.type
+
+
+@dataclass
+class AssignLoopState(Op):
+    """Update a mutable state in program order."""
+
+    state: Value = None
+    value: Value = None
+
+    def result_type(self):
+        return None
+
+
+@dataclass
 class Cast(Op):
     """Explicitly convert a scalar or tile to another element type."""
 

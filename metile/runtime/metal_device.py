@@ -181,13 +181,20 @@ class MetalDevice:
         name_ns = _send_ptr(self.device, "name")
         return _nsstring_to_str(name_ns)
 
-    def compile_msl(self, source: str, function_name: str):
+    def compile_msl(self, source: str, function_name: str, *, fast_math: bool = True):
         """Compile MSL source and return (library, function, pipeline_state)."""
         source_ns = _nsstring(source)
 
         # Create compile options
         MTLCompileOptions = _cls("MTLCompileOptions")
         options = _send_ptr(MTLCompileOptions, "new")
+        _send(
+            options,
+            "setFastMathEnabled:",
+            ctypes.c_bool(fast_math),
+            restype=None,
+            argtypes=[ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool],
+        )
 
         # newLibraryWithSource:options:error:
         error = ctypes.c_void_p(0)
@@ -246,7 +253,12 @@ class MetalDevice:
         return pipeline
 
     def compile_msl_precompiled(
-        self, source: str, function_name: str, metal_std: str | None = None
+        self,
+        source: str,
+        function_name: str,
+        metal_std: str | None = None,
+        *,
+        fast_math: bool = True,
     ):
         """Compile MSL via offline Metal compiler for better GPU performance.
 
@@ -265,18 +277,19 @@ class MetalDevice:
             if metal_path.returncode != 0:
                 if metal_std:
                     raise RuntimeError(f"-std={metal_std} requires offline Metal compiler (Xcode)")
-                return self.compile_msl(source, function_name), False
+                return self.compile_msl(source, function_name, fast_math=fast_math), False
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             if metal_std:
                 raise RuntimeError(
                     f"-std={metal_std} requires offline Metal compiler (Xcode)"
                 ) from e
-            return self.compile_msl(source, function_name), False
+            return self.compile_msl(source, function_name, fast_math=fast_math), False
 
         cache_key = stable_digest(
             {
                 "device": self.name,
                 "function": function_name,
+                "fast_math": fast_math,
                 "metal_std": metal_std,
                 "platform": platform.mac_ver()[0],
                 "source": source,
@@ -299,7 +312,8 @@ class MetalDevice:
         lib_path = msl_path.replace(".metal", ".metallib")
 
         try:
-            metal_cmd = ["xcrun", "-sdk", "macosx", "metal", "-O2", "-ffast-math"]
+            math_flag = "-ffast-math" if fast_math else "-fno-fast-math"
+            metal_cmd = ["xcrun", "-sdk", "macosx", "metal", "-O2", math_flag]
             if metal_std:
                 metal_cmd.append(f"-std={metal_std}")
             metal_cmd.extend(["-o", air_path, "-c", msl_path])
@@ -322,7 +336,7 @@ class MetalDevice:
                 raise RuntimeError(
                     f"Metal 4 compilation failed: {err_msg}\n\nSource:\n{source}"
                 ) from e
-            return self.compile_msl(source, function_name), False
+            return self.compile_msl(source, function_name, fast_math=fast_math), False
         finally:
             for p in [msl_path, air_path, lib_path]:
                 with contextlib.suppress(OSError):

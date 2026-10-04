@@ -101,6 +101,7 @@ class CompiledKernel:
         output_indices: tuple[int, ...] = (),
         argument_indices: tuple[int, ...] | None = None,
         execution_report=None,
+        strict_math: bool = False,
     ):
         self.pipeline = pipeline
         self.msl_source = msl_source
@@ -112,6 +113,7 @@ class CompiledKernel:
         self.argument_indices = argument_indices
         self.description_bits = compressed_description_bits(msl_source)
         self.execution_report = execution_report
+        self.strict_math = strict_math
         self.schedule_plan = execution_report.plan if execution_report is not None else None
 
     def explain(self) -> str:
@@ -354,6 +356,9 @@ class KernelLauncher:
         for name, val in kwargs.items():
             if name not in sig_names and name not in constexprs:
                 constexprs[name] = val._value if isinstance(val, constexpr) else val
+
+        if not isinstance(constexprs.get("STRICT_MATH", False), bool):
+            raise ValueError("STRICT_MATH must be a boolean")
 
         bound_kwargs = {name: value for name, value in kwargs.items() if name in sig_names}
         bound = sig.bind_partial(*args, **bound_kwargs)
@@ -688,15 +693,17 @@ class KernelLauncher:
 
         # Step 5: Compile
         dev = MetalDevice.get()
+        strict_math = constexprs.get("STRICT_MATH", False)
+        compile_options = {"fast_math": False} if strict_math else {}
         if is_tensor_ops:
             # tensor_ops requires Metal 4 offline compilation
             pipeline, _ = dev.compile_msl_precompiled(
-                msl_source, metal_ir.name, metal_std="metal4.0"
+                msl_source, metal_ir.name, metal_std="metal4.0", **compile_options
             )
         elif dev.has_metal_compiler:
-            pipeline, _ = dev.compile_msl_precompiled(msl_source, metal_ir.name)
+            pipeline, _ = dev.compile_msl_precompiled(msl_source, metal_ir.name, **compile_options)
         else:
-            pipeline = dev.compile_msl(msl_source, metal_ir.name)
+            pipeline = dev.compile_msl(msl_source, metal_ir.name, **compile_options)
 
         _validate_pipeline_threadgroup(metal_ir, pipeline)
 
@@ -720,6 +727,7 @@ class KernelLauncher:
             ),
             argument_indices=argument_indices,
             execution_report=report,
+            strict_math=strict_math,
         )
 
     def _dispatch(self, compiled: CompiledKernel, args):

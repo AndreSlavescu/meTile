@@ -1,6 +1,7 @@
 from metile.compile import CompileReport, compile
 from metile.compiler.graph_fusion import FusionTarget, ParallelEpilogueRule, plan_graph_fusion
 from metile.compiler.options import Schedule
+from metile.frontend.autodiff import vjp
 from metile.frontend.autotune import Config, autotune
 from metile.frontend.kernel import kernel
 from metile.frontend.tensor import tensor
@@ -18,6 +19,7 @@ from metile.frontend.tracing import (
     fast_exp,
     load,
     log,
+    loop_state,
     max,
     maximum,
     min,
@@ -105,6 +107,7 @@ __all__ = [
     "kernel",
     "load",
     "log",
+    "loop_state",
     "make_identity",
     "make_layout",
     "max",
@@ -138,6 +141,7 @@ __all__ = [
     "tile_range",
     "tile_store",
     "tile_swizzle",
+    "vjp",
     "where",
     "zeros",
 ]

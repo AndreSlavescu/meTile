@@ -11,7 +11,7 @@ from metile.compiler.lowering.registers import RegisterLowering
 from metile.compiler.ownership import validate_thread_layouts
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
-from metile.ir.types import I32, PtrType, ScalarType
+from metile.ir.types import I32, PtrType, ScalarType, TileType
 
 
 class _ElementwiseLoweringContext:
@@ -195,6 +195,34 @@ class _ElementwiseLoweringContext:
             m_op.result = mv
             self.value_map[op.result.name] = mv
             return [m_op]
+
+        elif isinstance(op, tir.LoopState):
+            initial = self._resolve(op.value)
+            variable = mir.MValue(op.result.name, ScalarType(op.result.type.dtype))
+            self.value_map[op.result.name] = variable
+            return [
+                mir.MVarDecl(
+                    var_name=variable.name,
+                    init_value=initial,
+                    dtype=variable.type.dtype,
+                    tile_valued=isinstance(op.result.type, TileType),
+                )
+            ]
+
+        elif isinstance(op, tir.ReadLoopState):
+            state = self._resolve(op.state)
+            snapshot = mir.MCast(value=state, target_dtype=state.type.dtype)
+            snapshot.result = mir.MValue(op.result.name, snapshot.result_type(), snapshot)
+            self.value_map[op.result.name] = snapshot.result
+            return [snapshot]
+
+        elif isinstance(op, tir.AssignLoopState):
+            return [
+                mir.MVarAssign(
+                    var_name=self._resolve(op.state).name,
+                    value=self._resolve(op.value),
+                )
+            ]
 
         elif isinstance(op, tir.Cast):
             value = self._resolve(op.value)

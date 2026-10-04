@@ -110,3 +110,19 @@ def test_schedule_requirements_distinguish_kernel_variants(compilations):
     launcher(64, BLOCK=64, SCHEDULE=Schedule(vector_width=4))
 
     assert len(compilations) == 2
+
+
+def test_strict_math_policy_distinguishes_kernel_variants(compilations):
+    launcher = KernelFunction(_first)[(1,)]
+    launcher(64, BLOCK=64, STRICT_MATH=False)
+    launcher(64, BLOCK=64, STRICT_MATH=True)
+    launcher(64, BLOCK=64, STRICT_MATH=True)
+    assert len(compilations) == 2
+
+
+@pytest.mark.parametrize("strict_math", [0, 1, None, "true"])
+def test_strict_math_policy_requires_a_boolean_even_after_caching(compilations, strict_math):
+    launcher = KernelFunction(_first)[(1,)]
+    launcher(64, BLOCK=64, STRICT_MATH=True)
+    with pytest.raises(ValueError, match="STRICT_MATH must be a boolean"):
+        launcher(64, BLOCK=64, STRICT_MATH=strict_math)
