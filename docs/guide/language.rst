@@ -1,296 +1,296 @@
 Language Reference
 ==================
 
-meTile provides a Python eDSL (embedded domain-specific language) for writing GPU kernels. Functions
-decorated with ``@metile.kernel`` are traced and compiled to Metal shaders. They are not executed
-as regular Python.
+meTile's kernel language is embedded in Python. A decorated function executes
+with symbolic arguments during tracing; its operations become a GPU program.
+Python still controls tracing, so a Python ``if`` or ``range`` must depend
+on values known at compile time. Use ``where`` for a per-element selection
+and ``tile_range`` for a traced loop.
 
-This page documents every construct available inside a ``@metile.kernel`` function.
+The snippets on this page illustrate individual operations inside a kernel.
+For complete programs with launch code and numerical checks, start with
+:doc:`/getting-started/first-kernel` or :doc:`/examples/matmul`.
 
-
-Kernel Definition
------------------
+Define and launch a kernel
+--------------------------
 
 .. code-block:: python
 
    @metile.kernel
-   def my_kernel(ptr_a, ptr_b, N, BLOCK: metile.constexpr):
+   def my_kernel(input_ptr, output_ptr, count, BLOCK: metile.constexpr):
        ...
 
-Parameters are either:
+   my_kernel[(metile.cdiv(count, 256),)](
+       input_buffer, output_buffer, count, BLOCK=256
+   )
 
-- **Pointers**: numpy arrays or ``metile.Buffer`` objects become ``device float*`` in Metal
-- **Scalars**: Python ints/floats become ``constant int&`` or ``constant float&``
-- **Constexprs**: annotated with ``metile.constexpr``, baked into the shader at compile time
+Buffer arguments become device pointers with their storage dtype. For example,
+float32 buffers use ``device float*`` and float16 buffers use
+``device half*``. Python integers and floats become 32-bit integer and
+float scalar arguments. Pass runtime arguments in signature order and
+``constexpr`` arguments by keyword, as shown above.
 
-Constexprs are passed as keyword arguments at launch:
+The launcher recognizes the actual ``metile.constexpr`` annotation object.
+Avoid postponed/string annotations on kernel parameters: a file containing
+``from __future__ import annotations`` does not currently preserve this
+identity check.
 
-.. code-block:: python
+A launch grid is a tuple of program counts. Elementwise kernels support one,
+two, or three axes; the standard GEMM path uses a two-dimensional output grid.
+Each program is a Metal threadgroup. A grid is not the number of elements or
+the number of threads inside each group.
 
-   my_kernel[grid](a, b, N, BLOCK=256)
+``kernel[grid].prepare(...)`` performs a launch, synchronizes, and returns
+a dispatcher bound to those resources and scalar values. Preparation is not
+a compile-only operation. Prefer explicit ``Buffer`` arguments when reusing
+a dispatcher; see :doc:`memory`.
 
-
-Launching Kernels
------------------
-
-.. code-block:: python
-
-   kernel[grid](*args, **constexprs)
-
-``grid`` is a tuple of 1, 2, or 3 integers specifying the number of program instances
-(threadgroups) along each axis.
-
-.. code-block:: python
-
-   kernel[(N,)](...)           # 1D grid
-   kernel[(M, N)](...)         # 2D grid
-   kernel[(X, Y, Z)](...)     # 3D grid
-
-
-Program Identity
-----------------
+Program identity and indices
+----------------------------
 
 .. function:: metile.program_id(axis)
 
-   Returns the index of the current program instance along the given axis.
+   Return the program's threadgroup coordinate along axis 0, 1, or 2.
 
-   .. code-block:: python
+.. function:: metile.arange(start, end, *, layout=None)
 
-      pid_x = metile.program_id(0)   # threadgroup X index
-      pid_y = metile.program_id(1)   # threadgroup Y index
+   For integer ``start`` and ``end``, create the half-open sequence
+   ``[start, end)``. Its length is a compile-time tile size. For clarity,
+   write ``offset + metile.arange(0, BLOCK)`` when the origin is dynamic.
 
+   The current overload also accepts a traced scalar ``start``; in that
+   form, the second argument is the tile's length, not an endpoint.
 
-Index Generation
-----------------
+   An optional ``ThreadLayout`` assigns logical elements to physical
+   threads and registers. See :doc:`thread-layouts` for supported geometry.
 
-.. function:: metile.arange(start, size)
+.. function:: metile.cdiv(numerator, denominator)
 
-   Creates a tile of ``size`` consecutive integers starting at ``start``.
+   Ceiling division, commonly used on the host to compute a launch grid.
 
-   .. code-block:: python
+.. function:: metile.next_power_of_2(value)
 
-      idx = metile.arange(0, 256)   # [0, 1, 2, ..., 255]
+   Return the smallest power of two greater than or equal to the value.
+   Use it on host integers when selecting a tile size.
 
-.. function:: metile.cdiv(a, b)
+Tensor declarations
+-------------------
 
-   Ceiling division. Useful for computing grid sizes.
+.. function:: metile.tensor(pointer, *, shape, strides=None, access="readwrite", block_shape=None, address_space=None)
 
-   .. code-block:: python
+   Declare a logical view of existing storage. Shapes and strides are tuples;
+   strides are measured in elements and default to contiguous row-major
+   storage. Access is ``"read"``, ``"write"``, or ``"readwrite"``.
+   An explicit address space must match the pointer's allocation.
 
-      grid_size = metile.cdiv(N, BLOCK)   # ceil(N / BLOCK)
+   Declare views near the start of the kernel, then use ``view.load(indices,
+   other=0)`` and ``view.store(indices, value)``. Loads and stores check
+   logical coordinate bounds. The caller remains responsible for allocation
+   capacity and signed 32-bit index/offset arithmetic.
 
+   ``block_shape`` selects supported two-dimensional matrix-tile access.
+   It does not allocate memory or set thread/register ownership.
+   See :doc:`tensor-memory` for the full bounds, dtype, and layout contract.
 
-Element-wise Memory Access
---------------------------
+.. code-block:: python
 
-For element-wise kernels (softmax, activations, reductions), use pointer arithmetic
-with ``load`` and ``store``:
+   inputs = metile.tensor(input_ptr, shape=(count,), access="read")
+   outputs = metile.tensor(output_ptr, shape=(count,), access="write")
+   positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
+   outputs.store((positions,), inputs.load((positions,)) * 2.0)
+
+Raw memory operations
+---------------------
 
 .. function:: metile.load(ptr, mask=None)
 
-   Load elements from memory. Masked-off elements read zero.
-
-   .. code-block:: python
-
-      offs = pid * BLOCK + metile.arange(0, BLOCK)
-      mask = offs < N
-      x = metile.load(X + offs, mask=mask)
+   Load elements from a pointer expression. Masked-off elements read zero.
+   Without a mask, the caller must ensure every address is valid.
 
 .. function:: metile.store(ptr, value, mask=None)
 
-   Store elements to memory. Masked-off elements are skipped.
+   Store through a pointer expression. Masked-off stores are skipped.
 
-   .. code-block:: python
+.. code-block:: python
 
-      metile.store(Out + offs, result, mask=mask)
-
-
-Tile Memory Access
-------------------
-
-For matrix operations (GEMM), use tile-level loads and stores that map to simdgroup
-or tensor_ops hardware:
+   positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
+   valid = positions < count
+   values = metile.load(input_ptr + positions, mask=valid)
+   metile.store(output_ptr + positions, values, mask=valid)
 
 .. function:: metile.tile_load(ptr, row_offset, col_offset, stride, shape)
 
-   Load a 2D tile from row-major memory.
-
-   :param ptr: base pointer to the matrix
-   :param row_offset: row index of tile's top-left corner
-   :param col_offset: column index of tile's top-left corner
-   :param stride: leading dimension (number of columns in the full matrix)
-   :param shape: ``(rows, cols)`` of the tile to load
-
-   .. code-block:: python
-
-      # Load a 128x32 tile of A starting at (pid_m * 128, k)
-      a = metile.tile_load(A, pid_m * BLOCK_M, k, K, (BLOCK_M, BLOCK_K))
+   Load a two-dimensional tile. ``stride`` is the row stride in elements;
+   ``shape`` is the tile's ``(rows, columns)``. This legacy interface
+   does not declare full tensor bounds. New matrix kernels should use
+   ``tensor(..., block_shape=...)`` so lowering can validate dimensions
+   and memory layout.
 
 .. function:: metile.tile_store(ptr, row_offset, col_offset, stride, value, shape)
 
-   Store a 2D tile to row-major memory.
+   Store a matrix tile using the same legacy layout convention.
 
-   .. code-block:: python
-
-      metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
+Accumulators and matrix multiply
+--------------------------------
 
 .. function:: metile.zeros(shape, dtype="f32")
 
-   Create a zero-initialized tile. Used to initialize accumulators.
+   Create a zero-valued tile, commonly a float32 matrix accumulator.
 
-   .. code-block:: python
+.. function:: metile.dot(left, right, accumulator)
 
-      acc = metile.zeros((BLOCK_M, BLOCK_N), dtype="f32")
+   Return ``accumulator + left @ right``. The left and right tile shapes
+   must have compatible reduction dimensions. Supported matrix kernels
+   accumulate in float32.
 
+   Lowering selects SIMDgroup matrix operations or Metal 4 tensor operations
+   according to device/toolchain support and the execution schedule. The
+   direct NAX path has additional restrictions. See :doc:`tile-ops` and
+   :doc:`/examples/matmul`.
 
-Matrix Multiply
----------------
+Control flow and scalar state
+-----------------------------
 
-.. function:: metile.dot(a, b, acc)
+.. function:: metile.tile_range(start, end, step=1, num_stages=1)
 
-   Tile-level matrix multiply-accumulate: ``acc += a @ b``.
+   Record a GPU loop with an exclusive end. Its body runs once during tracing,
+   producing the operations repeated at execution time. A positive
+   compile-time integer step is the usual tiling pattern.
 
-   The compiler maps this to ``simdgroup_multiply_accumulate`` (M1-M3) or
-   ``matmul2d`` tensor_ops (M4+) depending on hardware.
+   ``num_stages`` records a staging request; support depends on the chosen
+   lowering path. It is not a guarantee of overlapped memory and compute.
 
-   .. code-block:: python
+.. code-block:: python
 
-      acc = metile.zeros((128, 128), dtype="f32")
-      for k in metile.tile_range(0, K, BLOCK_K):
-          a = metile.tile_load(A, pid_m * 128, k, K, (128, BLOCK_K))
-          b = metile.tile_load(B, k, pid_n * 128, N, (BLOCK_K, 128))
-          acc = metile.dot(a, b, acc)
+   partial_sum = 0.0
+   for start in metile.tile_range(0, count, BLOCK):
+       positions = start + metile.arange(0, BLOCK)
+       partial_sum = partial_sum + inputs.load((positions,))
+   total = metile.sum(partial_sum)
 
+.. function:: metile.scalar(value, dtype=None)
 
-Control Flow
-------------
+   Make explicit scalar SSA state for a loop-carried recurrence. This is
+   useful when a state value is scalar per physical thread, as in
+   :doc:`/examples/attention`.
 
-.. function:: metile.tile_range(start, end, step)
+Math and conversions
+--------------------
 
-   A tiling loop. Equivalent to ``range(start, end, step)`` but tells the compiler this
-   is a tile-level iteration (e.g., the K-loop in GEMM).
-
-   .. code-block:: python
-
-      for k in metile.tile_range(0, K, BLOCK_K):
-          ...
-
-
-Math Operations
----------------
-
-All math ops are element-wise and work on both scalars and tiles:
+Arithmetic such as ``+``, ``-``, ``*``, ``/``, comparisons, and
+supported integer bit operations builds elementwise IR. Use ``&`` and
+``|`` to combine traced boolean masks; Python ``and`` and ``or`` do
+not describe elementwise operations.
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 35 65
 
    * - Function
-     - Description
-   * - ``metile.exp(x)``
+     - Behavior
+   * - ``metile.exp(value)``
      - Exponential
-   * - ``metile.log(x)``
+   * - ``metile.fast_exp(value)``
+     - Metal's fast exponential; accuracy differs from the regular intrinsic
+   * - ``metile.log(value)``
      - Natural logarithm
-   * - ``metile.sqrt(x)``
+   * - ``metile.sqrt(value)``
      - Square root
-   * - ``metile.abs(x)``
+   * - ``metile.abs(value)``
      - Absolute value
-   * - ``metile.tanh(x)``
+   * - ``metile.tanh(value)``
      - Hyperbolic tangent
-   * - ``metile.where(cond, x, y)``
-     - Select ``x`` where ``cond`` is true, else ``y``
-   * - ``metile.maximum(a, b)``
-     - Element-wise maximum
-   * - ``metile.minimum(a, b)``
-     - Element-wise minimum
+   * - ``metile.where(condition, left, right)``
+     - Select a value per element; it is not short-circuit control flow
+   * - ``metile.maximum(left, right)``, ``metile.minimum(left, right)``
+     - Elementwise maximum or minimum
+   * - ``metile.cast(value, dtype)``
+     - Convert a scalar or tile, for example to ``"f32"``
 
-Standard Python arithmetic works inside kernels: ``+``, ``-``, ``*``, ``/``, ``<``, ``>``, etc.
-
+A ``where`` around an unmasked load does not make that load safe: its inputs
+are computed before selection. Put the bounds in the load's mask or use a
+tensor view.
 
 Reductions
 ----------
 
-.. function:: metile.sum(x)
+.. function:: metile.sum(value)
+.. function:: metile.max(value)
+.. function:: metile.min(value)
 
-   Sum-reduce a tile to a scalar.
+   Reduce a supported tile to a scalar sum, maximum, or minimum. Lowering may
+   combine register-local work, SIMDgroup operations, and shared memory
+   between SIMDgroups.
 
-.. function:: metile.max(x)
+Choose padding values appropriate to the reduction, and mask any transformed
+padding that must not contribute. See :doc:`/examples/softmax` for maximum
+and exponential-sum reductions over a partial tile. Floating-point reduction
+order may differ from a CPU reference.
 
-   Max-reduce a tile to a scalar.
+Thread and SIMDgroup operations
+-------------------------------
 
-.. function:: metile.min(x)
-
-   Min-reduce a tile to a scalar.
-
-These compile to simdgroup shuffle reductions on the GPU.
-
-.. code-block:: python
-
-   # Two-pass softmax: find max, then compute normalized exponentials
-   m = -1e38
-   for i in metile.tile_range(0, N, BLOCK):
-       cols = i + metile.arange(0, BLOCK)
-       x = metile.load(X + row * N + cols, mask=cols < N)
-       m = metile.maximum(m, x)
-   m = metile.max(m)   # reduce across the tile
-
-
-Advanced: Simdgroup Operations
-------------------------------
-
-For low-level control over Apple GPU simdgroups:
-
-.. function:: metile.simdgroup_role(role, num_roles, body, num_sgs=0)
-
-   Execute different code on different simdgroup subsets within a threadgroup.
-   Enables producer/consumer patterns.
-
-   .. code-block:: python
-
-      with metile.simdgroup_role(role=0, num_roles=2):
-          # Only the first half of simdgroups run this
-          ...
-      with metile.simdgroup_role(role=1, num_roles=2):
-          # Only the second half run this
-          ...
-
-.. function:: metile.simd_shuffle_xor(value, mask)
-
-   Exchange data between lanes within a simdgroup using XOR addressing.
-
-.. function:: metile.simd_broadcast(value, lane)
-
-   Broadcast a value from one lane to all lanes in a simdgroup.
-
-.. function:: metile.simd_lane_id()
-
-   Returns the current thread's lane index within its simdgroup (0-31).
+These operations expose physical execution details. A SIMDgroup has 32
+threads on the supported Apple GPU paths.
 
 .. function:: metile.thread_id()
 
-   Returns the thread's position within the threadgroup.
+   Thread index inside the threadgroup.
 
-.. function:: metile.barrier()
+.. function:: metile.simd_lane_id()
 
-   Threadgroup memory barrier. Forces all threads to reach this point before proceeding.
+   Lane index inside its SIMDgroup, from 0 through 31.
+
+.. function:: metile.simd_shuffle_xor(value, mask)
+
+   Exchange a value with the lane whose index is XORed with ``mask``.
+
+.. function:: metile.simd_broadcast(value, lane)
+
+   Broadcast a value from one lane inside the SIMDgroup.
+
+.. function:: metile.simd_sum(value)
+.. function:: metile.simd_max(value)
+
+   Native reduction across the current SIMDgroup, not the whole threadgroup.
+
+.. function:: metile.simdgroup_role(role, num_roles=2, num_sgs=0)
+
+   Context manager recording work for a subset of SIMDgroups. ``num_sgs=0``
+   requests an even division among roles. A role region does not establish
+   ordering or data dependencies with another role. See
+   :doc:`/examples/fused-activations`.
 
 .. function:: metile.shared(size, dtype="f32")
 
-   Allocate threadgroup (shared) memory.
+   Allocate uninitialized threadgroup memory. The size and dtype are fixed
+   for the specialization.
 
+.. function:: metile.barrier()
 
-Tile Scheduling
----------------
+   Synchronize the threadgroup and order threadgroup memory accesses. All
+   participating threads must reach the barrier. It does not synchronize
+   separate threadgroups or provide a device-memory producer/consumer protocol.
+
+Ownership and schedules
+-----------------------
+
+``metile.ThreadLayout`` describes physical ownership of tile elements.
+``metile.convert_layout(value, layout)`` preserves logical values while the
+compiler inserts required redistribution. See :doc:`thread-layouts` for the
+supported operations and communication rules.
 
 .. function:: metile.tile_swizzle(pid_m, pid_n, pattern="auto", block_size=4)
 
-   Apply a tile scheduling pattern for better cache locality in 2D grids.
-   Supported patterns: ``"auto"``, ``"hilbert"`` (4x4), ``"morton"`` (2x2
-   Z-order), ``"diagonal"``, and ``"linear"``.
+   Record a traversal for output tiles. Patterns include ``"auto"``,
+   ``"linear"``, ``"diagonal"``, ``"morton"``, ``"hilbert"``, and
+   grouped traversals. Unsupported panel geometries fall back to a valid
+   traversal. See :doc:`tile-ops` for the panel-size constraints.
 
-   .. code-block:: python
+Pass ``SCHEDULE=metile.Schedule(...)`` at launch to request a backend,
+SIMDgroup geometry, staging, or supported vector width. The compiler checks
+these requirements. A prepared dispatch's ``explain()`` report records the
+selected schedule and materialized decisions; see :doc:`execution-schedules`.
 
-      pid_m, pid_n = metile.tile_swizzle(
-          metile.program_id(0), metile.program_id(1),
-          pattern="morton", block_size=2,
-      )
+Host APIs and specialized integrations are listed in :doc:`/api/reference`.
+They are separate from the traced kernel operations described here.

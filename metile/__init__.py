@@ -1,7 +1,10 @@
 from metile.compile import CompileReport, compile
 from metile.compiler.graph_fusion import FusionTarget, ParallelEpilogueRule, plan_graph_fusion
+from metile.compiler.options import Schedule
+from metile.frontend.autodiff import vjp
 from metile.frontend.autotune import Config, autotune
 from metile.frontend.kernel import kernel
+from metile.frontend.tensor import tensor
 from metile.frontend.tracing import (
     TensorDescriptor,
     abs,
@@ -10,11 +13,13 @@ from metile.frontend.tracing import (
     cast,
     cdiv,
     constexpr,
+    convert_layout,
     dot,
     exp,
     fast_exp,
     load,
     log,
+    loop_state,
     max,
     maximum,
     min,
@@ -53,6 +58,7 @@ from metile.ir.layout import (
     row_major,
     simdgroup_layout_8x8,
 )
+from metile.ir.ownership import ThreadLayout
 from metile.runtime.address_space import (
     GlobalAddressSpace,
     KernelPipeline,
@@ -78,9 +84,11 @@ __all__ = [
     "KernelPipeline",
     "Layout",
     "ParallelEpilogueRule",
+    "Schedule",
     "TensorDescriptor",
     "TensorSpec",
     "TensorView",
+    "ThreadLayout",
     "TiledView",
     "abs",
     "arange",
@@ -92,12 +100,14 @@ __all__ = [
     "col_major",
     "compile",
     "constexpr",
+    "convert_layout",
     "dot",
     "exp",
     "fast_exp",
     "kernel",
     "load",
     "log",
+    "loop_state",
     "make_identity",
     "make_layout",
     "max",
@@ -125,11 +135,13 @@ __all__ = [
     "store",
     "sum",
     "tanh",
+    "tensor",
     "thread_id",
     "tile_load",
     "tile_range",
     "tile_store",
     "tile_swizzle",
+    "vjp",
     "where",
     "zeros",
 ]

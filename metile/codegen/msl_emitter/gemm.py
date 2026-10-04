@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from copy import copy
+from dataclasses import replace
+
 from metile.codegen.msl_emitter.block_scaled import (
     _block_scaled_helpers,
     _emit_block_scaled_tensor_views,
@@ -9,6 +12,7 @@ from metile.codegen.msl_emitter.block_scaled import (
 )
 from metile.codegen.msl_emitter.common import (
     _BINOP_SYMBOLS,
+    _emit_dimension_bindings,
     _emit_tensor_view_decl,
     _format_literal,
     _uses_op_type,
@@ -17,6 +21,7 @@ from metile.codegen.msl_emitter.common import (
 from metile.codegen.msl_emitter.elementwise import (
     _emit_acc_elem_apply,
     _emit_coop_tensor_epilogue,
+    _emit_epilogue_captures,
     _emit_nax_apply_fragment,
 )
 from metile.codegen.msl_emitter.nax import (
@@ -109,6 +114,11 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
     lines.append(f"[[kernel, max_total_threads_per_threadgroup({max_threads})]] void {func.name}(")
     lines.append(params_str)
     lines.append(") {")
+    scalar_captures = _emit_epilogue_captures(func, lines)
+    dimension_scope = _emit_dimension_bindings(func, lines)
+    if scalar_captures and not dimension_scope:
+        lines.append("    {")
+        dimension_scope = True
 
     # Check if preemptive mode (needs bounds guards for OOB simdgroups)
     _preemptive = any(isinstance(op, mir.MMatmul2dSetup) and not op.cooperative for op in func.ops)
@@ -119,8 +129,16 @@ def _emit_tensor_ops_kernel(func: mir.MFunction) -> str:
             op._needs_bounds_guard = True
         if _preemptive and isinstance(op, mir.MCoopTensorEpilogue):
             op._needs_bounds_guard = True
-        _emit_gemm_op(op, lines, indent=1, func=func, _tensor_ops_preemptive=_preemptive)
+        _emit_gemm_op(
+            op,
+            lines,
+            indent=2 if dimension_scope else 1,
+            func=func,
+            _tensor_ops_preemptive=_preemptive,
+        )
 
+    if dimension_scope:
+        lines.append("    }")
     lines.append("}")
     return "\n".join(lines)
 
@@ -169,14 +187,23 @@ def _emit_gemm(func: mir.MFunction) -> str:
     lines.append(f"[[kernel]] void {func.name}(")
     lines.append(params_str)
     lines.append(") {")
+    scalar_captures = _emit_epilogue_captures(func, lines)
+    dimension_scope = _emit_dimension_bindings(func, lines)
+    if scalar_captures and not dimension_scope:
+        lines.append("    {")
+        dimension_scope = True
 
     # Check for swizzle
     has_swizzle = getattr(func, "_swizzle", False)
 
     # Emit body
     for op in func.ops:
-        _emit_gemm_op(op, lines, indent=1, func=func, has_swizzle=has_swizzle)
+        _emit_gemm_op(
+            op, lines, indent=2 if dimension_scope else 1, func=func, has_swizzle=has_swizzle
+        )
 
+    if dimension_scope:
+        lines.append("    }")
     lines.append("}")
     return "\n".join(lines)
 
@@ -613,84 +640,74 @@ def _emit_persistent_grab(
 def _emit_double_buffered_k_loop(
     op: mir.MForLoop, lines: list[str], indent: int, func: mir.MFunction, has_swizzle: bool = False
 ):
-    """Emit a double-buffered K-loop with software pipelining.
+    """Emit the verified software copy/compute/publication/recycling phase program."""
+    from metile.compiler.staging import StagingError, validate_staging
 
-    Structure: prologue (load first tile) → main loop (prefetch next +
-    compute current) → epilogue (compute last tile).
-    """
+    if op.staging is None:
+        raise StagingError("double-buffered emission requires a verified staging contract")
+    validate_staging(func)
+    pipeline = op.staging
+    buffers = {buffer.logical_name: buffer for buffer in pipeline.buffers}
+    loads = {load.tg_array: load for load in op.body[:2]}
+    compute = op.body[3]
     pad = "    " * indent
-    end = _val_name_gemm(op.end, func)
-    step = op.step
-
-    # Extract cooperative loads and compute ops from loop body
-    loads = [o for o in op.body if isinstance(o, mir.MCooperativeLoad)]
-    kk_loops = [o for o in op.body if isinstance(o, mir.MForLoop) and getattr(o, "_unroll", False)]
-    if not loads or not kk_loops:
-        # Fallback to regular emission
-        _emit_for_loop_regular(op, lines, indent, func, has_swizzle)
-        return
-
-    elem_type = loads[0].elem_type
-
-    # Declare pointer-swap variables
-    lines.append(f"{pad}// Double-buffered K-loop: prefetch next tile while computing current")
-    lines.append(f"{pad}threadgroup {elem_type}* sa_curr = shared_a_0;")
-    lines.append(f"{pad}threadgroup {elem_type}* sa_next = shared_a_1;")
-    lines.append(f"{pad}threadgroup {elem_type}* sb_curr = shared_b_0;")
-    lines.append(f"{pad}threadgroup {elem_type}* sb_next = shared_b_1;")
-    lines.append("")
-
-    # Prologue: load first tile into buffer 0
-    lines.append(f"{pad}// Prologue: load first tile")
-    for ld in loads:
-        old_tg = ld.tg_array
-        old_kb = ld.kb_expr
-        ld.tg_array = (
-            f"{old_tg.replace('shared_a', 'shared_a_0').replace('shared_b', 'shared_b_0')}"
+    end = _val_name_gemm(op.end, func) if isinstance(op.end, mir.MValue) else str(op.end)
+    lines.append(f"{pad}if ({end} > 0) {{")
+    for buffer in pipeline.buffers:
+        lines.append(
+            f"{pad}    threadgroup {buffer.element_type}* {buffer.current_pointer} = {buffer.slots[0]};"
         )
-        ld.kb_expr = "0"
-        _emit_cooperative_load(ld, lines, indent, func)
-        ld.tg_array = old_tg
-        ld.kb_expr = old_kb
-    lines.append(f"{pad}threadgroup_barrier(mem_flags::mem_threadgroup);")
-    lines.append("")
+        lines.append(
+            f"{pad}    threadgroup {buffer.element_type}* {buffer.next_pointer} = {buffer.slots[1]};"
+        )
 
-    # Main loop: prefetch next + compute current
-    lines.append(f"{pad}for (int kb = 0; kb < {end} - {step}; kb += {step}) {{")
+    def emit_region(region, level):
+        region_pad = "    " * level
+        for phase in pipeline.phases:
+            if phase.region != region:
+                continue
+            if phase.kind == "copy":
+                for access in phase.writes:
+                    buffer = buffers[access.buffer]
+                    target = (
+                        buffer.current_pointer if access.slot == "current" else buffer.next_pointer
+                    )
+                    reduction = "0" if region == "prologue" else f"{op.iv_name} + {op.step}"
+                    load = replace(loads[access.buffer], tg_array=target, kb_expr=reduction)
+                    _emit_cooperative_load(load, lines, level, func)
+            elif phase.kind == "compute":
+                aliases = {
+                    access.buffer: buffers[access.buffer].current_pointer for access in phase.reads
+                }
+                current_compute = copy(compute)
+                current_compute.body = [
+                    replace(operation, src_array=aliases[operation.src_array])
+                    if isinstance(operation, mir.MSimdgroupLoad)
+                    else operation
+                    for operation in compute.body
+                ]
+                _emit_for_loop_regular(current_compute, lines, level, func, has_swizzle)
+            elif phase.kind == "barrier":
+                lines.append(
+                    f"{region_pad}{phase.barrier_scope}_barrier(mem_flags::{phase.barrier_flags});"
+                )
+            elif phase.kind == "rotate":
+                for name in phase.rotates:
+                    buffer = buffers[name]
+                    current, upcoming = buffer.current_pointer, buffer.next_pointer
+                    lines.append(
+                        f"{region_pad}{{ threadgroup {buffer.element_type}* _stage_swap = {current}; "
+                        f"{current} = {upcoming}; {upcoming} = _stage_swap; }}"
+                    )
 
-    # Prefetch next tile into sa_next/sb_next
-    for ld in loads:
-        old_tg = ld.tg_array
-        old_kb = ld.kb_expr
-        ld.tg_array = f"{'sa_next' if 'shared_a' in old_tg else 'sb_next'}"
-        ld.kb_expr = f"kb + {step}"
-        _emit_cooperative_load(ld, lines, indent + 1, func)
-        ld.tg_array = old_tg
-        ld.kb_expr = old_kb
-
-    # Compute on current tile from sa_curr/sb_curr
-    kk = kk_loops[0]
-    _emit_kk_with_buffer(kk, "sa_curr", "sb_curr", lines, indent + 1, func, has_swizzle)
-
-    # Barrier: wait for both prefetch and compute
-    p1 = "    " * (indent + 1)
-    lines.append(f"{p1}threadgroup_barrier(mem_flags::mem_threadgroup);")
-
-    # Swap buffer pointers
+    emit_region("prologue", indent + 1)
     lines.append(
-        f"{p1}{{ threadgroup {elem_type}* _t = sa_curr; sa_curr = sa_next; sa_next = _t; }}"
+        f"{pad}    for (int {op.iv_name} = 0; {op.iv_name} < {end} - {op.step}; {op.iv_name} += {op.step}) {{"
     )
-    lines.append(
-        f"{p1}{{ threadgroup {elem_type}* _t = sb_curr; sb_curr = sb_next; sb_next = _t; }}"
-    )
-
+    emit_region("steady", indent + 2)
+    lines.append(f"{pad}    }}")
+    emit_region("drain", indent + 1)
     lines.append(f"{pad}}}")
-    lines.append("")
-
-    # Epilogue: compute last tile (now in sa_curr after final swap)
-    lines.append(f"{pad}// Epilogue: compute last tile")
-    kk = kk_loops[0]
-    _emit_kk_with_buffer(kk, "sa_curr", "sb_curr", lines, indent, func, has_swizzle)
 
 
 def _emit_kk_with_buffer(
@@ -707,20 +724,15 @@ def _emit_kk_with_buffer(
     Used by double-buffered K-loop to redirect MSimdgroupLoad ops
     to sa_curr/sb_curr or sa_next/sb_next pointer variables.
     """
-    # Temporarily patch src_array on all MSimdgroupLoad ops
-    originals = []
-    for op in kk_loop.body:
-        if isinstance(op, mir.MSimdgroupLoad):
-            originals.append((op, op.src_array))
-            if "shared_a" in op.src_array:
-                op.src_array = sa_name
-            elif "shared_b" in op.src_array:
-                op.src_array = sb_name
-    # Emit the loop
-    _emit_for_loop_regular(kk_loop, lines, indent, func, has_swizzle)
-    # Restore
-    for op, orig in originals:
-        op.src_array = orig
+    aliases = {"shared_a": sa_name, "shared_b": sb_name}
+    current_loop = copy(kk_loop)
+    current_loop.body = [
+        replace(operation, src_array=aliases[operation.src_array])
+        if isinstance(operation, mir.MSimdgroupLoad) and operation.src_array in aliases
+        else operation
+        for operation in kk_loop.body
+    ]
+    _emit_for_loop_regular(current_loop, lines, indent, func, has_swizzle)
 
 
 def _emit_for_loop_regular(
@@ -764,12 +776,22 @@ def _emit_specialized_db_k_loop(
     pad = "    " * indent
     bk = getattr(op, "_bk", 32)
     end = _val_name_gemm(op.end, func) if isinstance(op.end, mir.MValue) else str(op.end)
+    staged_names = {"shared_a_0", "shared_a_1", "shared_b_0", "shared_b_1"}
+    allocations = {
+        allocation.alloc_name: allocation.elem_type
+        for allocation in func.ops
+        if isinstance(allocation, mir.MThreadgroupAlloc) and allocation.alloc_name in staged_names
+    }
+    element_types = set(allocations.values())
+    if set(allocations) != staged_names or len(element_types) != 1:
+        raise ValueError("specialized staging requires matching typed operand allocations")
+    element_type = element_types.pop()
 
     # Emit pointer swap variables for double-buffering (before loop for epilogue access)
-    lines.append(f"{pad}threadgroup float* sa_curr = shared_a_0;")
-    lines.append(f"{pad}threadgroup float* sa_next = shared_a_1;")
-    lines.append(f"{pad}threadgroup float* sb_curr = shared_b_0;")
-    lines.append(f"{pad}threadgroup float* sb_next = shared_b_1;")
+    lines.append(f"{pad}threadgroup {element_type}* sa_curr = shared_a_0;")
+    lines.append(f"{pad}threadgroup {element_type}* sa_next = shared_a_1;")
+    lines.append(f"{pad}threadgroup {element_type}* sb_curr = shared_b_0;")
+    lines.append(f"{pad}threadgroup {element_type}* sb_next = shared_b_1;")
 
     # Main loop: iterate K - BK steps (last tile handled by epilogue)
     lines.append(f"{pad}for (int kb = 0; kb < {end} - {bk}; kb += {bk}) {{")
@@ -787,14 +809,11 @@ def _emit_specialized_db_k_loop(
                 lines.append(f"{pad}    if ({sgid_name} < {end_sg}u) {{")
                 for inner_op in body_op.body:
                     if isinstance(inner_op, mir.MCooperativeLoad):
-                        # Replace tg_array name: shared_a -> sa_next, shared_b -> sb_next
-                        orig_tg = inner_op.tg_array
-                        if "shared_a" in orig_tg:
-                            inner_op.tg_array = "sa_next"
-                        elif "shared_b" in orig_tg:
-                            inner_op.tg_array = "sb_next"
-                        _emit_gemm_op(inner_op, lines, indent + 2, func, has_swizzle)
-                        inner_op.tg_array = orig_tg  # restore
+                        aliases = {"shared_a": "sa_next", "shared_b": "sb_next"}
+                        staged_load = replace(
+                            inner_op, tg_array=aliases.get(inner_op.tg_array, inner_op.tg_array)
+                        )
+                        _emit_gemm_op(staged_load, lines, indent + 2, func, has_swizzle)
                     else:
                         _emit_gemm_op(inner_op, lines, indent + 2, func, has_swizzle)
                 lines.append(f"{pad}    }}")
@@ -818,10 +837,10 @@ def _emit_specialized_db_k_loop(
 
     # Buffer swap after barrier
     lines.append(
-        f"{pad}    {{ threadgroup float* _t = sa_curr; sa_curr = sa_next; sa_next = _t; }}"
+        f"{pad}    {{ threadgroup {element_type}* _t = sa_curr; sa_curr = sa_next; sa_next = _t; }}"
     )
     lines.append(
-        f"{pad}    {{ threadgroup float* _t = sb_curr; sb_curr = sb_next; sb_next = _t; }}"
+        f"{pad}    {{ threadgroup {element_type}* _t = sb_curr; sb_curr = sb_next; sb_next = _t; }}"
     )
     lines.append(f"{pad}}}")
 
@@ -881,7 +900,7 @@ def _emit_for_loop(
         _emit_specialized_db_k_loop(op, lines, indent, func, has_swizzle)
         return
 
-    is_double_buffered = getattr(op, "_double_buffered", False)
+    is_double_buffered = op.staging is not None or getattr(op, "_double_buffered", False)
     if is_double_buffered:
         _emit_double_buffered_k_loop(op, lines, indent, func, has_swizzle)
         return

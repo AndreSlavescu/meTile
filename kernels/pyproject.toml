@@ -1,0 +1,17 @@
+[project]
+name = "metile-kernels"
+version = "0.0.1"
+description = "Reference GPU kernels built with the meTile compiler"
+requires-python = ">=3.10"
+dependencies = [
+    "metile==0.0.1",
+    "numpy>=1.24",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["metile_kernels", "metile_kernels.*"]

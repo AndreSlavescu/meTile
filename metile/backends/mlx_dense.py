@@ -18,7 +18,6 @@ from metile.backends.mlx import (
 from metile.compiler.lowering import _lower_tensor_ops_gemm
 from metile.compiler.passes import decompose_nax_fragments
 from metile.compiler.schedule_search import choose_mdl_tie, compressed_description_bits
-from metile.kernels.gemm import matmul
 from metile.runtime.cache import (
     cache_root,
     read_cached_config,
@@ -27,6 +26,7 @@ from metile.runtime.cache import (
 )
 from metile.runtime.metal_device import MetalDevice
 from metile.tuning import round_robin, select_fastest
+from metile_kernels.gemm import matmul
 
 _kernel_cache = {}
 _schedule_cache = {}
@@ -194,6 +194,7 @@ def mlx_dense_backend_signature():
             "configs": [vars(config) for config in _CONFIGS],
             "decomposition": inspect.getsource(decompose_nax_fragments),
             "dispatch": inspect.getsource(mlx_dense_matmul),
+            "kernel": inspect.getsource(matmul.kernel_fn.fn),
             "lowering": inspect.getsource(_lower_tensor_ops_gemm),
             "measure": inspect.getsource(_measure_dispatches),
             "selection": inspect.getsource(_choose_config),

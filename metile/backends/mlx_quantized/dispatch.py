@@ -49,13 +49,13 @@ from metile.backends.mlx_quantized.swiglu import (
     _write_affine_swiglu_config,
 )
 from metile.compiler.affine_quantized import lower_affine_swiglu_qmv
-from metile.kernels.affine_qmv import (
+from metile.runtime.cache import stable_digest
+from metile.tuning import confirm_pairwise, round_robin
+from metile_kernels.affine_qmv import (
     affine_residual_qmv,
     affine_swiglu_qmv,
     affine_swiglu_scratch_qmv,
 )
-from metile.runtime.cache import stable_digest
-from metile.tuning import confirm_pairwise, round_robin
 
 
 def _tune_affine_dispatches(configs, make_dispatch, choose_config):

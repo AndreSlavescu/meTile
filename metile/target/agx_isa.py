@@ -65,7 +65,7 @@ time from the behavioural finder in `boundaries`, which cannot be fooled that wa
 Negative immediates likewise have no known encoding in this field, and `encode_immediate` refuses
 them rather than returning the nearest byte, which would corrupt a kernel silently.
 
-`benchmarks/agx_isa_probe.py` re-derives all of it from scratch, which is how to port this to
+`benchmarks/hardware/agx_isa_probe.py` re-derives all of it from scratch, which is how to port this to
 new hardware.
 """
 
@@ -306,7 +306,7 @@ def find_fma(text):
     found = []
     offset = 0
     while offset + FMA_LENGTH <= len(text):
-        if text[offset] & 0x0F == FMA_OPCODE_NIBBLE and text[offset + 2] & 0x0F in (0x0E,):
+        if text[offset] & 0x0F == FMA_OPCODE_NIBBLE and text[offset + 2] & 0x0F == 0x0E:
             found.append(offset)
             offset += FMA_LENGTH
         else:
@@ -355,29 +355,13 @@ def execute(source, function, inputs, rewrite=None, workdir=".metile-agx"):
     after them, including the metadata the driver reads to set the kernel up.
     """
     workdir = Path(workdir)
-    prober = agx._harness(workdir)
+    metal, archive = agx._compile_archive(source, function, workdir, basename="isa")
     executor = _harness(workdir)
-    metal = workdir / "isa.metal"
-    archive = workdir / "isa.bin"
-    metal.write_text(source)
-    built = subprocess.run(
-        [str(prober), str(metal), function, str(archive)], capture_output=True, text=True
-    )
-    if built.returncode != 0:
-        message = built.stderr.strip()
-        # Same distinction `agx.machine_code` draws: a device that will not serialize an archive
-        # cannot run one either, and that is a capability the machine lacks rather than an error in
-        # the kernel, so callers get Unavailable and can skip.
-        if "MTLBinaryArchive" in message or "eligible to be serialized" in message:
-            raise agx.Unavailable(
-                f"this device does not serialize binary archives: {message[:200]}"
-            )
-        raise RuntimeError(message[:300])
 
     raw = archive.read_bytes()
     target = archive
     if rewrite is not None:
-        text = agx.machine_code(source, function, workdir)
+        text = agx._section(agx._extract_archive(archive, workdir), None, "__text")
         replacement = rewrite(text)
         if len(replacement) != len(text):
             raise EncodingError(

@@ -120,19 +120,144 @@ def split_elementwise_loops(func: mir.MFunction) -> mir.MFunction:
         return func
 
     counter = [0]  # per-function counter, avoids global state leaking across calls
-    func.ops = _split_ew_recursive(func.ops, counter)
+    func.ops = _split_ew_recursive(func.ops, counter, func.threadgroup_size)
     return func
 
 
-def _split_ew_recursive(ops: list[mir.MOp], counter: list[int]) -> list[mir.MOp]:
+def _split_ew_recursive(
+    ops: list[mir.MOp], counter: list[int], threadgroup_size: tuple[int, int, int]
+) -> list[mir.MOp]:
     new_ops = []
     for op in ops:
-        if isinstance(op, mir.MForLoop) and _has_ifblock(op.body):
+        if isinstance(op, mir.MForLoop) and _masked_memory_operations(op.body):
+            split = _split_masked_ew_for_loop(op, counter[0], threadgroup_size)
+            new_ops.extend(split)
+            counter[0] += len(split) == 2
+        elif isinstance(op, mir.MForLoop) and _has_ifblock(op.body):
             new_ops.extend(_split_ew_for_loop(op, counter[0]))
             counter[0] += 1
         else:
             new_ops.append(op)
     return new_ops
+
+
+_ELEMENTWISE_MEMORY_OPS = (
+    mir.DeviceLoad,
+    mir.DeviceStore,
+    mir.MThreadgroupLoad,
+    mir.MThreadgroupStore,
+)
+
+
+def _masked_memory_operations(ops: list[mir.MOp]) -> list[mir.MOp]:
+    masked = []
+    for op in ops:
+        if isinstance(op, _ELEMENTWISE_MEMORY_OPS) and op.mask is not None:
+            masked.append(op)
+        if hasattr(op, "body"):
+            masked.extend(_masked_memory_operations(op.body))
+    return masked
+
+
+def _integer_constant(value: mir.MValue | int) -> int | None:
+    if isinstance(value, int):
+        return value
+    value = mir.resolve(value)
+    if (
+        isinstance(value.defining_op, mir.MConstant)
+        and value.type.dtype in ("i32", "u32")
+        and isinstance(value.defining_op.value, int)
+    ):
+        return value.defining_op.value
+    return None
+
+
+def _loop_index_affine(value: mir.MValue, iv_name: str) -> tuple[int, int, int] | None:
+    """Prove an integer index is affine in the loop index and thread index."""
+    value = mir.resolve(value)
+    if value.type.dtype not in ("i32", "u32"):
+        return None
+    operation = value.defining_op
+    if operation is None:
+        return (1, 0, 0) if value.name == iv_name else None
+    if isinstance(operation, mir.ThreadPositionInThreadgroup) and operation.axis == 0:
+        return (0, 1, 0)
+    constant = _integer_constant(value)
+    if constant is not None:
+        return (0, 0, constant)
+    if isinstance(operation, mir.MCast) and operation.target_dtype in ("i32", "u32"):
+        return _loop_index_affine(operation.value, iv_name)
+    if isinstance(operation, mir.MBinOp) and operation.op in ("add", "sub", "mul"):
+        left = _loop_index_affine(operation.lhs, iv_name)
+        right = _loop_index_affine(operation.rhs, iv_name)
+        if left is None or right is None:
+            return None
+        if operation.op == "add":
+            return tuple(first + second for first, second in zip(left, right))
+        if operation.op == "sub":
+            return tuple(first - second for first, second in zip(left, right))
+        if left[:2] == (0, 0):
+            return tuple(left[2] * coefficient for coefficient in right)
+        if right[:2] == (0, 0):
+            return tuple(right[2] * coefficient for coefficient in left)
+    return None
+
+
+def _same_loop_bound(value: mir.MValue, bound: mir.MValue | int) -> bool:
+    constant = _integer_constant(value)
+    bound_constant = _integer_constant(bound)
+    if constant is not None or bound_constant is not None:
+        return constant is not None and constant == bound_constant
+    value = mir.resolve(value)
+    bound = mir.resolve(bound)
+    return value is bound or (
+        value.defining_op is None
+        and bound.defining_op is None
+        and value.name == bound.name
+        and value.type == bound.type
+    )
+
+
+def _mask_true_in_aligned_loop(mask: mir.MValue, loop: mir.MForLoop) -> bool:
+    mask = mir.resolve(mask)
+    operation = mask.defining_op
+    if isinstance(operation, mir.MConstant):
+        return mask.type.dtype == "bool" and operation.value in (True, 1)
+    if (
+        isinstance(operation, mir.MBinOp)
+        and operation.op in ("and", "bitand")
+        and operation.lhs.type.dtype == operation.rhs.type.dtype == "bool"
+    ):
+        return _mask_true_in_aligned_loop(operation.lhs, loop) and _mask_true_in_aligned_loop(
+            operation.rhs, loop
+        )
+    if not isinstance(operation, mir.MCompare):
+        return False
+    if _loop_index_affine(operation.lhs, loop.iv_name) != (1, 1, 0):
+        return False
+    if operation.predicate == "ge":
+        return _integer_constant(operation.rhs) == 0
+    return operation.predicate == "lt" and _same_loop_bound(operation.rhs, loop.end)
+
+
+def _split_masked_ew_for_loop(
+    loop: mir.MForLoop, loop_id: int, threadgroup_size: tuple[int, int, int]
+) -> list[mir.MOp]:
+    if (
+        _integer_constant(loop.start) != 0
+        or loop.step <= 0
+        or threadgroup_size != (loop.step, 1, 1)
+        or any(hasattr(operation, "body") for operation in loop.body)
+        or not all(
+            _mask_true_in_aligned_loop(operation.mask, loop)
+            for operation in _masked_memory_operations(loop.body)
+        )
+    ):
+        return [loop]
+    aligned, tail = _split_ew_for_loop(loop, loop_id)
+    for operation in _masked_memory_operations(aligned.body):
+        operation.mask = None
+    return [aligned, tail]
 
 
 def _has_ifblock(body: list[mir.MOp]) -> bool:
@@ -141,16 +266,36 @@ def _has_ifblock(body: list[mir.MOp]) -> bool:
 
 def _split_ew_for_loop(loop: mir.MForLoop, loop_id: int) -> list[mir.MOp]:
     """Split an element-wise ForRange into aligned + tail."""
+    local_operations = []
+    _walk_ops([loop], local_operations.append)
+    local_ids = {id(operation) for operation in local_operations}
+    external_values = {}
+
+    def preserve_external(value):
+        if isinstance(value, mir.MValue):
+            if id(value.defining_op) not in local_ids:
+                external_values[id(value)] = value
+        elif isinstance(value, (list, tuple)):
+            for member in value:
+                preserve_external(member)
+        elif isinstance(value, dict):
+            for member in value.values():
+                preserve_external(member)
+
+    for operation in local_operations:
+        for value in vars(operation).values():
+            preserve_external(value)
+
+    aligned = copy.deepcopy(loop, dict(external_values))
     # Aligned loop: body without IfBlock wrapper (ops inlined)
     aligned_body = []
-    for op in loop.body:
+    for op in aligned.body:
         if isinstance(op, mir.IfBlock):
             aligned_body.extend(op.body)
         else:
             aligned_body.append(op)
 
-    aligned = copy.deepcopy(loop)
-    aligned.body = copy.deepcopy(aligned_body)
+    aligned.body = aligned_body
     aligned._ew_aligned = True
     aligned._ew_id = loop_id
     # Propagate num_stages from lowering
@@ -158,7 +303,7 @@ def _split_ew_for_loop(loop: mir.MForLoop, loop_id: int) -> list[mir.MOp]:
         aligned._num_stages = loop._num_stages
 
     # Tail: single iteration with original body (IfBlock intact)
-    tail = copy.deepcopy(loop)
+    tail = copy.deepcopy(loop, dict(external_values))
     tail._ew_tail = True
     tail._ew_id = loop_id
 
@@ -198,16 +343,81 @@ def vectorize_elementwise(func: mir.MFunction, vec_size: int = 4) -> mir.MFuncti
     return func
 
 
-def _elementwise_loop_supports_vectorization(ops: list[mir.MOp]) -> bool:
+def _elementwise_loop_supports_vectorization(
+    ops: list[mir.MOp], local_operations: set[int] | None = None
+) -> bool:
     """Reject scalar/subgroup semantics that vec4 emission cannot preserve."""
+    if local_operations is None:
+        local_operations = set()
+        _walk_ops(ops, lambda operation: local_operations.add(id(operation)))
     for op in ops:
         if isinstance(op, (mir.MSimdBroadcast, mir.MSimdShuffleXor)):
             return False
+        if isinstance(op, (mir.MThreadgroupLoad, mir.MThreadgroupStore)):
+            return False
+        if isinstance(op, (mir.DeviceLoad, mir.DeviceStore)) and (
+            op.mask is not None
+            or _elementwise_lane_stride(op.index) != 1
+            or not _lane_coordinates_are_local(op.index, local_operations)
+        ):
+            return False
         if isinstance(op, (mir.MForLoop, mir.IfBlock, mir.MWhileTrue)) and not (
-            _elementwise_loop_supports_vectorization(op.body)
+            _elementwise_loop_supports_vectorization(op.body, local_operations)
         ):
             return False
     return True
+
+
+def _lane_coordinates_are_local(value: mir.MValue, local_operations: set[int]) -> bool:
+    """Reject hoisted lane expressions that the vector emitter cannot rescale."""
+    value = mir.resolve(value)
+    operation = value.defining_op
+    if _elementwise_lane_stride(value) == 0 or isinstance(
+        operation, mir.ThreadPositionInThreadgroup
+    ):
+        return True
+    if id(operation) not in local_operations:
+        return False
+    if isinstance(operation, mir.MCast):
+        return _lane_coordinates_are_local(operation.value, local_operations)
+    if isinstance(operation, mir.MBinOp):
+        return _lane_coordinates_are_local(
+            operation.lhs, local_operations
+        ) and _lane_coordinates_are_local(operation.rhs, local_operations)
+    return False
+
+
+def _elementwise_lane_stride(value: mir.MValue) -> int | None:
+    """Determine the constant address increment between adjacent thread lanes."""
+    value = mir.resolve(value)
+    if value.type.dtype not in ("i32", "u32"):
+        return None
+    operation = value.defining_op
+    if operation is None or isinstance(operation, (mir.MConstant, mir.ThreadgroupPositionInGrid)):
+        return 0
+    if isinstance(operation, mir.ThreadPositionInThreadgroup) and operation.axis == 0:
+        return 1
+    if isinstance(operation, mir.MCast) and operation.target_dtype in ("i32", "u32"):
+        return _elementwise_lane_stride(operation.value)
+    if isinstance(operation, mir.MBinOp):
+        left = _elementwise_lane_stride(operation.lhs)
+        right = _elementwise_lane_stride(operation.rhs)
+        if left is None or right is None:
+            return None
+        if operation.op == "add":
+            return left + right
+        if operation.op == "sub":
+            return left - right
+        if left == right == 0:
+            return 0
+        if operation.op == "mul":
+            left_constant = _integer_constant(operation.lhs)
+            right_constant = _integer_constant(operation.rhs)
+            if left_constant is not None:
+                return left_constant * right
+            if right_constant is not None:
+                return right_constant * left
+    return None
 
 
 def vectorize_loads(func: mir.MFunction, vec_size: int = 4) -> mir.MFunction:
@@ -355,6 +565,7 @@ def _decompose_nax_ops(ops: list[mir.MOp]) -> list[mir.MOp]:
                     mir.MNaxMatmul2dDecl(
                         left_type=op.left_type,
                         right_type=op.right_type,
+                        relaxed=op.relaxed,
                     ),
                 )
             )
@@ -766,61 +977,10 @@ def swizzle_shared_memory(func: mir.MFunction) -> mir.MFunction:
 
 
 def double_buffer_k_loop(func: mir.MFunction, max_tg_bytes: int = 30720):
-    """Double-buffer the K-loop for software-pipelined prefetching.
+    """Materialize a verified two-stage software pipeline within its memory budget."""
+    from metile.compiler.staging import materialize_double_buffer
 
-    Overlaps loading of the next K-block with computing the current one.
-    Doubles threadgroup memory allocations (shared_a_0/1, shared_b_0/1).
-
-    Returns (func, did_apply) — skips if doubled memory exceeds max_tg_bytes.
-    """
-    if func.kernel_type not in ("gemm", "persistent_gemm", "specialized_gemm"):
-        return func, False
-
-    # Check memory budget: sum all threadgroup allocs
-    elem_sizes = {"float": 4, "half": 2}
-    total_bytes = 0
-    alloc_names = []
-    for op in func.ops:
-        if isinstance(op, mir.MThreadgroupAlloc):
-            total_bytes += op.size * elem_sizes.get(op.elem_type, 4)
-            alloc_names.append(op.alloc_name)
-
-    if 2 * total_bytes > max_tg_bytes:
-        return func, False
-
-    # Double the threadgroup allocations
-    new_ops = []
-    for op in func.ops:
-        if isinstance(op, mir.MThreadgroupAlloc) and op.alloc_name in ("shared_a", "shared_b"):
-            # Replace with two buffers
-            new_ops.append(
-                mir.MThreadgroupAlloc(
-                    alloc_name=f"{op.alloc_name}_0", elem_type=op.elem_type, size=op.size
-                )
-            )
-            new_ops.append(
-                mir.MThreadgroupAlloc(
-                    alloc_name=f"{op.alloc_name}_1", elem_type=op.elem_type, size=op.size
-                )
-            )
-        else:
-            new_ops.append(op)
-    func.ops = new_ops
-
-    # Mark the K-loop
-    _mark_double_buffer_recursive(func.ops)
-
-    return func, True
-
-
-def _mark_double_buffer_recursive(ops: list[mir.MOp]):
-    """Find and mark kb for-loops for double buffering."""
-    for op in ops:
-        if isinstance(op, mir.MForLoop) and op.iv_name == "kb":
-            op._double_buffered = True
-            op._db_step = op.step
-        elif isinstance(op, mir.MWhileTrue):
-            _mark_double_buffer_recursive(op.body)
+    return func, materialize_double_buffer(func, max_tg_bytes)
 
 
 def _walk_ops(ops: list[mir.MOp], fn):
@@ -844,7 +1004,7 @@ def _update_alloc_size(alloc: mir.MThreadgroupAlloc, ops: list[mir.MOp], pad: in
 
 def _split_k_for_loop(loop: mir.MForLoop) -> list[mir.MOp]:
     # Skip loops already transformed by double_buffer_k_loop
-    if getattr(loop, "_double_buffered", False):
+    if loop.staging is not None or getattr(loop, "_double_buffered", False):
         return [loop]
 
     """Split a K-dimension for loop into aligned + tail."""
@@ -961,27 +1121,27 @@ def _try_fold(op: mir.MOp):
 
         # Case 3: Identity elimination
         # x + 0 -> x, x - 0 -> x
-        if op.op in ("add", "sub") and _is_constant_val(op.rhs, 0):
+        if op.op in ("add", "sub") and _is_constant_val(op.rhs, 0) and op.lhs.defining_op:
             op.result.defining_op = op.lhs.defining_op
             return
         # 0 + x -> x
-        if op.op == "add" and _is_constant_val(op.lhs, 0):
+        if op.op == "add" and _is_constant_val(op.lhs, 0) and op.rhs.defining_op:
             op.result.defining_op = op.rhs.defining_op
             return
         # x * 1 -> x
-        if op.op == "mul" and _is_constant_val(op.rhs, 1):
+        if op.op == "mul" and _is_constant_val(op.rhs, 1) and op.lhs.defining_op:
             op.result.defining_op = op.lhs.defining_op
             return
         # 1 * x -> x
-        if op.op == "mul" and _is_constant_val(op.lhs, 1):
+        if op.op == "mul" and _is_constant_val(op.lhs, 1) and op.rhs.defining_op:
             op.result.defining_op = op.rhs.defining_op
             return
         # x | 0 -> x, x ^ 0 -> x
-        if op.op in ("or", "xor") and _is_constant_val(op.rhs, 0):
+        if op.op in ("or", "xor") and _is_constant_val(op.rhs, 0) and op.lhs.defining_op:
             op.result.defining_op = op.lhs.defining_op
             return
         # 0 | x -> x, 0 ^ x -> x
-        if op.op in ("or", "xor") and _is_constant_val(op.lhs, 0):
+        if op.op in ("or", "xor") and _is_constant_val(op.lhs, 0) and op.rhs.defining_op:
             op.result.defining_op = op.rhs.defining_op
             return
 
@@ -1047,6 +1207,8 @@ def _cse_recursive(ops: list[mir.MOp], seen: dict):
       with outer-scope values, but inner discoveries don't leak outward.
     """
     for op in ops:
+        if isinstance(op, mir.MVarAssign):
+            seen.clear()
         key = _cse_key(op)
         if key is not None:
             if key in seen:
@@ -1061,6 +1223,8 @@ def _cse_recursive(ops: list[mir.MOp], seen: dict):
             _cse_recursive(op.body, {})  # fresh scope for loops
         elif isinstance(op, (mir.IfBlock, mir.MSimdgroupRoleBlock)):
             _cse_recursive(op.body, dict(seen))  # copy for if/role blocks
+        if hasattr(op, "body"):
+            seen.clear()
 
 
 def _dce_constants(ops: list[mir.MOp]) -> list[mir.MOp]:

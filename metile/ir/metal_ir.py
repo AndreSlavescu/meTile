@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from metile.ir.types import BOOL, U32, PtrType, ScalarType
+from metile.ir.ownership import ThreadLayout
+from metile.ir.types import BOOL, U32, PtrType, ScalarType, VectorType
+
+if TYPE_CHECKING:
+    from metile.compiler.planning import SchedulePlan
+    from metile.compiler.staging import SoftwarePipeline
 
 
 @dataclass
@@ -62,7 +68,7 @@ class MValue:
     """An SSA value in Metal IR."""
 
     name: str
-    type: ScalarType | PtrType
+    type: ScalarType | PtrType | VectorType
     defining_op: MOp | None = field(default=None, repr=False)
 
 
@@ -214,6 +220,8 @@ class DeviceLoad(MOp):
     ptr: MValue = None
     index: MValue = None
     dtype: str = "f32"
+    mask: MValue | None = None
+    other: MValue | None = None
 
     def result_type(self) -> ScalarType:
         return ScalarType(self.dtype)
@@ -226,6 +234,46 @@ class DeviceStore(MOp):
     ptr: MValue = None
     index: MValue = None
     value: MValue = None
+    mask: MValue | None = None
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MVectorLoad(MOp):
+    """Guarded packed access with four independently masked scalar fallbacks."""
+
+    ptr: MValue = None
+    indices: tuple[MValue, ...] = ()
+    masks: tuple[MValue | None, ...] = (None,) * 4
+    others: tuple[MValue | None, ...] = (None,) * 4
+    dtype: str = "f32"
+
+    def result_type(self) -> VectorType:
+        return VectorType(self.dtype, 4)
+
+
+@dataclass
+class MVectorExtract(MOp):
+    """Expose one scalar from a grouped memory value without changing ownership."""
+
+    value: MValue = None
+    lane: int = 0
+
+    def result_type(self) -> ScalarType:
+        return ScalarType(self.value.type.dtype)
+
+
+@dataclass
+class MVectorStore(MOp):
+    """Guarded packed store preserving four independent scalar store masks."""
+
+    ptr: MValue = None
+    indices: tuple[MValue, ...] = ()
+    values: tuple[MValue, ...] = ()
+    masks: tuple[MValue | None, ...] = (None,) * 4
+    dtype: str = "f32"
 
     def result_type(self):
         return None
@@ -249,6 +297,8 @@ class MThreadgroupLoad(MOp):
     array_name: str = ""
     index: MValue = None
     dtype: str = "f32"
+    mask: MValue | None = None
+    other: MValue | None = None
 
     def result_type(self) -> ScalarType:
         return ScalarType(self.dtype)
@@ -261,9 +311,29 @@ class MThreadgroupStore(MOp):
     array_name: str = ""
     index: MValue = None
     value: MValue = None
+    mask: MValue | None = None
 
     def result_type(self):
         return None
+
+
+@dataclass
+class MThreadIndexMap(MOp):
+    thread: MValue = None
+    layout: ThreadLayout | None = None
+
+    def result_type(self) -> ScalarType:
+        return ScalarType("i32")
+
+
+@dataclass
+class MSimdShuffle(MOp):
+    value: MValue = None
+    lane: MValue = None
+    dtype: str = "f32"
+
+    def result_type(self) -> ScalarType:
+        return ScalarType(self.dtype)
 
 
 @dataclass
@@ -367,6 +437,7 @@ class MThreadgroupReduce(MOp):
     sgid: MValue = None
     slid: MValue = None
     dtype: str = "f32"
+    replicate_partials: bool = False
 
     def result_type(self) -> ScalarType:
         return ScalarType(self.dtype)
@@ -442,6 +513,7 @@ class MForLoop(MOp):
     body: list[MOp] = field(default_factory=list)
     index_alias: str | None = None
     index_expression: str | None = None
+    staging: SoftwarePipeline | None = None
 
     def result_type(self):
         return None
@@ -689,6 +761,7 @@ class MNaxGemmSetup(MOp):
     k: int = 0
     left_type: str = "float"
     right_type: str = "float"
+    relaxed: bool = True
 
     def result_type(self):
         return None
@@ -903,7 +976,7 @@ class MNaxAccumulatorReset(MOp):
 
 @dataclass
 class MNaxMatmul2dDecl(MOp):
-    """Declare the native MPP matmul2d operator and cooperative tensors."""
+    """Declare the native MPP operator; relaxed input precision is separate from fast math."""
 
     m: int = 16
     n: int = 32
@@ -911,6 +984,7 @@ class MNaxMatmul2dDecl(MOp):
     left_type: str = "float"
     right_type: str = "float"
     accumulator_type: str = "float"
+    relaxed: bool = True
 
     def result_type(self):
         return None
@@ -1188,6 +1262,7 @@ class MCoopTensorStore(MOp):
 
     ct_name: str = "cT"
     output_slice: str = "mC"  # name of the output tensor slice
+    output_type: str | None = None
 
     def result_type(self):
         return None
@@ -1203,6 +1278,12 @@ class MFunction:
     grid: tuple[int, int, int] = (1, 1, 1)
     threadgroup_size: tuple[int, int, int] = (256, 1, 1)
     kernel_type: str = "elementwise"  # "elementwise" or "gemm"
+    dimension_bindings: dict[str, MValue | int] = field(default_factory=dict)
+    schedule_plan: SchedulePlan | None = None
+    value_layouts: tuple = ()
+    layout_conversions: tuple = ()
+    register_reductions: tuple = ()
+    layout_optimizations: object = None
 
     def add_op(self, op: MOp, name: str | None = None) -> MValue | None:
         rt = op.result_type() if hasattr(op, "result_type") else None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from metile.compiler.layout_optimizations import optimize_layout_conversions
 from metile.compiler.lowering.common import (
     LoweringError as LoweringError,
 )
@@ -12,8 +13,6 @@ from metile.compiler.lowering.common import (
     _compute_simdgroup_layout as _compute_simdgroup_layout,
 )
 from metile.compiler.lowering.common import (
-    _detect_dtype,
-    _is_gemm,
     _is_persistent_gemm,
     _is_specialized_gemm,
 )
@@ -26,31 +25,30 @@ from metile.compiler.lowering.gemm import (
     _lower_specialized_gemm,
     _lower_tensor_ops_gemm,
 )
+from metile.compiler.ownership import validate_thread_layouts
+from metile.compiler.planning import materialize_schedule, plan_schedule
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
 
 
 def lower(func: tir.Function) -> mir.MFunction:
     """Lower a Tile IR function to Metal IR."""
+    validate_thread_layouts(func)
+    func, layout_optimizations = optimize_layout_conversions(func)
+    plan = plan_schedule(func)
+    func = materialize_schedule(func, plan)
     if _is_persistent_gemm(func):
-        return _lower_persistent_gemm(func)
-    if _is_specialized_gemm(func):
-        return _lower_specialized_gemm(func)
-    if _is_gemm(func):
-        from metile.runtime.metal_device import MetalDevice
-
-        dtype, _ = _detect_dtype(func)
-        constexprs = func.constexprs
-        low_precision_nax = dtype == "f16" and constexprs.get("NAX_FRAGMENTS", False)
-        if MetalDevice.get().supports_tensor_ops and (dtype == "f32" or low_precision_nax):
-            # tensor_ops matmul2d requires SM,SN <= 32 for valid descriptor
-            BM = constexprs.get("BLOCK_M", 128)
-            BN = constexprs.get("BLOCK_N", 64)
-            WM = constexprs.get("WM", 2)
-            WN = constexprs.get("WN", 2)
-            SM, SN = BM // WM, BN // WN
-            if SM <= 32 and SN <= 32:
-                return _lower_tensor_ops_gemm(func)
-        return _lower_gemm(func)
-    ctx = _ElementwiseLoweringContext(func)
-    return ctx.lower()
+        lowered = _lower_persistent_gemm(func)
+    elif _is_specialized_gemm(func):
+        lowered = _lower_specialized_gemm(func)
+    elif plan.backend in {"tensor_ops", "nax"}:
+        lowered = _lower_tensor_ops_gemm(func)
+    elif plan.backend == "simdgroup":
+        lowered = _lower_gemm(func)
+    else:
+        lowered = _ElementwiseLoweringContext(func).lower()
+    if lowered.threadgroup_size != plan.threadgroup_size:
+        raise LoweringError("Lowering changed the planned threadgroup geometry")
+    lowered.schedule_plan = plan
+    lowered.layout_optimizations = layout_optimizations
+    return lowered

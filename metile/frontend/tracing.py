@@ -4,7 +4,8 @@ import threading
 from contextlib import contextmanager
 
 from metile.ir import tile_ir as tir
-from metile.ir.types import PtrType
+from metile.ir.ownership import ThreadLayout
+from metile.ir.types import PtrType, ScalarType, TileType
 
 
 class constexpr:
@@ -284,6 +285,7 @@ class TracingContext:
     def __init__(self, func_name: str):
         self.func = tir.Function(name=func_name)
         self._counter = 0
+        self._parameter_values: dict[int, tir.Value] = {}
 
     def _next_name(self) -> str:
         name = f"v{self._counter}"
@@ -306,6 +308,9 @@ class TracingProxy:
 
     def __init__(self, value: tir.Value):
         self._value = value
+        self._context = getattr(_active_ctx, "ctx", None)
+        if value.defining_op is None and self._context is not None:
+            self._context._parameter_values[id(value)] = value
 
     # Arithmetic
     def __add__(self, other):
@@ -402,6 +407,10 @@ class TracingProxy:
 def _to_value(x) -> tir.Value:
     """Convert a Python value or TracingProxy to a Tile IR Value."""
     if isinstance(x, TracingProxy):
+        if x._value.defining_op is None and x._context is None:
+            x._context = getattr(_active_ctx, "ctx", None)
+            if x._context is not None:
+                x._context._parameter_values[id(x._value)] = x._value
         return x._value
     if isinstance(x, (int, float)):
         ctx = _get_ctx()
@@ -445,6 +454,62 @@ def _unary(op_name: str, operand) -> TracingProxy:
     op = tir.Unary(op=op_name, operand=val)
     result = ctx.add_op(op)
     return TracingProxy(result)
+
+
+class LoopState:
+    """Explicit per-lane state; ``value`` snapshots and ``update`` assigns.
+
+    Declare before a runtime loop and update inside it. A zero-trip loop keeps
+    its initial value. Unlike rebinding a Python variable, updates do not rely
+    on recurrence inference. State is local to the declaring kernel scope;
+    it is neither shared memory nor an automatic differentiation boundary.
+    """
+
+    def __init__(self, value):
+        self._context = _get_ctx()
+        initial = self._checked_value(value)
+        if not isinstance(initial.type, (ScalarType, TileType)) or initial.type.dtype not in (
+            "f16",
+            "f32",
+            "i32",
+            "u32",
+        ):
+            raise TypeError("loop_state requires a numeric scalar or one-dimensional tile")
+        if isinstance(initial.type, TileType) and (
+            len(initial.type.shape) != 1 or initial.type.shape[0] <= 0
+        ):
+            raise ValueError("loop_state supports only nonempty one-dimensional tiles")
+        self._state = self._context.add_op(tir.LoopState(value=initial))
+
+    def _checked_value(self, value):
+        if (
+            isinstance(value, TracingProxy)
+            and value._context is not None
+            and value._context is not self._context
+        ):
+            raise ValueError("loop_state operands cannot cross tracing contexts")
+        return _to_value(value)
+
+    def _check_context(self):
+        if _get_ctx() is not self._context:
+            raise ValueError("loop_state cannot be used across tracing contexts")
+
+    @property
+    def value(self) -> TracingProxy:
+        self._check_context()
+        return TracingProxy(self._context.add_op(tir.ReadLoopState(state=self._state)))
+
+    def update(self, value) -> None:
+        self._check_context()
+        replacement = self._checked_value(value)
+        if replacement.type != self._state.type:
+            raise TypeError("loop_state update must preserve the initial dtype, shape and layout")
+        self._context.add_op(tir.AssignLoopState(state=self._state, value=replacement))
+
+
+def loop_state(value) -> LoopState:
+    """Declare explicit mutable scalar or 1-D tile state, including loaded values."""
+    return LoopState(value)
 
 
 def scalar(value, dtype=None) -> TracingProxy:
@@ -612,13 +677,16 @@ def tile_swizzle(
     return pid_m, pid_n
 
 
-def arange(start, end) -> TracingProxy:
+def arange(start, end, *, layout: ThreadLayout | None = None) -> TracingProxy:
     """Create a tile of sequential indices [start, start+size).
 
     `end` must be a compile-time constant int (the tile size).
     `start` can be a TracingProxy or int.
+    `layout` optionally assigns each logical tile element to a physical thread.
     """
     ctx = _get_ctx()
+    if not isinstance(start, (int, TracingProxy)) or isinstance(start, bool):
+        raise TypeError("arange origins must be integer scalars")
     if isinstance(end, int) and isinstance(start, int):
         size = end - start
         start_val = _to_value(start) if start != 0 else None
@@ -636,8 +704,15 @@ def arange(start, end) -> TracingProxy:
     else:
         start_val = None
 
-    op = tir.Arange(start=start_val, size=size)
+    op = tir.Arange(start=start_val, size=size, layout=layout)
     result = ctx.add_op(op)
+    return TracingProxy(result)
+
+
+def convert_layout(value, layout: ThreadLayout) -> TracingProxy:
+    """Redistribute a tile's physical thread ownership without changing its values."""
+    ctx = _get_ctx()
+    result = ctx.add_op(tir.ConvertLayout(value=_to_value(value), layout=layout))
     return TracingProxy(result)
 
 
@@ -840,10 +915,10 @@ def tile_range(start, end, step=1, num_stages=1):
     body_ops: list[tir.Op] = []
     ctx.func.ops = body_ops
 
-    yield TracingProxy(iv_val)
-
-    # Restore and wrap captured body
-    ctx.func.ops = saved_ops
+    try:
+        yield TracingProxy(iv_val)
+    finally:
+        ctx.func.ops = saved_ops
     for_op = tir.ForRange(
         start=start_val,
         end=end_val,

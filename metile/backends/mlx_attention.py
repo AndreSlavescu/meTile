@@ -15,7 +15,6 @@ from metile.backends.mlx import (
     batched_measure,
     calibrate_tournament_batch,
 )
-from metile.kernels.attention import ATTENTION_FLASH_CONFIGS, attention_flash_kernel
 from metile.runtime.cache import (
     cache_root,
     read_cached_algorithm_config,
@@ -23,6 +22,7 @@ from metile.runtime.cache import (
     write_cached_algorithm_config,
 )
 from metile.tuning import confirm_pairwise, round_robin
+from metile_kernels.attention import ATTENTION_FLASH_CONFIGS, attention_flash_kernel
 
 _flash_kernel_cache = {}
 _flash_schedule_cache = {}

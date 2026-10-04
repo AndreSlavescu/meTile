@@ -1,0 +1,66 @@
+body {
+  --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-stack--monospace: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.sidebar-logo {
+  max-width: 104px;
+  max-height: 104px;
+  margin: 0 auto;
+}
+
+.content {
+  max-width: 58rem;
+}
+
+.content p,
+.content li {
+  line-height: 1.65;
+}
+
+.content h1 {
+  letter-spacing: -0.035em;
+}
+
+.content h2 {
+  margin-top: 2.2rem;
+  letter-spacing: -0.02em;
+}
+
+.content .highlight {
+  border-radius: 8px;
+}
+
+.content figure {
+  margin: 1.8rem 0;
+}
+
+.content figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--color-background-border);
+  border-radius: 8px;
+}
+
+.content figcaption {
+  margin-top: 0.7rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.content table.docutils {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 47rem) {
+  .content h1 {
+    font-size: 2rem;
+  }
+
+  .content table.docutils {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

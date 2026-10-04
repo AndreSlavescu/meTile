@@ -12,9 +12,11 @@ from metile.compiler.lowering.common import (
     _detect_dtype,
     _detect_epilogue,
     _extract_gemm_params,
+    _gemm_tiles,
     _has_gemm_ops,
     _lower_params,
     _select_num_sg,
+    _tensor_ops_k_step,
 )
 from metile.compiler.schedules import validate_schedule
 from metile.ir import metal_ir as mir
@@ -35,13 +37,14 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
 
     # Extract tile shapes from constexprs and ops
     constexprs = func.constexprs
-    BM = constexprs.get("BLOCK_M", 32)
-    BN = constexprs.get("BLOCK_N", 32)
-    BK = constexprs.get("BLOCK_K", 16)
+    BM, BN, BK = _gemm_tiles(func)
 
     # Simdgroup layout: derived from layout algebra
-    NUM_SG = constexprs.get("NUM_SG", _select_num_sg(BM, BN))
-    sg_layout = _compute_simdgroup_layout(BM, BN, NUM_SG)
+    NUM_SG = constexprs.get("NUM_SG")
+    if NUM_SG is None:
+        NUM_SG = _select_num_sg(BM, BN)
+    planned_grid = constexprs.get("_PLANNED_SIMDGROUP_GRID")
+    sg_layout = _compute_simdgroup_layout(BM, BN, NUM_SG, simdgroup_grid=planned_grid)
     SG_COLS = sg_layout.sg_cols
     SG_M = sg_layout.sg_m
     SG_N = sg_layout.sg_n
@@ -104,7 +107,7 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
     )
 
     # --- Find the K-param, A/B/C pointers from the traced IR ---
-    ptr_A, ptr_B, ptr_C, M_val, N_val, K_val = _extract_gemm_params(func, param_values)
+    ptr_A, ptr_B, ptr_C, M_val, N_val, K_val = _extract_gemm_params(func, param_values, mfunc)
 
     # --- K-loop ---
     loop_body: list[mir.MOp] = []
@@ -176,9 +179,16 @@ def _lower_gemm(func: tir.Function) -> mir.MFunction:
             body=loop_body,
         )
     )
+    mfunc.add_op(
+        mir.MBarrier(
+            kind="threadgroup",
+            flags="mem_threadgroup",
+            condition="((uint(M) | uint(N)) & 7u) != 0u",
+        )
+    )
 
     # --- Detect and emit epilogue (fused element-wise ops on accumulators) ---
-    epilogue = _detect_epilogue(func.ops)
+    epilogue = _detect_epilogue(func.ops, func=func)
     if epilogue:
         mfunc.add_op(
             mir.MAccElemApply(
@@ -239,10 +249,7 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
         )
 
     # Extract tile shapes
-    constexprs = func.constexprs
-    BM = constexprs.get("BLOCK_M", 64)
-    BN = constexprs.get("BLOCK_N", 64)
-    BK = constexprs.get("BLOCK_K", 32)
+    BM, BN, BK = _gemm_tiles(func)
     PRODUCER_SGS = producer_role.num_sgs or 2
     CONSUMER_SGS = consumer_role.num_sgs or 4
     TOTAL_SGS = PRODUCER_SGS + CONSUMER_SGS
@@ -310,7 +317,7 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
     )
 
     # Check double-buffer fits in 32KB
-    db_bytes = 2 * (BM * A_STRIDE + BK * B_STRIDE) * 4  # float = 4 bytes
+    db_bytes = 2 * (BM * A_STRIDE + BK * B_STRIDE) * (2 if msl_type == "half" else 4)
     if db_bytes > 32768:
         raise LoweringError(
             f"Specialized GEMM double-buffering requires {db_bytes} bytes "
@@ -325,7 +332,7 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
     )
 
     # --- Extract A, B, C, M, N, K ---
-    ptr_A, ptr_B, ptr_C, M_val, N_val, K_val = _extract_gemm_params(func, param_values)
+    ptr_A, ptr_B, ptr_C, M_val, N_val, K_val = _extract_gemm_params(func, param_values, mfunc)
 
     # Helper to create a cooperative load op for a given buffer
     def _make_coop_load(
@@ -472,9 +479,16 @@ def _lower_specialized_gemm(func: tir.Function) -> mir.MFunction:
             body=[kk_loop_epilogue],
         )
     )
+    mfunc.add_op(
+        mir.MBarrier(
+            kind="threadgroup",
+            flags="mem_threadgroup",
+            condition="((uint(M) | uint(N)) & 7u) != 0u",
+        )
+    )
 
     # --- Detect and emit fused epilogue ---
-    epilogue = _detect_epilogue(func.ops)
+    epilogue = _detect_epilogue(func.ops, func=func)
     if epilogue:
         mfunc.add_op(
             mir.MAccElemApply(
@@ -519,12 +533,15 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
 
     # Extract tile shapes — defaults tuned from benchmarks
     constexprs = func.constexprs
-    BM = constexprs.get("BLOCK_M", 128)
-    BN = constexprs.get("BLOCK_N", 64)
-    BK = constexprs.get("BLOCK_K", 32)
+    BM, BN, BK = _gemm_tiles(func)
     WM = constexprs.get("WM", 2)
     WN = constexprs.get("WN", 2)
-    relaxed = constexprs.get("RELAXED_PRECISION", True)
+    default_relaxed = msl_type != "half" or constexprs.get("NAX_FRAGMENTS", False)
+    relaxed = constexprs.get("RELAXED_PRECISION", default_relaxed)
+    if constexprs.get("NAX_FRAGMENTS", False) and msl_type == "float" and not relaxed:
+        raise LoweringError(
+            "Strict f32 NAX packed fragment layout is unsupported; disable NAX_FRAGMENTS"
+        )
     cooperative = constexprs.get("COOPERATIVE", False)
     # User-specified tile_swizzle() takes priority, then constexpr, then compiler default
     if func.swizzle_pattern is not None:
@@ -539,10 +556,10 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     NUM_SG = WM * WN
     mfunc.threadgroup_size = (NUM_SG * 32, 1, 1)
 
-    ptr_A, ptr_B, ptr_C, _M_val, _N_val, K_val = _extract_gemm_params(func, param_values)
+    ptr_A, ptr_B, ptr_C, _M_val, _N_val, K_val = _extract_gemm_params(func, param_values, mfunc)
 
     # Detect epilogue ops
-    epilogue = _detect_epilogue(func.ops)
+    epilogue = _detect_epilogue(func.ops, func=func)
 
     # Derived constants
     SM = BM // WM
@@ -551,6 +568,22 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
     out_type = msl_type
 
     if constexprs.get("NAX_FRAGMENTS", False):
+        runtime_scalars = dict(constexprs.get("_RUNTIME_SCALARS", ()))
+        dimensions = {
+            axis: value if isinstance(value, int) else runtime_scalars.get(value.name)
+            for axis, value in mfunc.dimension_bindings.items()
+        }
+        if runtime_scalars or all(value is not None for value in dimensions.values()):
+            constexprs = dict(constexprs)
+            for axis, block in zip(("M", "N", "K"), (BM, BN, BK), strict=True):
+                dimension = dimensions[axis]
+                if dimension is None or dimension <= 0:
+                    raise LoweringError("NAX tensor dimensions must be positive runtime integers")
+                constexprs[f"_STATIC_{axis}"] = dimension
+                constexprs[f"_ALIGNED_{axis}"] = dimension % block == 0
+            outer_k = constexprs.get("NAX_OUTER_K")
+            if outer_k:
+                constexprs["_ALIGNED_NAX_OUTER_K"] = dimensions["K"] % outer_k == 0
         if msl_type not in {"float", "half"} or cooperative or SM != 32 or SN != 32 or BK != 16:
             raise ValueError(
                 "NAX fragments require f16/f32, 32x32 per-simdgroup tiles, and BLOCK_K=16"
@@ -565,7 +598,13 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
         static_shape = tuple(constexprs.get(f"_STATIC_{axis}") for axis in ("M", "N", "K"))
         if all(dimension is not None for dimension in static_shape):
             static_m, static_n, static_k = (int(dimension) for dimension in static_shape)
-            mfunc.params = [param for param in mfunc.params if param.name not in {"M", "N", "K"}]
+            dimension_params = {
+                value.name
+                for value in mfunc.dimension_bindings.values()
+                if isinstance(value, mir.MValue)
+            }
+            mfunc.params = [param for param in mfunc.params if param.name not in dimension_params]
+            mfunc.dimension_bindings.clear()
             K_val = static_k
         else:
             static_m = static_n = static_k = 0
@@ -597,6 +636,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                 k=static_k,
                 left_type=msl_type,
                 right_type=msl_type,
+                relaxed=relaxed,
             )
         )
         if outer_k:
@@ -682,10 +722,12 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
         return mfunc
 
     # Use separated loads when descriptor dimensions allow cooperative_tensor inputs
-    separated_default = not cooperative and SM <= 32 and SN <= 32
+    separated_default = not cooperative and SM <= 32 and SN <= 32 and 32 in (SM, SN, min(32, BK))
     use_separated = constexprs.get("SEPARATED", separated_default) and not cooperative
     if use_separated and (SM > 32 or SN > 32):
         raise ValueError("separated tensor inputs require per-simdgroup M/N tiles <= 32")
+    if use_separated and 32 not in (SM, SN, min(32, BK)):
+        raise ValueError("separated tensor inputs require at least one 32-element tile dimension")
     bk_inner = min(32, BK) if use_separated else BK
 
     # --- Emit decomposed tensor ops ---
@@ -752,8 +794,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
         # cooperative_tensors with no shared threadgroup memory.
         #
         # Always use 2x when BK >= 2*bk_inner. User K_UNROLL can override.
-        effective_unroll = 2 if 2 * bk_inner <= BK else 1
-        effective_unroll = max(effective_unroll, k_unroll)
+        effective_unroll = _tensor_ops_k_step(func) // bk_inner
 
         k_body = []
         for u in range(effective_unroll):
@@ -814,7 +855,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
                     b_offset_1=f"k + {BK * u}" if u > 0 else "k",
                 )
             )
-        k_step = BK * k_unroll
+        k_step = _tensor_ops_k_step(func)
         k_loop = mir.MForLoop(iv_name="k", start=0, end=K_val, step=k_step, body=k_body)
         mfunc.add_op(k_loop)
 
@@ -832,6 +873,7 @@ def _lower_tensor_ops_gemm(func: tir.Function) -> mir.MFunction:
         mir.MCoopTensorStore(
             ct_name="cT",
             output_slice="mC",
+            output_type=out_type if out_type != acc_type else None,
         )
     )
 
@@ -862,8 +904,6 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
 
     # Lower params — identify A, B, C, counter, M, N, K
     param_values: dict[str, mir.MValue] = {}
-    ptr_params = []
-    scalar_params = []
     counter_param_name = None
 
     # The counter pointer is the one referenced by the PersistentRange
@@ -883,48 +923,23 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
             param_values[p.name] = mir.MValue(p.name, p.type)
             if is_counter:
                 counter_param_name = p.name
-            else:
-                ptr_params.append(p.name)
         elif isinstance(p.type, ScalarType):
             mp = mir.MParam(name=p.name, type=p.type, is_scalar=True)
             mfunc.params.append(mp)
             param_values[p.name] = mir.MValue(p.name, p.type)
-            scalar_params.append(p.name)
 
-    # Assign A, B, C from non-counter pointer params (positional)
-    assert len(ptr_params) >= 3, f"Need at least 3 pointer params (A, B, C), got {len(ptr_params)}"
-    ptr_A = param_values[ptr_params[0]]
-    ptr_B = param_values[ptr_params[1]]
-    ptr_C = param_values[ptr_params[2]]
+    ptr_A, ptr_B, ptr_C, M_val, N_val, K_val = _extract_gemm_params(func, param_values, mfunc)
     counter_ptr = param_values[counter_param_name]
-
-    # Find M, N, K
-    M_val = N_val = K_val = None
-    for p in func.params:
-        if isinstance(p.type, ScalarType):
-            pv = param_values[p.name]
-            if p.name == "M":
-                M_val = pv
-            elif p.name == "N":
-                N_val = pv
-            elif p.name == "K":
-                K_val = pv
-
-    if K_val is None or M_val is None or N_val is None:
-        scalars = [param_values[n] for n in scalar_params]
-        if len(scalars) >= 3:
-            M_val, N_val, K_val = scalars[0], scalars[1], scalars[2]
-        else:
-            raise LoweringError("Cannot determine M, N, K parameters")
 
     # Extract tile shapes
     constexprs = func.constexprs
-    BM = constexprs.get("BLOCK_M", 64)
-    BN = constexprs.get("BLOCK_N", 64)
-    BK = constexprs.get("BLOCK_K", 16)
+    BM, BN, BK = _gemm_tiles(func)
 
-    NUM_SG = constexprs.get("NUM_SG", _select_num_sg(BM, BN))
-    sg_layout = _compute_simdgroup_layout(BM, BN, NUM_SG)
+    NUM_SG = constexprs.get("NUM_SG")
+    if NUM_SG is None:
+        NUM_SG = _select_num_sg(BM, BN)
+    planned_grid = constexprs.get("_PLANNED_SIMDGROUP_GRID")
+    sg_layout = _compute_simdgroup_layout(BM, BN, NUM_SG, simdgroup_grid=planned_grid)
     SG_COLS = sg_layout.sg_cols
     SG_M = sg_layout.sg_m
     SG_N = sg_layout.sg_n
@@ -1099,6 +1114,13 @@ def _lower_persistent_gemm(func: tir.Function) -> mir.MFunction:
         body=loop_body,
     )
     while_body.append(k_loop)
+    while_body.append(
+        mir.MBarrier(
+            kind="threadgroup",
+            flags="mem_threadgroup",
+            condition="((uint(M) | uint(N)) & 7u) != 0u",
+        )
+    )
 
     # 5. Store accumulators
     for store_op in _build_acc_stores(

@@ -45,7 +45,7 @@ that is a fact about where the boundary of our control is, not about the code.
 import dataclasses
 
 from metile.ir import metal_ir as mir
-from metile.ir.types import PtrType, ScalarType
+from metile.ir.types import PtrType, ScalarType, VectorType
 from metile.target import agx
 
 # Operations whose memory and register effects this file models. Anything else is treated as
@@ -135,7 +135,7 @@ def _operands(op):
     for _, value in _fields(op):
         if isinstance(value, mir.MValue):
             found.append(value)
-        elif isinstance(value, list):
+        elif isinstance(value, (list, tuple)):
             found.extend(item for item in value if isinstance(item, mir.MValue))
     return found
 
@@ -151,6 +151,8 @@ def _register_cost(value):
         return 0
     if isinstance(value.type, PtrType):
         return 2
+    if isinstance(value.type, VectorType):
+        return value.type.width
     if isinstance(value.type, ScalarType):
         return 1
     return 1

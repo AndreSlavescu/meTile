@@ -1,150 +1,134 @@
 Matrix Multiply (GEMM)
 ======================
 
-Tiled matrix multiplication using meTile's ``dot`` and ``tile_load`` operations.
-
-
-Basic GEMM
-----------
-
-.. code-block:: python
-
-   import metile
-
-   @metile.kernel
-   def matmul(A, B, C, M, N, K,
-              BLOCK_M: metile.constexpr, BLOCK_N: metile.constexpr,
-              BLOCK_K: metile.constexpr):
-       pid_m = metile.program_id(0)
-       pid_n = metile.program_id(1)
-
-       acc = metile.zeros((BLOCK_M, BLOCK_N), dtype="f32")
-       for k in metile.tile_range(0, K, BLOCK_K):
-           a = metile.tile_load(A, pid_m * BLOCK_M, k, K, (BLOCK_M, BLOCK_K))
-           b = metile.tile_load(B, k, pid_n * BLOCK_N, N, (BLOCK_K, BLOCK_N))
-           acc = metile.dot(a, b, acc)
-
-       metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
-
-
-Launching
----------
-
-The grid is 2D, one program instance per output tile:
+A matrix multiply reduces pairs of input tiles into an output tile. This
+example uses contiguous float32 matrices and deliberately uneven dimensions,
+so loads and stores must handle partial tiles.
 
 .. code-block:: python
 
    import numpy as np
+   import metile
 
-   M, N, K = 1024, 1024, 1024
-   A = metile.Buffer(data=np.random.randn(M, K).astype(np.float32))
-   B = metile.Buffer(data=np.random.randn(K, N).astype(np.float32))
-   C = metile.Buffer.zeros((M * N,))
+   @metile.kernel
+   def matmul(
+       left_ptr, right_ptr, output_ptr, rows, columns, reduction,
+       BLOCK_M: metile.constexpr, BLOCK_N: metile.constexpr,
+       BLOCK_K: metile.constexpr, RELU: metile.constexpr,
+   ):
+       left = metile.tensor(
+           left_ptr, shape=(rows, reduction),
+           block_shape=(BLOCK_M, BLOCK_K), access="read",
+       )
+       right = metile.tensor(
+           right_ptr, shape=(reduction, columns),
+           block_shape=(BLOCK_K, BLOCK_N), access="read",
+       )
+       output = metile.tensor(
+           output_ptr, shape=(rows, columns),
+           block_shape=(BLOCK_M, BLOCK_N), access="write",
+       )
+       row = metile.program_id(0) * BLOCK_M
+       column = metile.program_id(1) * BLOCK_N
+       accumulator = metile.zeros((BLOCK_M, BLOCK_N), dtype="f32")
+       for start in metile.tile_range(0, reduction, BLOCK_K):
+           accumulator = metile.dot(
+               left.load((row, start)), right.load((start, column)), accumulator
+           )
+       if RELU:
+           accumulator = metile.maximum(accumulator, 0.0)
+       output.store((row, column), accumulator)
 
-   grid = (metile.cdiv(M, 128), metile.cdiv(N, 128))
-   matmul[grid](A, B, C, M, N, K, BLOCK_M=128, BLOCK_N=128, BLOCK_K=64)
+   rows, columns, reduction = 65, 77, 53
+   rng = np.random.default_rng(0)
+   left_data = rng.standard_normal((rows, reduction)).astype(np.float32)
+   right_data = rng.standard_normal((reduction, columns)).astype(np.float32)
+   left_buffer = metile.Buffer(data=left_data)
+   right_buffer = metile.Buffer(data=right_data)
+   output_buffer = metile.Buffer.zeros((rows, columns), dtype=np.float32)
 
+   grid = (metile.cdiv(rows, 32), metile.cdiv(columns, 32))
+   matmul[grid](
+       left_buffer, right_buffer, output_buffer, rows, columns, reduction,
+       BLOCK_M=32, BLOCK_N=32, BLOCK_K=16, RELU=False,
+   )
+   reference = left_data @ right_data
+   np.testing.assert_allclose(output_buffer.numpy(), reference, rtol=1e-4, atol=1e-4)
 
-How It Works
-------------
+How the tiles fit together
+--------------------------
 
 .. image:: /_static/gemm-tiling.svg
-   :alt: GEMM matrices partitioned into program-owned output tiles with a register-resident K reduction loop
+   :alt: Each program owns an output matrix tile and accumulates products along K
    :width: 100%
 
-1. Each program instance owns a ``BLOCK_M x BLOCK_N`` tile of the output matrix C.
-2. It initializes a register-resident accumulator with ``metile.zeros``.
-3. The K-loop iterates in steps of ``BLOCK_K``, loading a tile of A and B each step.
-4. ``metile.dot(a, b, acc)`` computes ``acc += a @ b`` using hardware matrix multiply.
-5. After the loop, the accumulated result is written to C.
+``block_shape`` defines the matrix tile loaded or stored by a view. Here,
+each program owns a 32-by-32 output tile. Every loop iteration loads a
+32-by-16 left tile and a 16-by-32 right tile, then accumulates their product
+with ``dot``. The logical tensor shapes supply bounds for all three axes:
+out-of-bounds inputs contribute zero, and out-of-bounds outputs are skipped.
 
-The compiler maps ``dot`` to the appropriate hardware:
+The matrix path requires matching input/output storage dtypes and supported
+contiguous row-major layouts, with a separate output buffer. Float32 and
+supported float16 configurations accumulate in float32; the store converts
+to the output storage dtype. Use positive dimensions. Not every tile size,
+dtype, and schedule combination is legal. See :doc:`/guide/tensor-memory` and
+:doc:`/guide/tile-ops` before changing them.
 
-- **M1/M2/M3**: ``simdgroup_matrix<float, 8, 8>`` with cooperative loads through
-  threadgroup memory
-- **Metal 4-capable GPU/toolchain**: ``matmul2d`` tensor_ops with register-resident
-  ``cooperative_tensor``
+The compiler chooses a supported matrix backend using device and toolchain
+capabilities. A newer chip name alone does not establish Metal 4 tensor-ops
+support. The direct NAX path has additional tile and alignment requirements.
 
-
-Fused GEMM + ReLU
+Fuse an activation
 ------------------
 
-Element-wise operations after the GEMM loop are fused into the kernel's epilogue.
-They run on register-resident data with zero extra memory traffic:
+The ``RELU`` argument is a compile-time boolean. With ``RELU=True``, the
+compiler incorporates the pointwise activation into the GEMM epilogue:
 
 .. code-block:: python
 
-   @metile.kernel
-   def matmul_relu(A, B, C, M, N, K,
-                   BLOCK_M: metile.constexpr, BLOCK_N: metile.constexpr,
-                   BLOCK_K: metile.constexpr):
-       pid_m = metile.program_id(0)
-       pid_n = metile.program_id(1)
-       acc = metile.zeros((BLOCK_M, BLOCK_N), dtype="f32")
-       for k in metile.tile_range(0, K, BLOCK_K):
-           a = metile.tile_load(A, pid_m * BLOCK_M, k, K, (BLOCK_M, BLOCK_K))
-           b = metile.tile_load(B, k, pid_n * BLOCK_N, N, (BLOCK_K, BLOCK_N))
-           acc = metile.dot(a, b, acc)
-       acc = metile.where(acc > 0, acc, 0)   # fused ReLU, no global memory round-trip
-       metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
+   matmul[grid](
+       left_buffer, right_buffer, output_buffer, rows, columns, reduction,
+       BLOCK_M=32, BLOCK_N=32, BLOCK_K=16, RELU=True,
+   )
+   np.testing.assert_allclose(
+       output_buffer.numpy(), np.maximum(reference, 0.0), rtol=1e-4, atol=1e-4
+   )
 
+Fusion saves an intermediate device-memory write/read and a separate launch.
+The activation still takes instructions and may affect register use. See
+:doc:`/guide/execution-schedules` for the supported epilogue expressions.
 
-Tile Swizzle for Cache Locality
---------------------------------
+Tune the tile sizes
+-------------------
 
-For large matrices, the order in which tiles are processed affects cache hit rates.
-The compiler can specialize linear, grouped-2/4/8, diagonal, Morton (Z-order), and
-4x4 Hilbert traversals. Use ``tile_swizzle`` to force a schedule:
-
-.. code-block:: python
-
-   @metile.kernel
-   def matmul_swizzled(A, B, C, M, N, K,
-                       BLOCK_M: metile.constexpr, BLOCK_N: metile.constexpr,
-                       BLOCK_K: metile.constexpr):
-       pid_m, pid_n = metile.tile_swizzle(
-           metile.program_id(0), metile.program_id(1),
-           pattern="morton", block_size=2,
-       )
-       acc = metile.zeros((BLOCK_M, BLOCK_N), dtype="f32")
-       for k in metile.tile_range(0, K, BLOCK_K):
-           a = metile.tile_load(A, pid_m * BLOCK_M, k, K, (BLOCK_M, BLOCK_K))
-           b = metile.tile_load(B, k, pid_n * BLOCK_N, N, (BLOCK_K, BLOCK_N))
-           acc = metile.dot(a, b, acc)
-       metile.tile_store(C, pid_m * BLOCK_M, pid_n * BLOCK_N, N, acc, (BLOCK_M, BLOCK_N))
-
-``pattern="auto"`` runs the schedule-algebra pass. For a statically known launch
-grid it emits only the selected branch-free coordinate decoder. Explicit Hilbert
-and Morton schedules safely fall back on grids that cannot be tiled bijectively.
-
-
-Autotuning
-----------
-
-Different matrix sizes benefit from different block sizes. Use the autotuner to search:
+This small search compares two legal configurations. The callable grid is
+recomputed for each candidate, so every candidate covers the full output.
 
 .. code-block:: python
 
    autotuned_matmul = metile.autotune(
        configs=[
-           metile.Config(BLOCK_M=64,  BLOCK_N=64,  BLOCK_K=32, WM=2, WN=2),
-           metile.Config(BLOCK_M=128, BLOCK_N=128, BLOCK_K=64, WM=4, WN=4),
+           metile.Config(BLOCK_M=32, BLOCK_N=32, BLOCK_K=16, RELU=False),
+           metile.Config(BLOCK_M=64, BLOCK_N=64, BLOCK_K=16, RELU=False),
        ],
-       key=["M", "N", "K"],
+       key=["rows", "columns", "reduction"],
+       verbose=False,
    )(matmul)
 
-   grid = lambda cfg, M=M, N=N: (metile.cdiv(M, cfg["BLOCK_M"]), metile.cdiv(N, cfg["BLOCK_N"]))
-   autotuned_matmul[grid](A, B, C, M, N, K)
+   def tuned_grid(config):
+       return (
+           metile.cdiv(rows, config["BLOCK_M"]),
+           metile.cdiv(columns, config["BLOCK_N"]),
+       )
 
-See :doc:`/guide/autotuning` for the full autotuning guide.
+   autotuned_matmul[tuned_grid](
+       left_buffer, right_buffer, output_buffer, rows, columns, reduction
+   )
+   np.testing.assert_allclose(output_buffer.numpy(), reference, rtol=1e-4, atol=1e-4)
 
-
-Concepts Introduced
--------------------
-
-- ``metile.zeros``: register-resident accumulator initialization
-- ``metile.dot``: tile-level matrix multiply-accumulate
-- ``metile.tile_load`` / ``metile.tile_store``: 2D strided memory access
-- 2D grids: ``kernel[(grid_m, grid_n)]``
-- Fused epilogues: element-wise ops after GEMM are free
-- Tile swizzle: cache-friendly scheduling patterns
+Tuning executes candidates and writes the output. Measure its cost separately
+from repeated execution of the selected kernel. Tile traversal is another
+schedule choice: ``tile_swizzle`` supports automatic selection or explicit
+patterns such as Morton and Hilbert. See :doc:`/guide/autotuning` and
+:doc:`/guide/tile-ops` for the search and grid constraints.

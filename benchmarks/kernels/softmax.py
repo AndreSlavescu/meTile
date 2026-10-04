@@ -1,0 +1,73 @@
+import sys
+import time
+from pathlib import Path
+
+_root = str(Path(__file__).resolve().parents[2])
+sys.path.insert(0, _root)
+
+from benchmarks.common.checkout import activate_checkout
+
+activate_checkout(_root)
+
+import mlx.core as mx
+import numpy as np
+
+import metile
+from benchmarks.common.benchutils import bench_interleaved, print_table
+from metile.runtime.metal_device import MetalDevice
+from metile_kernels.softmax import softmax
+
+SOFTMAX_CONFIGS = [
+    metile.Config(BLOCK=64),
+    metile.Config(BLOCK=128),
+    metile.Config(BLOCK=256),
+    metile.Config(BLOCK=512),
+    metile.Config(BLOCK=1024),
+]
+
+autotuned_softmax = metile.autotune(
+    configs=SOFTMAX_CONFIGS,
+    key=["N"],
+    verbose=True,
+)(softmax)
+
+COOLDOWN = 3.0
+
+
+def _print_table(title, rows):
+    print_table(title, rows, label_width=12)
+
+
+def main():
+    print("=== Softmax (autotuned) ===\n")
+
+    dev = MetalDevice.get()
+    rows = []
+
+    for nrows, hidden in [(128, 512), (256, 1024), (512, 2048), (1024, 4096)]:
+        X_np = np.random.randn(nrows, hidden).astype(np.float32)
+
+        X_buf = metile.Buffer(data=X_np.ravel())
+        Out_buf = metile.Buffer.zeros((nrows * hidden,))
+
+        grid = (nrows,)
+        dispatch = autotuned_softmax[grid].prepare(X_buf, Out_buf, hidden)
+
+        dev.sync()
+
+        X_mx = mx.array(X_np)
+
+        def mlx_fn(x=X_mx):
+            mx.eval(mx.softmax(x, axis=-1))
+
+        time.sleep(COOLDOWN)
+        dt_mtile, dt_mlx = bench_interleaved(dispatch, mlx_fn, dev.sync)
+
+        rows.append((f"{nrows}x{hidden}", dt_mtile * 1e6, dt_mlx * 1e6))
+
+    _print_table("softmax vs MLX", rows)
+    print()
+
+
+if __name__ == "__main__":
+    main()

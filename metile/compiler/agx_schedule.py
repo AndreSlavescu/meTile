@@ -12,8 +12,8 @@ that instruction-level parallelism needs — done where they survive.
 
 Register dependences are what make it possible at all. `metile.target.agx_isa` establishes that a
 compact fma names its register in byte 0's high nibble and again as `(r << 1) | 1` in byte 1, so
-which instructions actually depend on each other is readable rather than guessed, and two fmas on
-different registers are known to be independent.
+which instructions actually depend on each other is readable rather than guessed. Register
+addends also contribute dependencies, even when two fmas write different registers.
 
 Two transformations, both bit-exact by construction, because neither changes any arithmetic:
 
@@ -66,7 +66,9 @@ class Fma:
     zero, which is the only way a zero addend is expressible at all.
     """
 
-    def __init__(self, offset, register, multiplier, addend, addend_register, negate_product, last):
+    def __init__(
+        self, offset, register, multiplier, addend, addend_register, negate_product, last, encoding
+    ):
         self.offset = offset
         self.register = register
         self.multiplier = multiplier
@@ -74,6 +76,8 @@ class Fma:
         self.addend_register = addend_register
         self.negate_product = negate_product
         self.last = last
+        self.encoding = bytes(encoding)
+        self.disabled = agx_isa.read_flag(self.encoding, 0, agx_isa.INSTRUCTION_DISABLE)
 
     def addend_is_zero(self):
         """Whether the addend contributes nothing, which needs the register range to decide."""
@@ -97,17 +101,41 @@ class Fma:
         return not self.negate_product and self.multiplier == 1.0 and self.addend_is_zero()
 
     def encode(self, last=None):
+        """Keep all original operand and control bits, adjusting only the run marker."""
+        if last is None or last == self.last:
+            return self.encoding
+        return agx_isa.write_flag(self.encoding, 0, _CONTINUES, not last)
+
+    def supported(self):
+        """Whether every encoding field has known semantics for these transformations.
+
+        Instructions carrying unexplained dependency controls must stay in place. Comparing
+        against the encoder also catches operand modes that the partial decoder cannot model.
+        The addend sign and disable flags are preserved even for register operands.
+        """
         register = self.addend_register
         if self.addend is not None or self.addend_is_zero():
             register = None
-        return agx_isa.encode_fma(
+        canonical = agx_isa.encode_fma(
             self.register,
             self.multiplier,
             self.addend,
-            last=self.last if last is None else last,
+            last=self.last,
             negate_product=self.negate_product,
             addend_register=register,
         )
+        for flag in (agx_isa.ADDEND_NEGATE, agx_isa.INSTRUCTION_DISABLE):
+            canonical = agx_isa.write_flag(
+                canonical, 0, flag, agx_isa.read_flag(self.encoding, 0, flag)
+            )
+        return canonical == self.encoding
+
+    def reads(self):
+        """Live registers read by the supported instruction form."""
+        registers = {self.register}
+        if self.addend_register is not None and not self.addend_is_zero():
+            registers.add(self.addend_register)
+        return registers
 
     def __repr__(self):
         if self.addend is not None:
@@ -130,7 +158,11 @@ def decode(text, offsets):
     removes exactly one operation's contribution.
     """
     found = []
+    previous = -agx_isa.FMA_LENGTH
     for offset in offsets:
+        if offset < 0 or offset % 2 or offset < previous + agx_isa.FMA_LENGTH:
+            raise ValueError("offsets must be nonnegative, aligned, ordered and nonoverlapping")
+        previous = offset
         window = text[offset : offset + agx_isa.FMA_LENGTH]
         if len(window) < agx_isa.FMA_LENGTH:
             raise ValueError(f"offset 0x{offset:04x} runs past the end of the code")
@@ -159,6 +191,7 @@ def decode(text, offsets):
                 addend_register=addend_register,
                 negate_product=agx_isa.read_flag(window, 0, agx_isa.PRODUCT_NEGATE),
                 last=not agx_isa.read_flag(window, 0, _CONTINUES),
+                encoding=window,
             )
         )
     return found
@@ -167,14 +200,21 @@ def decode(text, offsets):
 def _runs(instructions):
     """Group instructions into contiguous runs, split wherever undecoded bytes intervene.
 
-    Two decoded fmas are in the same run only when they are adjacent in the code. Anything
-    between them is unidentified, and since instruction lengths cannot be recovered in general
-    there is no way to know what it does, so it bounds the region a reordering may touch.
+    Runs cannot cross gaps, terminal instructions, disabled instructions or unsupported control
+    fields. Their execution semantics are not established well enough to move instructions
+    across them, even when their arithmetic fields decode successfully.
     """
     groups = []
     current = []
     for instruction in instructions:
-        if current and instruction.offset != current[-1].offset + agx_isa.FMA_LENGTH:
+        if instruction.disabled or not instruction.supported():
+            if current:
+                groups.append(current)
+                current = []
+            continue
+        if current and (
+            current[-1].last or instruction.offset != current[-1].offset + agx_isa.FMA_LENGTH
+        ):
             groups.append(current)
             current = []
         current.append(instruction)
@@ -192,7 +232,7 @@ def simplify(text, offsets):
     patched = text
     retired = 0
     for instruction in decode(text, offsets):
-        if not instruction.is_identity():
+        if instruction.disabled or not instruction.supported() or not instruction.is_identity():
             continue
         patched = agx_isa.write_flag(patched, instruction.offset, agx_isa.INSTRUCTION_DISABLE, True)
         retired += 1
@@ -263,10 +303,9 @@ def _foldable(head, other):
 def reorder(text, offsets):
     """Reorder independent instructions within each run. Returns (code, moved count).
 
-    Bit-exact by construction: instructions are moved, never rewritten, so every register still
-    sees the same operations in an order that respects every dependence. Two fmas touching
-    different registers are independent, and two touching the same one are not, which is the whole
-    dependence relation for this instruction form — it both reads and writes exactly one register.
+    Preserve read-after-write, write-after-read and write-after-write dependences, including
+    register addends. Only the positional continuation bit changes; every other instruction bit
+    comes directly from the original encoding.
 
     Ties break towards the original position, so a run with no freedom comes back byte-identical
     rather than churned into an equivalent ordering.
@@ -276,21 +315,32 @@ def reorder(text, offsets):
     moved = 0
 
     for run in _runs(instructions):
-        # Stable grouping by register: a register's own instructions keep their relative order,
-        # which is what preserves the dependences, while whole registers may interleave. Emitting
-        # one register's chain at a time is the schedule that shortens no dependence but also
-        # breaks none, and it is the only reordering this form permits without renaming.
-        by_register = {}
-        for instruction in run:
-            by_register.setdefault(instruction.register, []).append(instruction)
-        if len(by_register) < 2:
+        if len({instruction.register for instruction in run}) < 2:
             continue
 
         ordered = []
-        while by_register:
-            for register in sorted(by_register):
-                ordered.append(by_register[register].pop(0))
-            by_register = {register: rest for register, rest in by_register.items() if rest}
+        remaining = list(run)
+        previous_register = None
+        while remaining:
+            ready = [
+                instruction
+                for position, instruction in enumerate(remaining)
+                if all(
+                    earlier.register not in instruction.reads()
+                    and instruction.register not in earlier.reads()
+                    for earlier in remaining[:position]
+                )
+            ]
+            selected = min(
+                ready,
+                key=lambda instruction: (
+                    instruction.register == previous_register,
+                    instruction.offset,
+                ),
+            )
+            ordered.append(selected)
+            remaining.remove(selected)
+            previous_register = selected.register
 
         for position, instruction in enumerate(ordered):
             offset = run[position].offset
@@ -331,7 +381,8 @@ def summarise(text, offsets):
 
     For reporting and for deciding whether a kernel is worth rewriting at all. Reports the runs
     it found rather than a single count, because a run of one instruction offers nothing to
-    reorder however many such runs there are.
+    reorder however many such runs there are. Disabled or unsupported instructions are reported
+    as barriers and excluded from the transformable runs.
     """
     instructions = decode(text, offsets)
     runs = _runs(instructions)
@@ -339,7 +390,8 @@ def summarise(text, offsets):
     return {
         "instructions": len(instructions),
         "runs": [len(run) for run in runs],
+        "barriers": len(instructions) - sum(len(run) for run in runs),
         "registers": sorted(registers),
-        "identities": sum(1 for instruction in instructions if instruction.is_identity()),
+        "identities": sum(instruction.is_identity() for run in runs for instruction in run),
         "reorderable": sum(len(run) for run in runs if len({i.register for i in run}) > 1),
     }

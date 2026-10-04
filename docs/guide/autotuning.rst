@@ -1,12 +1,17 @@
 Autotuning
 ==========
 
-Different problem sizes benefit from different tile configurations. meTile's autotuner
-benchmarks each representation and caches the fastest one per problem shape. Winners
-persist across processes and are invalidated when the device, compiler toolchain, kernel
-source, or candidate family changes.
-The concrete launch grid is part of the cache identity, which prevents a configuration
-measured at one degree of program-level parallelism from leaking into another.
+Different problem sizes work best with different tile configurations.
+``metile.autotune`` compiles and times a list of configurations, then caches the
+selected one. The cache includes the device, toolchain, kernel and compiler
+sources, candidate list, launch grid, operand type, dtype, shape, strides, and
+relevant compile-policy overrides. A match on the explicit tuning key alone is
+not enough to reuse a result.
+
+The general autotuner measures latency but does not compare outputs against a
+reference. Validate every configuration's numerical behavior before tuning,
+especially when changing precision or reduction order. The optional MLX
+backends add their own numerical gates.
 
 
 Basic Usage
@@ -15,7 +20,7 @@ Basic Usage
 .. code-block:: python
 
    import metile
-   from metile.kernels.gemm import matmul
+   from metile_kernels.gemm import matmul
 
    autotuned_matmul = metile.autotune(
        configs=[
@@ -30,13 +35,15 @@ Basic Usage
    A list of ``metile.Config`` objects. Each config is a set of constexpr values to try.
 
 ``key``
-   The argument names that determine when to re-tune. When any key value changes,
-   the autotuner re-benchmarks all configs.
+   Argument names that identify the workload. A new key value triggers tuning
+   unless a matching cached selection exists.
 
 Launching
 ---------
 
-The grid must be a callable that computes the grid shape from the config:
+When tile sizes vary, use a callable to compute the grid from each configuration.
+Here ``M``, ``N``, and ``K`` are the matrix dimensions, and ``A``, ``B``, and
+``C`` are their input and output buffers:
 
 .. code-block:: python
 
@@ -49,16 +56,18 @@ The grid must be a callable that computes the grid shape from the config:
 
 On the first call with new key values, the autotuner:
 
-1. Compiles every valid config
+1. Attempts to compile every configuration, recording failures
 2. Benchmarks candidates in rotated, alternating round-robin order, recording both
    GPU timestamps and synchronized launch-to-completion latency
 3. Re-benchmarks up to eight candidates within 8% of the provisional winner in a
    30-round rotating finalist tournament
-4. Selects the fastest one, using generated-code size only for a sub-percent tie
+4. Selects the lowest measured latency, allowing compressed generated-code size
+   to break a tie within 0.25%
 5. Caches the result and measured latency with the device and toolchain identity
 6. Dispatches with the winning config
 
-Subsequent calls with the same key values reuse the winner without re-tuning.
+Subsequent calls with the same key values and compilation contract reuse the
+winner without re-tuning.
 
 For kernels measured at one millisecond or less, selection uses synchronized end-to-end
 latency because command encoding and completion handling are material parts of the hot
@@ -68,7 +77,8 @@ separately and drives the prepared dispatch completion policy.
 
 The cache defaults to ``~/Library/Caches/metile`` on macOS. Set
 ``METILE_CACHE_DIR`` to relocate it, or ``METILE_DISABLE_DISK_CACHE=1`` to disable
-persistent autotune choices while debugging.
+persistent autotune choices while debugging. The following timings illustrate
+cache behavior; they are not benchmark results:
 
 .. code-block:: text
 
@@ -103,6 +113,11 @@ Config Object
 Any keyword arguments become constexprs passed to the kernel. Parameters not in the
 kernel's signature are stored in ``func.constexprs`` and available to the compiler
 (e.g., ``WM``, ``WN`` control the tensor_ops simdgroup layout).
+The reserved ``num_simdgroups`` constructor argument defaults to ``None``
+(automatic). When provided, it sets a checked ``NUM_SG`` requirement. Caller
+launch overrides take precedence over candidate values
+consistently for compilation and grid evaluation. ``SCHEDULE=metile.Schedule(...)``
+may be included in configurations; see :doc:`execution-schedules`.
 Schedules can be searched alongside tile shapes with ``SWIZZLE="linear"``,
 ``"grouped2"``, ``"grouped4"``, ``"grouped8"``, ``"diagonal"``,
 ``"morton"``, ``"hilbert"``, or ``"auto"``.
@@ -111,15 +126,14 @@ representations as ordinary autotune candidates; the default ``"auto"`` uses the
 compiler's target-cost and MDL extractor.
 On the aligned M5 NAX path, ``NAX_OUTER_K`` controls the reduction epoch and
 ``NAX_K_UNROLL=2`` preloads two 16-wide K fragments before issuing their native MMAs.
-These are candidate parameters rather than global defaults because the winning register
-footprint and epoch width change with matrix shape.
+Tune these parameters for the target shape: increasing the amount of live data
+can outweigh the benefit of fewer loads or fences.
 ``NAX_SKIP_FIRST_EPOCH_BARRIER`` retains every inter-epoch scheduling fence but skips
 the redundant fence before the first epoch. It is searched as a separate representation
 because the uniform predicate helps medium reductions but the unconditional form can
 remain faster for long reductions.
 ``NAX_TRAILING_EPOCH_BARRIER`` moves the same inter-epoch fence to the end of each
-non-final epoch. This equivalent placement shortens live ranges on sustained reductions
-and is independently measured rather than selected by a fixed heuristic.
+non-final epoch. The tuner measures this placement as another candidate.
 The block-scaled runtime also measures a paired reduction representation that reuses
 one E8M0 scale load across the two 16-wide steps in each 32-value quantization group.
 It executes the decoded weight fragments sequentially to avoid the register-pressure
@@ -147,12 +161,10 @@ uses the DEFLATE-compressed canonical expression encoding as a deterministic
 minimum-description-length tie-break. Code generation consumes the selected expression
 tree directly, so adding a decoder representation does not add a whole-kernel template.
 
-This is a finite symmetry group and fundamental-domain construction, not a
-topological fundamental group. Likewise, exact Kolmogorov complexity is
-uncomputable. For cross-kernel autotuning, meTile uses DEFLATE-compressed generated MSL
-length as a reproducible minimum-description-length upper bound. Measured latency is
-always primary: MDL can only choose a smaller representation when it is within 0.25%
-of the fastest result.
+For cross-kernel autotuning, meTile uses DEFLATE-compressed generated MSL
+length as a reproducible description-length metric. It is an approximation,
+not an evaluation of Kolmogorov complexity. Measured latency is primary: MDL
+can only select a smaller representation within 0.25% of the fastest result.
 
 The same compositional policy applies beyond GEMM traversal. The FFT candidate family
 keeps one kernel expressed from ordinary eDSL operations while searching threadgroup
@@ -166,17 +178,17 @@ a multi-threadgroup partial pass followed by an online merge pass. Both kernels 
 ordinary eDSL programs, and the persisted winner is keyed by head grid, context length,
 head dimension, device, toolchain, source, and candidate family.
 
-The optional MLX backend also includes native MLX itself as a candidate. Framework
-integration adds a 5% switch margin before selecting generated Metal, because an opaque
-custom primitive can change graph scheduling even when isolated timings are nearly tied.
-Attention and RMSNorm choices persist independently by MLX version, device, dtype, and
-shape bucket.
+The optional MLX backend also includes native MLX as a candidate. Attention and
+RMSNorm require 5% headroom before selecting generated Metal; other families
+have their own margins. A custom primitive can change graph scheduling even
+when isolated timings are close. See :doc:`mlx-backend` for those policies.
 
 
 Verbose Output
 --------------
 
-With ``verbose=True`` (the default), the autotuner prints results:
+With ``verbose=True`` (the default), the autotuner prints results in this form.
+The values here are illustrative:
 
 .. code-block:: text
 
@@ -202,10 +214,13 @@ Tuning Parameters
    metile.autotune(
        configs=[...],
        key=["M", "N", "K"],
-       warmup=5,      # warmup iterations per config (default: 5)
-       rep=20,         # timed iterations per config (default: 20)
-       verbose=True,   # print results (default: True)
+       warmup=5,
+       rep=20,
+       verbose=True,
    )
+
+These are the defaults: five warmup rounds and twenty timed rounds per
+configuration, followed by finalist remeasurement when needed.
 
 
 Prepared Dispatch
@@ -221,11 +236,13 @@ overhead on subsequent calls:
 
    dispatch = autotuned_matmul[grid].prepare(A, B, C, M, N, K)
 
-   # Encode repeated work under one runtime lock. Compatible calls batch until
-   # sync(), numpy(), or an ordinary launch flushes them.
    dispatch.repeat(1000)
 
    MetalDevice.get().sync()
+
+``repeat`` encodes repeated work under one runtime lock. Compatible calls batch
+until ``sync()``, ``numpy()``, or an ordinary launch flushes them. Each repetition
+uses the same bound buffers; account for any in-place updates in the kernel.
 
 Prepared GEMMs use an ordered encoder. Independent element-wise kernels can use a
 concurrent encoder; the runtime tracks input/output buffer hazards and inserts Metal

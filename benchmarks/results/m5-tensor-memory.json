@@ -1,0 +1,315 @@
+{
+  "precision_comparison": {
+    "class": "same_storage_precision",
+    "same_weight_representation": true,
+    "baseline_weights": "float32_norms_float16_gemm",
+    "optimized_weights": "float32_norms_float16_gemm",
+    "bitwise_exact": false,
+    "validation": "per_case_numpy_and_mlx_tolerance_checks"
+  },
+  "hardware": {
+    "chip": "Apple M5",
+    "machine": "arm64",
+    "memory": "32 GB",
+    "model_name": "Mac17,2",
+    "processor": "arm",
+    "release": "25.2.0",
+    "system": "Darwin"
+  },
+  "measurement": {
+    "clock": "perf_counter_ns",
+    "input_allocation_and_compilation_excluded": true,
+    "metric": "synchronized_wall_seconds",
+    "numerics": "matching_storage_dtypes_tolerance_checked_not_bitwise_exact",
+    "order": "alternating_AB_BA",
+    "output_allocation": "meTile_preallocated_MLX_framework_managed",
+    "rep_ms": 500.0,
+    "statistic": "middle_80_percent_median",
+    "synchronization": "meTile_queue_and_mlx_default_stream_after_each_call",
+    "timed_scope": "prepared_meTile_dispatch_vs_MLX_operation_construction_and_eval",
+    "warmup_ms": 100.0
+  },
+  "metile_root": "/Users/andreslavescu/Documents/projects/meTile",
+  "recorded_at": "2026-10-02T06:01:13.016387+00:00",
+  "results": [
+    {
+      "config": {
+        "BLOCK": 256
+      },
+      "correctness": {
+        "atol": 3e-05,
+        "max_absolute_difference_vs_mlx": 9.5367431640625e-07,
+        "passed": true,
+        "reference": "numpy_float64_norm",
+        "rtol": 3e-05
+      },
+      "dtype": "float32",
+      "family": "rmsnorm",
+      "seed": 17,
+      "setup_seconds": {
+        "metile_prepare": 0.4348675000073854,
+        "mlx_first_eval": 0.004429666994838044
+      },
+      "shape": [
+        64,
+        1024
+      ],
+      "timings": {
+        "metile_seconds": 0.00020985400000000001,
+        "mlx_seconds": 0.0002131245,
+        "speedup": 1.01558464456241
+      }
+    },
+    {
+      "config": {
+        "BLOCK": 256
+      },
+      "correctness": {
+        "atol": 3e-05,
+        "max_absolute_difference_vs_mlx": 1.430511474609375e-06,
+        "passed": true,
+        "reference": "numpy_float64_norm",
+        "rtol": 3e-05
+      },
+      "dtype": "float32",
+      "family": "rmsnorm",
+      "seed": 17,
+      "setup_seconds": {
+        "metile_prepare": 0.00893720900057815,
+        "mlx_first_eval": 0.00022991601144894958
+      },
+      "shape": [
+        64,
+        1027
+      ],
+      "timings": {
+        "metile_seconds": 0.00020195800000000002,
+        "mlx_seconds": 0.000202,
+        "speedup": 1.0002079640321253
+      }
+    },
+    {
+      "config": {
+        "BLOCK": 256
+      },
+      "correctness": {
+        "atol": 3e-05,
+        "max_absolute_difference_vs_mlx": 9.5367431640625e-07,
+        "passed": true,
+        "reference": "numpy_float64_norm",
+        "rtol": 3e-05
+      },
+      "dtype": "float32",
+      "family": "layernorm",
+      "seed": 17,
+      "setup_seconds": {
+        "metile_prepare": 0.012625583010958508,
+        "mlx_first_eval": 0.0003443329769652337
+      },
+      "shape": [
+        64,
+        1024
+      ],
+      "timings": {
+        "metile_seconds": 0.000201792,
+        "mlx_seconds": 0.00020195850000000003,
+        "speedup": 1.0008251070409135
+      }
+    },
+    {
+      "config": {
+        "BLOCK": 256
+      },
+      "correctness": {
+        "atol": 3e-05,
+        "max_absolute_difference_vs_mlx": 1.9073486328125e-06,
+        "passed": true,
+        "reference": "numpy_float64_norm",
+        "rtol": 3e-05
+      },
+      "dtype": "float32",
+      "family": "layernorm",
+      "seed": 17,
+      "setup_seconds": {
+        "metile_prepare": 0.007670791994314641,
+        "mlx_first_eval": 0.00023995799710974097
+      },
+      "shape": [
+        64,
+        1027
+      ],
+      "timings": {
+        "metile_seconds": 0.000204104,
+        "mlx_seconds": 0.0002128335,
+        "speedup": 1.0427698624230783
+      }
+    },
+    {
+      "config": {
+        "BLOCK_K": 16,
+        "BLOCK_M": 64,
+        "BLOCK_N": 64,
+        "RELAXED_PRECISION": false
+      },
+      "correctness": {
+        "atol": 0.02,
+        "max_absolute_difference_vs_mlx": 0.0,
+        "passed": true,
+        "reference": "numpy_float32_matmul",
+        "rtol": 0.005
+      },
+      "dtype": "float16",
+      "family": "gemm",
+      "seed": 17,
+      "setup_seconds": {
+        "metile_prepare": 0.4086542919976637,
+        "mlx_first_eval": 0.002765207987977192
+      },
+      "shape": [
+        256,
+        256,
+        256
+      ],
+      "timings": {
+        "metile_seconds": 0.0003337705,
+        "mlx_seconds": 0.00036045850000000003,
+        "speedup": 1.0799591335962886
+      }
+    },
+    {
+      "config": {
+        "BLOCK_K": 16,
+        "BLOCK_M": 64,
+        "BLOCK_N": 64,
+        "RELAXED_PRECISION": false
+      },
+      "correctness": {
+        "atol": 0.02,
+        "max_absolute_difference_vs_mlx": 0.0,
+        "passed": true,
+        "reference": "numpy_float32_matmul",
+        "rtol": 0.005
+      },
+      "dtype": "float16",
+      "family": "gemm",
+      "seed": 17,
+      "setup_seconds": {
+        "metile_prepare": 0.014728249981999397,
+        "mlx_first_eval": 0.0011605840118136257
+      },
+      "shape": [
+        1024,
+        1024,
+        1024
+      ],
+      "timings": {
+        "metile_seconds": 0.000375833,
+        "mlx_seconds": 0.00035637500000000003,
+        "speedup": 0.9482270050793837
+      }
+    }
+  ],
+  "revision": "18671c74f710d7ff42a5fa4645f067b9fea76e62",
+  "schema_version": 1,
+  "software": {
+    "metal_compiler": "Apple metal version 32023.864 (metalfe-32023.864)\nTarget: air64-apple-darwin25.2.0\nThread model: posix\nInstalledDir: /private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.3.7003.10.GzPOjD/Metal.xctoolchain/usr/metal/current/bin",
+    "metile": "0.0.1",
+    "mlx": "0.32.0",
+    "numpy": "2.5.3",
+    "python": "3.12.12"
+  },
+  "source_sha256": {
+    "metile/__init__.py": "e32f05c3c66618be2a93b132df0583c7d664574d435dc4468d24bd85bf587031",
+    "metile/backends/__init__.py": "a69e602909b06e96197769e4bd8c20feff1f19c0ad3179b9024fc0dd491306fb",
+    "metile/backends/mlx.py": "badc9c3f0e2e4354128ab4ebb4980612c7272098e3290e190139ee82a3b22dc0",
+    "metile/backends/mlx_affine.py": "69dac0c8e776d83ebf01ab30375f5c750b609428fc43df4381ba88d10c80fc2a",
+    "metile/backends/mlx_attention.py": "53edf481eb0ea14780840948ec7ecbb20ba176381468ee68a691394205cd7f31",
+    "metile/backends/mlx_block_scaled.py": "558f2c934768fdcb9a00e9710ab4d642a4d933a903eeb7ce7dc042df4553e76a",
+    "metile/backends/mlx_compressed_down.py": "b31a94c27475448975c010dd59bc7b2c1889576b61b536cf0b9af084b5c1c047",
+    "metile/backends/mlx_dense.py": "feea78dad21a53cb56f32e1c16b340f30d018cd8906f813dae4eb2a3a3fd769e",
+    "metile/backends/mlx_dense_residual.py": "b27771e2735f712fbe94ddf85fb70702f6b5aa592ab0d3d47232d1433e2f7bc5",
+    "metile/backends/mlx_dense_swiglu.py": "88341838b024abcaec77709403e506862f9488bc767a452671e1e4df1e0a73a2",
+    "metile/backends/mlx_graph.py": "03963e7902645c8db23102279031313b7228dd46166a2d9f41fcc09f3b2b1256",
+    "metile/backends/mlx_quantized/__init__.py": "2ad98e4382336c9e2ec8e251b8d4db5e14cca02db2658bec8c4a915fa453d27d",
+    "metile/backends/mlx_quantized/common.py": "211f3797aa8df823da6f12919c908f98eb6d0a5f1a9bb6833de4261a7009d5b9",
+    "metile/backends/mlx_quantized/dispatch.py": "37ad5d4cb08acbfc8b6eb34dd072a83953585c3780159a65ac40e8b792957cb2",
+    "metile/backends/mlx_quantized/qmv.py": "996ee75a0b9113f8e12d162a5e5d8da929e96a4de4a96d635df62336c61dcf49",
+    "metile/backends/mlx_quantized/residual.py": "be5d001d4abecb6faf6fcea0074001063258812b644d39eba11a1900de785592",
+    "metile/backends/mlx_quantized/swiglu.py": "88f8250c94227d948ce1d7752d1c8b60f89eb3db8fab9a41e81ec49ce1229915",
+    "metile/codegen/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "metile/codegen/msl_emitter/__init__.py": "722808c4b4d2b0582820fd499c93eca09f595b91ae598bec69ad4577880716ec",
+    "metile/codegen/msl_emitter/block_scaled.py": "3c7cd7f2b895624a47e11e7b72748ea66efecec187e48e391f014f210e15ea54",
+    "metile/codegen/msl_emitter/common.py": "b76f97778198b33e4e8039b7b8656d8948e7d3b6c3bdaebd0c8d803d9a0120ce",
+    "metile/codegen/msl_emitter/elementwise.py": "891bcb941dee28b6d8b8c2b123a5682ec4b8a1fddefeedac8ebf3620bf12598c",
+    "metile/codegen/msl_emitter/gemm.py": "d1515829763490ec99a1dd8364e1ca8c532cb346aaa20c653e430924bc02a82e",
+    "metile/codegen/msl_emitter/nax.py": "53ac752554c39fa80d89c22fd368ef07149f3ad7240ce380aba375507d406f24",
+    "metile/codegen/msl_emitter/simdgroup.py": "61be7105bd75f60a473677634fff1836b5934804e24e2a93c740d386426ae7fc",
+    "metile/compile.py": "5102f426f21d8c4e43ff8ef490db87b735dd7da686f2b047a831872d52613747",
+    "metile/compiler/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "metile/compiler/affine_quantized.py": "6eee87860d983fb33f0f347717b924efdcd8c4bd213c3c2c328df4196f10bce1",
+    "metile/compiler/agx_schedule.py": "27dc8832ce99d916a367bf659074272ef6fdee3dfba5aa9dc99ebf191c55d2b8",
+    "metile/compiler/algo_discovery.py": "cec98735866080e102c623f119f7b27b1e0086b1404d59518d54925ad2c392c7",
+    "metile/compiler/block_scaled.py": "251ac93ad2c0fa977dee2424b42f676d233e3c4cc9a82eb4d5e7add582b3eed0",
+    "metile/compiler/dense.py": "d3555ee5f04697fb748139f1deeacd5b5cba9a4681c73fe0d163c7647b760493",
+    "metile/compiler/gemm_configs.py": "78f21e12b0a1b379dd90e0bc59a0e31a8c3fab9b7adf5f8760a2d28091c1cacf",
+    "metile/compiler/graph_fusion.py": "477f56a99d9ac1c85b18c544269bf86a633792e2f4495c6f0fff7b80750e25a3",
+    "metile/compiler/lowering/__init__.py": "933c962b87a21f0f40761faaf13334f80ce0ecb5e9591a4bc28eea71de0ea9cf",
+    "metile/compiler/lowering/common.py": "d8da679709dedc16575400aa621c436478359433de26950af4ff23449d389604",
+    "metile/compiler/lowering/elementwise.py": "f0bb1619d670c2a6513cac6f4ea6ca25751602d3f8555af22145ef48ad1389cf",
+    "metile/compiler/lowering/gemm.py": "203bbee4e34fe05f186a11e3ce7fec7e681d70835999f62627065a0caf1f3f4d",
+    "metile/compiler/max_flow.py": "aa55ce3e55d18410274e4a23a08c851d7bdfc6cd71b36fdc861b2138dd86e9db",
+    "metile/compiler/passes.py": "a9df3d3f88897ae06617601615f2156a355659d8120f07853e03e1c274611ef4",
+    "metile/compiler/reduction_algebra.py": "1721e995a6d28b625e5f8bee6b12d1b15121ae9433cce5226a165b34a814c6b1",
+    "metile/compiler/schedule_expr.py": "5a1dedb24b86fdac712cf7dd5a05a67c67f4520192108d11859e1dcd4dfd918c",
+    "metile/compiler/schedule_search.py": "c9ab6f30e4491285b68b3085e8d6ed3e89aab91bdcadb3bacc103757ee90d79b",
+    "metile/compiler/schedules.py": "6db4d77a4fc4d8c6be5fca88563e05ecf04a46a05c267ce3e56cd80f2e04c094",
+    "metile/compiler/scheduling.py": "ce51105ff2983dbac66d5f8936dd08a389945992aa80443c34c4eaf7ff3c0894",
+    "metile/frontend/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "metile/frontend/autotune.py": "bb4317bcf6795b509b8727c438a5ffb2a4944d1b8d077afed886c723368d17c7",
+    "metile/frontend/kernel.py": "f5eabfd4efcdfeb6d3ed8a1301de61e42b53ddbbccd13dcb0168df85581227e7",
+    "metile/frontend/tensor.py": "4329b14aad92de8356a244bb7736004549a6e6c5670cfe0c0ae47addc33009b2",
+    "metile/frontend/tracing.py": "16d907faf48f8838c937ce3bb56b70b35aea952d10ac377ea3a7214f18babad3",
+    "metile/integrations/__init__.py": "652dd5312ee9458f627f4cae0cb57bcffb4b186f5aca432c36ca89c6d2a8506f",
+    "metile/integrations/mlx_lm/__init__.py": "f8de1d946a2107bcdee92059e1cf5b4efc6dec78296ba513a8186438386c2001",
+    "metile/integrations/mlx_lm/_state.py": "172cbafb9be16eea09609c34a8a37309c0e710fed946c286d9ee2eb9c8355826",
+    "metile/integrations/mlx_lm/apply.py": "fde44e04e3be0f99ca1d11a3ba7cb2abf99c84f841e8c18daacdc5aa0264eea9",
+    "metile/integrations/mlx_lm/autotune.py": "627396bc354abd8471af54c122657fdb704981bbbf06688eb4d7b50dc02e0a9f",
+    "metile/integrations/mlx_lm/compressed.py": "b717da12554b983203cfc87db88155b6e73cea4c64027c49f7ad748d7ba07097",
+    "metile/integrations/mlx_lm/core.py": "5697e0fa1e0abac92d044314e3e6e0c2f2aa724e9e783cf8749967a5ad970b10",
+    "metile/integrations/mlx_lm/modules.py": "f5ff7536efbb643e3e501fccd46809194ae8cc174f36ef04bef86116141a7c74",
+    "metile/integrations/mlx_lm/patching.py": "6b2b6448b171d88245bbcc13c668cb16539a4472eb26dbc082382c7ece70ed37",
+    "metile/integrations/mlx_lm/plan_model.py": "71be57f1b9bfc66e4767beed48a96d14b8fec156d8eb37a9b4a78ba9d5b29797",
+    "metile/integrations/mlx_lm/tuning.py": "a9fd5665fc5508d0d03f78392b05e01247310b8a130fb82842fb8ed048d3e843",
+    "metile/ir/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "metile/ir/graph_ir.py": "df6baf153562e58c2352fd99dcb77ad447d9e1433316353e295d71c6bd6002fc",
+    "metile/ir/layout.py": "25adadd723df708c0ac8902ebc19273a7dfe397c148a0ecab7f8c6064d106c28",
+    "metile/ir/metal_ir.py": "9607255ced30bda8ede5a0770b26429a35a6346f637dd32cb439c326256a9980",
+    "metile/ir/printer.py": "a962f96fd27481e70e7fae08656fe2dbc694205430902bc32116ed43d1548d6f",
+    "metile/ir/tile_ir.py": "68078fe5cd2f9b17dea3d1d842a4aadf6f81a37a048471809173aec3110bcd07",
+    "metile/ir/types.py": "4217c9c6d3928e074f945ff5681d35eebb711acf7622ba7a18cfbdd1439ff20d",
+    "metile/kernels/__init__.py": "30cfa7e525e2c5f0813971e526ffa30d7faf4c31fadaf067187cd704246e51b0",
+    "metile/kernels/add_rmsnorm.py": "b042a33d0e81e060820d745ccfc5da86f4c7ee99c275eca6e73f89a03dba5b8f",
+    "metile/kernels/affine_qmv.py": "760b329265388e2a5986a1265cdc73903d73cd7c9db4b833b5814b7572f4d317",
+    "metile/kernels/attention.py": "463c03631f9b3255d4182fa9136122336128d0a33792426442b3f477e5d380bc",
+    "metile/kernels/fft.py": "987fe73b9bb1a50c802ec83472f043a8a043730526e18dd46141d50904c0e591",
+    "metile/kernels/gemm.py": "f5b353fc181e84ab0eb6d275e87d6a026a415d4b23ce367ce685f4e59b76d97e",
+    "metile/kernels/layernorm.py": "6253a3aa5a43f668b414320cfc003e6135a27f75d9880497410cf341a39b98c6",
+    "metile/kernels/mlp.py": "dea5cfcf3c8192c913de05f06bf11c350953bc1d80330a46b61f25b92b89c689",
+    "metile/kernels/reduce.py": "e67c3e690b1a91dd32c0016bff62262e14d12d7e2dc882876cddf6b4c1278bf3",
+    "metile/kernels/rmsnorm.py": "34a8856bbc5c945c47e561ef3e49f8b92771672496d041d83dd2b44cf60dea88",
+    "metile/kernels/simdgroup_specialized_elementwise.py": "bd4b70d07c06e73f8fd7e53489f6178fa08c8d16320c3d7265077cfc95d1fad0",
+    "metile/kernels/softmax.py": "0ac234200855dd91befb15ffdc8fce56e110a7a4650d1f9eafb5f3a06347619c",
+    "metile/runtime/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "metile/runtime/address_space.py": "730103157cae2459201ddc1e3aa45736c7d068e77a8743f4186d9ce94337506b",
+    "metile/runtime/attention.py": "35bb663fff776606ce7f45f5ff982808c378d72199b76485f7fdf49ad128c8e1",
+    "metile/runtime/block_scaled.py": "32ae21160bdd6b0e9c6ed8f7d9b4845c8e6238ae3e99db8724188e5bc99b751b",
+    "metile/runtime/buffer.py": "20ed8aed26a26f1057c5faff49b4fc7b326c0d7568bed072cba205b6611f4eeb",
+    "metile/runtime/cache.py": "0025c8cf10416b9c5e9e1614d200596ae86a694c75d4a8f1e5d2fdacc8c94da3",
+    "metile/runtime/metal_device.py": "b0190c367ba4cd1a13cfbddeb7223a4cc5c8be625adbbd2c90fa4335b06cd4ff",
+    "metile/target/__init__.py": "41c7c5614012905213769bdb3f40d31f2a82715e415f28e59585061327261e34",
+    "metile/target/agx.py": "c113f2c1071902316342b3f8127d2bf021b7907d1b6ae1ff4ca0007980e4d1d5",
+    "metile/target/agx_isa.py": "25b12612f5976f5ed1234c06cad47506a445eb98c8987657983ba751bde0634d",
+    "metile/tuning/__init__.py": "bcd0afdc50bd4f7acfb2cc716ffab5c0d63fc48a7a471534a68c5c45e95963c8",
+    "metile/tuning/tournament.py": "a624be50382365230616c8694ee230a9b135de29325bbb27dcbde2b5cceccefc"
+  }
+}

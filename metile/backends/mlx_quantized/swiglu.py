@@ -34,11 +34,11 @@ from metile.compiler.schedule_search import (
     compressed_description_bits,
     optimize_tile_schedules,
 )
-from metile.kernels.affine_qmv import (
+from metile.runtime.cache import atomic_write_json, read_json, stable_digest
+from metile_kernels.affine_qmv import (
     affine_swiglu_qmv,
     affine_swiglu_scratch_qmv,
 )
-from metile.runtime.cache import atomic_write_json, read_json, stable_digest
 
 
 @dataclass(frozen=True)

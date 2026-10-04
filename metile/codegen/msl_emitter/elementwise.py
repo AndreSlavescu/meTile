@@ -14,8 +14,41 @@ from metile.codegen.msl_emitter.common import (
     _uses_thread_position,
     _val_name,
 )
+from metile.compiler.epilogue import EpilogueProgram
 from metile.ir import metal_ir as mir
 from metile.ir.types import PtrType, ScalarType
+
+
+def _emit_epilogue_captures(func: mir.MFunction, lines: list[str]) -> bool:
+    parameters = {parameter.name: parameter for parameter in func.params}
+    captures = {}
+
+    def collect(operations):
+        for operation in operations:
+            for program in getattr(operation, "operations", ()):
+                if not isinstance(program, EpilogueProgram):
+                    continue
+                for instruction in program.instructions:
+                    if instruction.kind != "parameter":
+                        continue
+                    parameter = parameters.get(instruction.parameter)
+                    if parameter is None or parameter.type != instruction.type:
+                        raise ValueError(
+                            f"epilogue scalar binding is not preserved: {instruction.parameter}"
+                        )
+                    capture = instruction.capture_name
+                    binding = (instruction.type, instruction.parameter)
+                    if capture in parameters or (
+                        capture in captures and captures[capture] != binding
+                    ):
+                        raise ValueError(f"epilogue scalar capture name collision: {capture}")
+                    captures[capture] = binding
+            collect(getattr(operation, "body", ()))
+
+    collect(func.ops)
+    for capture, (datatype, parameter) in captures.items():
+        lines.append(f"    const {datatype.to_msl()} {capture} = {parameter};")
+    return bool(captures)
 
 
 def _emit_epilogue_chain(operations: list, elem_expr: str, lines: list, pad: str):
@@ -25,6 +58,11 @@ def _emit_epilogue_chain(operations: list, elem_expr: str, lines: list, pad: str
     constants, binop referencing original accumulator) epilogue patterns.
     Operates on elem_expr (e.g. "acc[0][0].thread_elements()[0]" or "ct[i]").
     """
+    if operations and isinstance(operations[0], EpilogueProgram):
+        if len(operations) != 1:
+            raise ValueError("an SSA epilogue program cannot be mixed with legacy epilogue tuples")
+        _emit_epilogue_program(operations[0], elem_expr, lines, pad)
+        return
     # Check if the chain needs save_orig / binop_orig
     has_chain = any(e[0] in ("save_orig", "binop", "binop_orig") for e in operations)
 
@@ -80,7 +118,60 @@ def _emit_epilogue_chain(operations: list, elem_expr: str, lines: list, pad: str
                 lines.append(f"{pad}{elem_expr} *= _scale;")
 
 
+def _emit_epilogue_program(program: EpilogueProgram, elem_expr: str, lines: list[str], pad: str):
+    types = {instruction.name: instruction.type for instruction in program.instructions}
+
+    def converted(name, dtype):
+        return name if types[name] == dtype else f"static_cast<{dtype.to_msl()}>({name})"
+
+    lines.append(f"{pad}{{")
+    for instruction in program.instructions:
+        operands = instruction.operands
+        target = instruction.type
+        if instruction.kind == "accumulator":
+            expression = elem_expr
+        elif instruction.kind == "constant":
+            expression = _format_literal(instruction.value, target.dtype)
+        elif instruction.kind == "parameter":
+            expression = instruction.capture_name
+        elif instruction.kind == "cast":
+            expression = converted(operands[0], target)
+        elif instruction.kind == "unary":
+            source = converted(operands[0], target)
+            expression = (
+                f"-({source})"
+                if instruction.operation == "neg"
+                else f"{_UNARY_MSL[instruction.operation]}({source})"
+            )
+        elif instruction.kind == "binary":
+            left, right = (converted(operand, target) for operand in operands)
+            if instruction.operation in {"min", "max"}:
+                expression = f"{instruction.operation}({left}, {right})"
+            elif instruction.operation == "mod" and target.dtype in {"f16", "f32"}:
+                expression = f"fmod({left}, {right})"
+            else:
+                expression = f"{left} {_BINOP_SYMBOLS[instruction.operation]} {right}"
+        elif instruction.kind == "compare":
+            compared_types = [types[operand] for operand in operands]
+            priority = {"bool": 0, "i32": 1, "u32": 2, "f16": 3, "f32": 4}
+            compared_type = max(compared_types, key=lambda scalar: priority[scalar.dtype])
+            left, right = (converted(operand, compared_type) for operand in operands)
+            expression = f"{left} {_CMP_SYMBOLS[instruction.operation]} {right}"
+        elif instruction.kind == "select":
+            condition = operands[0]
+            true_value, false_value = (converted(operand, target) for operand in operands[1:])
+            expression = f"{condition} ? {true_value} : {false_value}"
+        else:
+            raise ValueError(f"unknown SSA epilogue instruction: {instruction.kind}")
+        lines.append(f"{pad}    const {target.to_msl()} {instruction.name} = {expression};")
+    lines.append(f"{pad}    {elem_expr} = {program.result};")
+    lines.append(f"{pad}}}")
+
+
 def _emit_elementwise(func: mir.MFunction) -> str:
+    from metile.compiler.register_memory import validate_register_memory
+
+    validate_register_memory(func)
     lines = [
         "#include <metal_stdlib>",
         "using namespace metal;",
@@ -110,11 +201,11 @@ def _emit_elementwise(func: mir.MFunction) -> str:
 
     # Thread position attributes
     if _uses_thread_position(func.ops):
-        params.append("    uint tid [[thread_position_in_grid]]")
+        params.append("    uint3 global_id [[thread_position_in_grid]]")
     if _uses_op_type(func.ops, mir.ThreadgroupPositionInGrid):
-        params.append("    uint tgp_id_x [[threadgroup_position_in_grid]]")
+        params.append("    uint3 tgp_id [[threadgroup_position_in_grid]]")
     if _uses_op_type(func.ops, mir.ThreadPositionInThreadgroup):
-        params.append("    uint lid [[thread_position_in_threadgroup]]")
+        params.append("    uint lid [[thread_index_in_threadgroup]]")
     if _uses_op_type(func.ops, mir.MSimdgroupId):
         params.append("    uint sgid [[simdgroup_index_in_threadgroup]]")
     if (
@@ -128,6 +219,11 @@ def _emit_elementwise(func: mir.MFunction) -> str:
     lines.append(f"[[kernel]] void {func.name}(")
     lines.append(params_str)
     lines.append(") {")
+    if _uses_thread_position(func.ops):
+        lines.append("    const uint tid = global_id.x;")
+    if _uses_op_type(func.ops, mir.ThreadgroupPositionInGrid):
+        for axis in "xyz":
+            lines.append(f"    const uint tgp_id_{axis} = tgp_id.{axis};")
 
     # Emit body
     for op in func.ops:
@@ -178,6 +274,61 @@ def _emit_coop_tensor_epilogue(op, lines, indent):
     if needs_guard:
         lines.append(f"{'    ' * (indent - 1)}}}")
     lines.append("")
+
+
+def _vector_memory_guard(operation, function):
+    indices = [_val_name(index, function) for index in operation.indices]
+    predicates = [f"({_val_name(mask, function)})" for mask in operation.masks if mask is not None]
+    predicates.extend(
+        f"(long({index}) == long({indices[0]}) + {lane})"
+        for lane, index in enumerate(indices[1:], start=1)
+    )
+    return indices, " && ".join(predicates)
+
+
+def _emit_vector_load(operation, lines, pad, function):
+    pointer = _val_name(operation.ptr, function)
+    indices, guard = _vector_memory_guard(operation, function)
+    scalar_type = ScalarType(operation.dtype).to_msl()
+    vector_type = operation.result.type.to_msl()
+    name = operation.result.name
+    lines.append(f"{pad}{vector_type} {name};")
+    lines.append(f"{pad}if ({guard}) {{")
+    lines.append(
+        f"{pad}    {name} = {vector_type}(*reinterpret_cast<device const packed_{vector_type}*>"
+        f"({pointer} + {indices[0]}));"
+    )
+    lines.append(f"{pad}}} else {{")
+    for lane, (index, mask, other) in enumerate(zip(indices, operation.masks, operation.others)):
+        expression = f"{pointer}[{index}]"
+        if mask is not None:
+            condition = _val_name(mask, function)
+            fill = _val_name(other, function) if other is not None else "0"
+            expression = f"{condition} ? {expression} : static_cast<{scalar_type}>({fill})"
+        lines.append(f"{pad}    {name}[{lane}] = {expression};")
+    lines.append(f"{pad}}}")
+
+
+def _emit_vector_store(operation, lines, pad, function):
+    pointer = _val_name(operation.ptr, function)
+    indices, guard = _vector_memory_guard(operation, function)
+    scalar_type = ScalarType(operation.dtype).to_msl()
+    vector_type = f"{scalar_type}4"
+    values = [
+        f"static_cast<{scalar_type}>({_val_name(value, function)})" for value in operation.values
+    ]
+    lines.append(f"{pad}if ({guard}) {{")
+    lines.append(
+        f"{pad}    *reinterpret_cast<device packed_{vector_type}*>"
+        f"({pointer} + {indices[0]}) = packed_{vector_type}({vector_type}({', '.join(values)}));"
+    )
+    lines.append(f"{pad}}} else {{")
+    for index, value, mask in zip(indices, values, operation.masks):
+        statement = f"{pointer}[{index}] = {value};"
+        if mask is not None:
+            statement = f"if ({_val_name(mask, function)}) {{ {statement} }}"
+        lines.append(f"{pad}    {statement}")
+    lines.append(f"{pad}}}")
 
 
 def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
@@ -275,6 +426,30 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         name = op.result.name
         lines.append(f"{pad}bool {name} = {lhs} {sym} {rhs};")
 
+    elif isinstance(op, mir.MThreadIndexMap):
+        thread = _val_name(op.thread, func)
+        terms = [
+            f"((({thread} >> {source}) & 1u) << {target})"
+            for target, source in enumerate(op.layout.bit_order)
+        ]
+        expression = " | ".join(terms)
+        if op.layout.bit_order == tuple(range(len(op.layout.bit_order))):
+            expression = thread
+        if op.layout.xor_mask:
+            expression = f"({expression}) ^ {op.layout.xor_mask}u"
+        lines.append(f"{pad}int {op.result.name} = int({expression});")
+
+    elif isinstance(op, mir.MSimdShuffle):
+        result_type = ScalarType(op.dtype).to_msl()
+        value = _val_name(op.value, func)
+        lane = _val_name(op.lane, func)
+        expression = (
+            f"bool(simd_shuffle(uint({value}), ushort({lane})))"
+            if op.dtype == "bool"
+            else f"simd_shuffle({value}, ushort({lane}))"
+        )
+        lines.append(f"{pad}{result_type} {op.result.name} = {expression};")
+
     elif isinstance(op, mir.MSimdShuffleXor):
         result_type = ScalarType(op.dtype).to_msl()
         name = op.result.name
@@ -289,29 +464,56 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         lane = _val_name(op.lane, func)
         lines.append(f"{pad}{result_type} {name} = simd_broadcast({val}, {lane});")
 
+    elif isinstance(op, mir.MVectorLoad):
+        _emit_vector_load(op, lines, pad, func)
+
+    elif isinstance(op, mir.MVectorExtract):
+        scalar_type = op.result.type.to_msl()
+        value = _val_name(op.value, func)
+        lines.append(f"{pad}{scalar_type} {op.result.name} = {value}[{op.lane}];")
+
+    elif isinstance(op, mir.MVectorStore):
+        _emit_vector_store(op, lines, pad, func)
+
     elif isinstance(op, mir.DeviceLoad):
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
         result_type = ScalarType(op.dtype).to_msl()
         name = op.result.name
-        lines.append(f"{pad}{result_type} {name} = {ptr}[{idx}];")
+        value = f"{ptr}[{idx}]"
+        if op.mask is not None:
+            condition = _val_name(op.mask, func)
+            other = _val_name(op.other, func) if op.other is not None else "0"
+            value = f"{condition} ? {value} : static_cast<{result_type}>({other})"
+        lines.append(f"{pad}{result_type} {name} = {value};")
 
     elif isinstance(op, mir.DeviceStore):
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
         val = _val_name(op.value, func)
-        lines.append(f"{pad}{ptr}[{idx}] = {val};")
+        statement = f"{ptr}[{idx}] = {val};"
+        if op.mask is not None:
+            statement = f"if ({_val_name(op.mask, func)}) {{ {statement} }}"
+        lines.append(f"{pad}{statement}")
 
     elif isinstance(op, mir.MThreadgroupLoad):
         result_type = ScalarType(op.dtype).to_msl()
         name = op.result.name
         idx = _val_name(op.index, func)
-        lines.append(f"{pad}{result_type} {name} = {op.array_name}[{idx}];")
+        value = f"{op.array_name}[{idx}]"
+        if op.mask is not None:
+            condition = _val_name(op.mask, func)
+            other = _val_name(op.other, func) if op.other is not None else "0"
+            value = f"{condition} ? {value} : static_cast<{result_type}>({other})"
+        lines.append(f"{pad}{result_type} {name} = {value};")
 
     elif isinstance(op, mir.MThreadgroupStore):
         idx = _val_name(op.index, func)
         val = _val_name(op.value, func)
-        lines.append(f"{pad}{op.array_name}[{idx}] = {val};")
+        statement = f"{op.array_name}[{idx}] = {val};"
+        if op.mask is not None:
+            statement = f"if ({_val_name(op.mask, func)}) {{ {statement} }}"
+        lines.append(f"{pad}{statement}")
 
     elif isinstance(op, mir.MVarDecl):
         msl_type = ScalarType(op.dtype).to_msl()
@@ -635,6 +837,10 @@ def _emit_threadgroup_reduce(
     vec4_vals: dict[str, str] | None = None,
 ):
     """Emit threadgroup reduction: simd_sum + shared memory tree + broadcast."""
+    if op.replicate_partials:
+        from metile.compiler.ownership import validate_register_reductions
+
+        validate_register_reductions(func)
     pad = "    " * indent
     operand = _val_name(op.operand, func)
     name = op.result.name
@@ -650,6 +856,17 @@ def _emit_threadgroup_reduce(
 
     if num_sg <= 1:
         lines.append(f"{pad}{msl_type} {name} = {simd_fn}({operand});")
+    elif op.replicate_partials:
+        lines.append(f"{pad}{msl_type} {name};")
+        lines.append(f"{pad}{{")
+        lines.append(f"{pad}    {msl_type} _simd_val = {simd_fn}({operand});")
+        lines.append(f"{pad}    if (slid == 0u) {op.shared_name}[sgid] = _simd_val;")
+        lines.append(f"{pad}    threadgroup_barrier(mem_flags::mem_threadgroup);")
+        lines.append(
+            f"{pad}    {msl_type} _partial = (slid < {num_sg}u) ? {op.shared_name}[slid] : 0.0f;"
+        )
+        lines.append(f"{pad}    {name} = {simd_fn}(_partial);")
+        lines.append(f"{pad}}}")
     elif num_sg <= 32:
         # Two-level reduction: simd_sum within each simdgroup, then simd_sum
         # across partial sums — avoids serial loop for large simdgroup counts.

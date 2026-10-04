@@ -1,0 +1,538 @@
+{
+  "recorded_at": "2026-10-02T15:33:51.276436+00:00",
+  "platform": "macOS-26.2-arm64-arm-64bit",
+  "compiler_implementation": "ce77f7952f45d48ccb6e958524e4999b3f7aaf994b6b0c14d738b9119131411f",
+  "benchmark_source_sha256": "e002a169fd595a106b48f97df716bb81ae7205aa10eb8a960b4263853a04b65b",
+  "device": "Apple M5",
+  "metal_compiler": "Apple metal version 32023.864 (metalfe-32023.864)\nTarget: air64-apple-darwin25.2.0\nThread model: posix\nInstalledDir: /private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.3.7003.10.GzPOjD/Metal.xctoolchain/usr/metal/current/bin",
+  "mlx_version": "0.32.0",
+  "environment": {
+    "MLX_ENABLE_TF32": "0"
+  },
+  "metric": "alternating, per-invocation synchronized wall latency; setup excluded",
+  "precision_comparison": {
+    "class": "same_storage_precision",
+    "same_weight_representation": true,
+    "baseline_weights": "float32",
+    "optimized_weights": "float32",
+    "bitwise_exact": false,
+    "storage": "FP32 inputs, intermediate and outputs; no FP16 rounding boundary",
+    "metile": "FP32 accumulation, RELAXED_PRECISION=False",
+    "mlx": "mx.compile with FP32 inputs and MLX_ENABLE_TF32=0",
+    "reference": "NumPy FP32 matmul and epilogue; tolerance, not bitwise equivalence",
+    "rtol": 0.0003,
+    "atol": 3e-05
+  },
+  "configuration": {
+    "sizes": [
+      64,
+      256,
+      1024
+    ],
+    "seed": 0,
+    "backend": "auto",
+    "warmup_ms": 100,
+    "rep_ms": 500,
+    "output": "benchmarks/results/m5-schedule-fusion.json"
+  },
+  "cases": [
+    {
+      "shape": [
+        64,
+        64,
+        64
+      ],
+      "seed": 64,
+      "max_absolute_error": {
+        "metile_fused": 5.960464477539063e-08,
+        "metile_two_launches": 5.960464477539063e-08,
+        "mlx_compile": 0.0
+      },
+      "fusion_pair_us": {
+        "fused": 323.271,
+        "two_launches": 332.646,
+        "speedup": 1.02900043616656
+      },
+      "mlx_pair_us": {
+        "fused": 322.29200000000003,
+        "mlx_compile": 331.45900000000006,
+        "speedup": 1.0284431509314536
+      },
+      "execution_reports": {
+        "fused": {
+          "plan": {
+            "backend": "tensor_ops",
+            "threadgroup_size": [
+              128,
+              1,
+              1
+            ],
+            "simdgroup_grid": [
+              2,
+              2
+            ],
+            "tile_shape": [
+              64,
+              64,
+              16
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Metal tensor operations support the dtype, shape and selected SIMDgroup grid.",
+              "Inputs load directly from device into register-resident cooperative tensors.",
+              "Native cooperative-tensor lane ownership is opaque to meTile."
+            ],
+            "cooperative_layout": "native SDK cooperative_tensor (opaque lane ownership)",
+            "outer_bounds_proven": true
+          },
+          "passes": [
+            "optimize_tile_schedules",
+            "decompose_nax_fragments",
+            "fold_constants"
+          ],
+          "loops": [
+            {
+              "induction_variable": "k",
+              "kind": "loop",
+              "lanes": 128,
+              "elements_per_lane": 1,
+              "iteration_step": 16
+            }
+          ],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 1,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        },
+        "product": {
+          "plan": {
+            "backend": "tensor_ops",
+            "threadgroup_size": [
+              128,
+              1,
+              1
+            ],
+            "simdgroup_grid": [
+              2,
+              2
+            ],
+            "tile_shape": [
+              64,
+              64,
+              16
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Metal tensor operations support the dtype, shape and selected SIMDgroup grid.",
+              "Inputs load directly from device into register-resident cooperative tensors.",
+              "Native cooperative-tensor lane ownership is opaque to meTile."
+            ],
+            "cooperative_layout": "native SDK cooperative_tensor (opaque lane ownership)",
+            "outer_bounds_proven": true
+          },
+          "passes": [
+            "optimize_tile_schedules",
+            "decompose_nax_fragments",
+            "fold_constants"
+          ],
+          "loops": [
+            {
+              "induction_variable": "k",
+              "kind": "loop",
+              "lanes": 128,
+              "elements_per_lane": 1,
+              "iteration_step": 16
+            }
+          ],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 0,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        },
+        "separate_epilogue": {
+          "plan": {
+            "backend": "elementwise",
+            "threadgroup_size": [
+              256,
+              1,
+              1
+            ],
+            "simdgroup_grid": null,
+            "tile_shape": [
+              256
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Lane geometry follows the traced arange/BLOCK contract."
+            ],
+            "cooperative_layout": "scalar lanes",
+            "outer_bounds_proven": false
+          },
+          "passes": [
+            "split_elementwise_loops",
+            "vectorize_elementwise",
+            "fold_constants"
+          ],
+          "loops": [],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 0,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        }
+      }
+    },
+    {
+      "shape": [
+        256,
+        256,
+        256
+      ],
+      "seed": 256,
+      "max_absolute_error": {
+        "metile_fused": 5.960464477539063e-08,
+        "metile_two_launches": 5.960464477539063e-08,
+        "mlx_compile": 8.344650268554688e-07
+      },
+      "fusion_pair_us": {
+        "fused": 225.7705,
+        "two_launches": 231.39600000000002,
+        "speedup": 1.0249168956971793
+      },
+      "mlx_pair_us": {
+        "fused": 372.959,
+        "mlx_compile": 392.083,
+        "speedup": 1.0512764137612982
+      },
+      "execution_reports": {
+        "fused": {
+          "plan": {
+            "backend": "tensor_ops",
+            "threadgroup_size": [
+              128,
+              1,
+              1
+            ],
+            "simdgroup_grid": [
+              2,
+              2
+            ],
+            "tile_shape": [
+              64,
+              64,
+              16
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Metal tensor operations support the dtype, shape and selected SIMDgroup grid.",
+              "Inputs load directly from device into register-resident cooperative tensors.",
+              "Native cooperative-tensor lane ownership is opaque to meTile."
+            ],
+            "cooperative_layout": "native SDK cooperative_tensor (opaque lane ownership)",
+            "outer_bounds_proven": true
+          },
+          "passes": [
+            "optimize_tile_schedules",
+            "decompose_nax_fragments",
+            "fold_constants"
+          ],
+          "loops": [
+            {
+              "induction_variable": "k",
+              "kind": "loop",
+              "lanes": 128,
+              "elements_per_lane": 1,
+              "iteration_step": 16
+            }
+          ],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 1,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        },
+        "product": {
+          "plan": {
+            "backend": "tensor_ops",
+            "threadgroup_size": [
+              128,
+              1,
+              1
+            ],
+            "simdgroup_grid": [
+              2,
+              2
+            ],
+            "tile_shape": [
+              64,
+              64,
+              16
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Metal tensor operations support the dtype, shape and selected SIMDgroup grid.",
+              "Inputs load directly from device into register-resident cooperative tensors.",
+              "Native cooperative-tensor lane ownership is opaque to meTile."
+            ],
+            "cooperative_layout": "native SDK cooperative_tensor (opaque lane ownership)",
+            "outer_bounds_proven": true
+          },
+          "passes": [
+            "optimize_tile_schedules",
+            "decompose_nax_fragments",
+            "fold_constants"
+          ],
+          "loops": [
+            {
+              "induction_variable": "k",
+              "kind": "loop",
+              "lanes": 128,
+              "elements_per_lane": 1,
+              "iteration_step": 16
+            }
+          ],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 0,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        },
+        "separate_epilogue": {
+          "plan": {
+            "backend": "elementwise",
+            "threadgroup_size": [
+              256,
+              1,
+              1
+            ],
+            "simdgroup_grid": null,
+            "tile_shape": [
+              256
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Lane geometry follows the traced arange/BLOCK contract."
+            ],
+            "cooperative_layout": "scalar lanes",
+            "outer_bounds_proven": false
+          },
+          "passes": [
+            "split_elementwise_loops",
+            "vectorize_elementwise",
+            "fold_constants"
+          ],
+          "loops": [],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 0,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        }
+      }
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1024
+      ],
+      "seed": 1024,
+      "max_absolute_error": {
+        "metile_fused": 5.960464477539063e-08,
+        "metile_two_launches": 5.960464477539063e-08,
+        "mlx_compile": 0.0
+      },
+      "fusion_pair_us": {
+        "fused": 770.7710000000001,
+        "two_launches": 790.354,
+        "speedup": 1.0254070275088192
+      },
+      "mlx_pair_us": {
+        "fused": 786.1460000000001,
+        "mlx_compile": 850.729,
+        "speedup": 1.082151406990559
+      },
+      "execution_reports": {
+        "fused": {
+          "plan": {
+            "backend": "tensor_ops",
+            "threadgroup_size": [
+              128,
+              1,
+              1
+            ],
+            "simdgroup_grid": [
+              2,
+              2
+            ],
+            "tile_shape": [
+              64,
+              64,
+              16
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Metal tensor operations support the dtype, shape and selected SIMDgroup grid.",
+              "Inputs load directly from device into register-resident cooperative tensors.",
+              "Native cooperative-tensor lane ownership is opaque to meTile."
+            ],
+            "cooperative_layout": "native SDK cooperative_tensor (opaque lane ownership)",
+            "outer_bounds_proven": true
+          },
+          "passes": [
+            "optimize_tile_schedules",
+            "decompose_nax_fragments",
+            "fold_constants"
+          ],
+          "loops": [
+            {
+              "induction_variable": "k",
+              "kind": "loop",
+              "lanes": 128,
+              "elements_per_lane": 1,
+              "iteration_step": 16
+            }
+          ],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 1,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        },
+        "product": {
+          "plan": {
+            "backend": "tensor_ops",
+            "threadgroup_size": [
+              128,
+              1,
+              1
+            ],
+            "simdgroup_grid": [
+              2,
+              2
+            ],
+            "tile_shape": [
+              64,
+              64,
+              16
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Metal tensor operations support the dtype, shape and selected SIMDgroup grid.",
+              "Inputs load directly from device into register-resident cooperative tensors.",
+              "Native cooperative-tensor lane ownership is opaque to meTile."
+            ],
+            "cooperative_layout": "native SDK cooperative_tensor (opaque lane ownership)",
+            "outer_bounds_proven": true
+          },
+          "passes": [
+            "optimize_tile_schedules",
+            "decompose_nax_fragments",
+            "fold_constants"
+          ],
+          "loops": [
+            {
+              "induction_variable": "k",
+              "kind": "loop",
+              "lanes": 128,
+              "elements_per_lane": 1,
+              "iteration_step": 16
+            }
+          ],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 0,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        },
+        "separate_epilogue": {
+          "plan": {
+            "backend": "elementwise",
+            "threadgroup_size": [
+              256,
+              1,
+              1
+            ],
+            "simdgroup_grid": null,
+            "tile_shape": [
+              256
+            ],
+            "staging": "device",
+            "vector_width": null,
+            "double_buffer": null,
+            "reasons": [
+              "Lane geometry follows the traced arange/BLOCK contract."
+            ],
+            "cooperative_layout": "scalar lanes",
+            "outer_bounds_proven": false
+          },
+          "passes": [
+            "split_elementwise_loops",
+            "vectorize_elementwise",
+            "fold_constants"
+          ],
+          "loops": [],
+          "allocations": [],
+          "double_buffered": false,
+          "vectorized_loads": 0,
+          "epilogue_regions": 0,
+          "notes": [
+            "Layout widths describe emitted Metal operations, not final machine instructions.",
+            "Masked tails may use scalar accesses even when aligned interiors are vectorized.",
+            "No software double buffering materialized."
+          ]
+        }
+      }
+    }
+  ]
+}

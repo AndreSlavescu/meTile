@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "precision_comparison": {
+    "class": "same_storage_precision",
+    "same_weight_representation": true,
+    "baseline_weights": "float16",
+    "optimized_weights": "float16",
+    "bitwise_exact": false,
+    "validation": "float32_accumulation_float16_output_tolerance_checked"
+  },
+  "recorded_at": "2026-10-02T05:57:54.421312+00:00",
+  "scope": "isolated_primitive",
+  "hardware": {
+    "chip": "Apple M5",
+    "system": "Darwin",
+    "macos": "26.2",
+    "machine": "arm64"
+  },
+  "software": {
+    "python": "3.12.12",
+    "mlx": "0.32.0",
+    "metal_compiler": "Apple metal version 32023.864 (metalfe-32023.864)"
+  },
+  "implementation": {
+    "baseline": "_lower_gemm (SIMDgroup matrices)",
+    "candidate": "_lower_tensor_ops_gemm (generic MPP cooperative tensors)",
+    "input_dtype": "float16",
+    "accumulator_dtype": "float32",
+    "output_dtype": "float16",
+    "relaxed_precision": false,
+    "global_fast_math": true,
+    "block_m": 64,
+    "block_n": 64,
+    "block_k": 16,
+    "wm": 2,
+    "wn": 2,
+    "swizzle": "auto"
+  },
+  "validation": {
+    "reference": "float32 NumPy matmul of float16 inputs, rounded to float16",
+    "rtol": 0.002,
+    "atol": 0.005,
+    "bitwise_exact": false
+  },
+  "methodology": {
+    "seed": "943 + square dimension",
+    "resident_buffers": true,
+    "compilation_excluded": true,
+    "source_checks": [
+      "half, half, float cooperative tensor types",
+      "false relaxed_precision in matmul2d descriptor"
+    ],
+    "paired_wall_rounds": 4,
+    "paired_wall_round_ms": 180,
+    "paired_order": "Interleaved alternating AB/BA within every round; caller ordering reversed on odd rounds",
+    "gpu_samples_per_variant": 50,
+    "gpu_warmup_pairs": 10,
+    "gpu_measurement": "Metal command-buffer GPU elapsed time after synchronized alternating dispatches",
+    "mlx_wall_rounds": 3,
+    "mlx_work": "mx.eval(left @ right), inputs resident",
+    "notes": [
+      "The first 256-square wall round has a visibly different clock/latency regime; retain it rather than selectively deleting it.",
+      "GPU elapsed time is compared only between the two meTile variants, not against MLX wall-clock latency.",
+      "MLX 1024-square wall latency remains lower than the candidate."
+    ]
+  },
+  "cases": [
+    {
+      "shape": [
+        256,
+        256,
+        256
+      ],
+      "max_absolute_error": 0.015625,
+      "wall_rounds_microseconds": [
+        {
+          "baseline": 269.958,
+          "candidate": 106.125
+        },
+        {
+          "baseline": 486.5,
+          "candidate": 326.25000000000006
+        },
+        {
+          "baseline": 496.3330000000001,
+          "candidate": 335.708
+        },
+        {
+          "baseline": 488.9580000000001,
+          "candidate": 326.854
+        }
+      ],
+      "gpu_median_microseconds": {
+        "baseline": 199.37499018851668,
+        "candidate": 30.14583489857614
+      },
+      "mlx_wall_rounds_microseconds": [
+        {
+          "candidate": 222.25,
+          "mlx": 332.417
+        },
+        {
+          "candidate": 329.542,
+          "mlx": 358.167
+        },
+        {
+          "candidate": 322.8955,
+          "mlx": 351.29150000000004
+        }
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1024
+      ],
+      "max_absolute_error": 0.0625,
+      "wall_rounds_microseconds": [
+        {
+          "baseline": 1042.3960000000002,
+          "candidate": 374.437
+        },
+        {
+          "baseline": 1024.2085000000002,
+          "candidate": 377.0830000000001
+        },
+        {
+          "baseline": 1028.0420000000001,
+          "candidate": 375.66600000000005
+        },
+        {
+          "baseline": 1035.1045,
+          "candidate": 377.41700000000003
+        }
+      ],
+      "gpu_median_microseconds": {
+        "baseline": 833.3541773026809,
+        "candidate": 161.2083287909627
+      },
+      "mlx_wall_rounds_microseconds": [
+        {
+          "candidate": 376.83349999999996,
+          "mlx": 359.66650000000004
+        },
+        {
+          "candidate": 378.97850000000005,
+          "mlx": 361.60400000000004
+        },
+        {
+          "candidate": 379.083,
+          "mlx": 359.04200000000003
+        }
+      ]
+    }
+  ]
+}

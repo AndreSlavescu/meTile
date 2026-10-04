@@ -99,6 +99,27 @@ def _emit_tensor_view_decl(op, lines, indent, func):
     lines.append("")
 
 
+def _emit_dimension_bindings(func, lines):
+    bindings = func.dimension_bindings
+    if not bindings or all(
+        isinstance(value, mir.MValue) and value.name == axis for axis, value in bindings.items()
+    ):
+        return False
+    names = {parameter.name for parameter in func.params}
+    captures = {}
+    for axis, value in bindings.items():
+        capture = f"_metile_dimension_{axis}"
+        while capture in names:
+            capture += "_"
+        captures[axis] = capture
+        source = str(value) if isinstance(value, int) else _val_name_gemm(value, func)
+        lines.append(f"    const int {capture} = {source};")
+    lines.append("    {")
+    for axis, capture in captures.items():
+        lines.append(f"        const int {axis} = {capture};")
+    return True
+
+
 def _fold_vector_lanes(operand, vector_type, reduce_op, msl_type, name, lines, pad):
     """Reduce a per-thread vector to a scalar with the same operator.
 
@@ -139,7 +160,7 @@ def _val_name(val: mir.MValue, func: mir.MFunction) -> str:
         if isinstance(val.defining_op, mir.ThreadPositionInGrid):
             return "tid"
         if isinstance(val.defining_op, mir.ThreadgroupPositionInGrid):
-            return "tgp_id_x"
+            return f"tgp_id_{'xyz'[val.defining_op.axis]}"
         if isinstance(val.defining_op, mir.ThreadPositionInThreadgroup):
             return "lid"
         if isinstance(val.defining_op, mir.MSimdgroupId):

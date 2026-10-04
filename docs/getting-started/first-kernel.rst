@@ -1,10 +1,12 @@
 Your First Kernel
 =================
 
-This tutorial walks through writing, launching, and understanding a simple GPU kernel with meTile.
+This example adds two float32 arrays on the GPU and checks the result with
+NumPy. Save both Python blocks in one file and run it after following
+:doc:`install`.
 
-The Kernel
-----------
+Write the kernel
+----------------
 
 .. code-block:: python
 
@@ -12,113 +14,90 @@ The Kernel
    import metile
 
    @metile.kernel
-   def add(X, Y, Out, N, BLOCK: metile.constexpr):
-       pid = metile.program_id(0)
-       offs = pid * BLOCK + metile.arange(0, BLOCK)
-       mask = offs < N
-       x = metile.load(X + offs, mask=mask)
-       y = metile.load(Y + offs, mask=mask)
-       metile.store(Out + offs, x + y, mask=mask)
+   def add(left_ptr, right_ptr, output_ptr, count, BLOCK: metile.constexpr):
+       left = metile.tensor(left_ptr, shape=(count,), access="read")
+       right = metile.tensor(right_ptr, shape=(count,), access="read")
+       output = metile.tensor(output_ptr, shape=(count,), access="write")
+       positions = metile.program_id(0) * BLOCK + metile.arange(0, BLOCK)
+       output.store((positions,), left.load((positions,)) + right.load((positions,)))
 
-Let's break this down line by line.
+``@metile.kernel`` traces the function with symbolic values when a new
+specialization is needed. The compiler turns that trace into a Metal shader.
+The function body describes GPU work; it does not run on the input arrays as
+ordinary Python.
 
-``@metile.kernel``
-   Marks this function for GPU compilation. When you call it, meTile traces the Python
-   code, compiles it to a Metal shader, and dispatches it on the GPU.
+The three ``metile.tensor`` declarations describe existing buffers. Their
+shapes are logical bounds, and their access modes tell the compiler which
+loads and stores are allowed. They do not allocate memory.
 
-``X, Y, Out``
-   Device pointers to GPU memory. These map to ``device float*`` in Metal.
+Each program instance is a threadgroup. ``program_id(0)`` identifies its
+position in the launch grid, while ``arange(0, BLOCK)`` creates the indices
+inside its tile. With ``BLOCK=256``, the first program handles elements 0--255,
+the next handles 256--511, and so on.
 
-``N``
-   A runtime scalar, passed as a ``constant int&`` to the shader.
+``count`` is a runtime integer. ``BLOCK`` is a compile-time constant: changing
+it creates a different specialization. Tensor views fill out-of-bounds loads
+with zero and skip out-of-bounds stores, so the final tile may be partial.
 
-``BLOCK: metile.constexpr``
-   A **compile-time constant**. The value is baked directly into the shader. Changing it
-   triggers recompilation.
-
-``metile.program_id(0)``
-   Returns the index of this program instance along axis 0. If you launch 4 instances,
-   they get ``pid = 0, 1, 2, 3``. This is analogous to ``blockIdx.x`` in CUDA or
-   ``get_program_id(0)`` in Triton.
-
-``metile.arange(0, BLOCK)``
-   Creates a tile (vector) of consecutive indices ``[0, 1, 2, ..., BLOCK-1]``.
-
-``offs = pid * BLOCK + metile.arange(0, BLOCK)``
-   Each program instance handles a contiguous chunk of ``BLOCK`` elements.
-   Instance 0 handles ``[0..BLOCK-1]``, instance 1 handles ``[BLOCK..2*BLOCK-1]``, etc.
-
-``mask = offs < N``
-   A boolean mask that prevents out-of-bounds accesses when ``N`` is not a multiple of ``BLOCK``.
-
-``metile.load(X + offs, mask=mask)``
-   Loads ``BLOCK`` elements from memory. Masked-off lanes read zero.
-
-``metile.store(Out + offs, x + y, mask=mask)``
-   Stores results. Masked-off lanes are skipped.
-
-
-Launching
----------
+Launch and check the result
+-----------------------------
 
 .. code-block:: python
 
-   N = 1024
-   x = metile.Buffer(data=np.random.randn(N).astype(np.float32))
-   y = metile.Buffer(data=np.random.randn(N).astype(np.float32))
-   out = metile.Buffer.zeros((N,))
+   count = 1003
+   rng = np.random.default_rng(0)
+   left_data = rng.standard_normal(count).astype(np.float32)
+   right_data = rng.standard_normal(count).astype(np.float32)
+   left_buffer = metile.Buffer(data=left_data)
+   right_buffer = metile.Buffer(data=right_data)
+   output_buffer = metile.Buffer.zeros((count,), dtype=np.float32)
 
-   grid = (metile.cdiv(N, 256),)   # ceil(1024 / 256) = 4 program instances
-   add[grid](x, y, out, N, BLOCK=256)
+   block = 256
+   add[(metile.cdiv(count, block),)](
+       left_buffer, right_buffer, output_buffer, count, BLOCK=block
+   )
+   result = output_buffer.numpy()
+   np.testing.assert_allclose(result, left_data + right_data, rtol=1e-6, atol=1e-6)
+   print(result[:5])
 
-   print(out.numpy()[:5])
+The grid has four program instances because ``cdiv`` rounds the division up.
+The uneven input length exercises the last tile's bounds checks.
 
-``metile.Buffer``
-   Wraps a Metal buffer in unified memory. CPU and GPU share the same physical memory on
-   Apple Silicon, so there is no copy between host and device.
+``Buffer(data=...)`` allocates shared Metal storage and **copies** the NumPy
+data into it. CPU and GPU then access that allocation. ``numpy()`` waits for
+pending GPU work and returns a NumPy view of the buffer; it does not copy the
+result back to the original array. Keep the buffer alive while using its view.
+See :doc:`/guide/memory` for ownership and synchronization details.
 
-``metile.Buffer.zeros((N,))``
-   Allocates a zeroed buffer of ``N`` float32 elements.
+The first launch includes tracing and compilation. Later launches reuse a
+cached specialization when its input types, constants, and other compilation
+settings match.
 
-``metile.cdiv(N, 256)``
-   Ceiling division: ``ceil(N / 256)``. Utility for computing grid sizes.
+Inspect the compilation
+-----------------------
 
-``add[grid](...)``
-   The ``[grid]`` subscript sets the number of program instances (threadgroups). The kernel
-   is compiled on first call and cached for subsequent calls with the same constexprs.
-
-
-The Compilation Pipeline
-------------------------
-
-This section follows the kernel-local path. See :doc:`/guide/architecture` for
-the complete graph-discovery, fusion, code-generation, and guarded-runtime flow.
-
-When you call ``add[grid](...)``, meTile:
-
-1. **Traces** the Python function with symbolic values to build a Tile IR
-2. **Lowers** the Tile IR to Metal IR (Apple GPU-specific primitives)
-3. **Optimizes** via IR-to-IR passes (vectorization, loop splitting, constant folding)
-4. **Emits** MSL (Metal Shading Language) source code
-5. **Compiles** with ``xcrun metal -O2`` (or JIT if Xcode is unavailable)
-6. **Dispatches** the compute pipeline on the GPU
+The compiler builds Tile IR, selects an execution schedule, lowers to Metal IR,
+runs compiler passes, and emits Metal Shading Language (MSL). The runtime then
+compiles the shader and dispatches it. See :doc:`/guide/architecture` for the
+full path.
 
 .. image:: /_static/compilation-pipeline.svg
-   :alt: meTile compilation pipeline: Python to Tile IR to Metal IR to MSL to GPU
+   :alt: Python kernel traced to Tile IR, lowered to Metal IR, and compiled to GPU code
    :width: 100%
 
-You can inspect any stage with the ``METILE_DEBUG`` environment variable:
+Run the script in a fresh process with ``METILE_DEBUG`` to inspect a stage:
 
 .. code-block:: bash
 
-   METILE_DEBUG=msl python my_script.py       # see the generated Metal shader
-   METILE_DEBUG=tile_ir python my_script.py   # see the Tile IR
-   METILE_DEBUG=all python my_script.py       # see everything
+   METILE_DEBUG=msl python my_script.py
+   METILE_DEBUG=tile_ir python my_script.py
+   METILE_DEBUG=all python my_script.py
 
+Debug output appears on standard error and is saved under ``debug_output/``.
+``METILE_DEBUG_DIR`` changes that directory. Output is generated when a
+specialization is compiled, so an in-process cache hit does not produce a new
+dump.
 
-What's Next
------------
-
-- :doc:`/guide/language` for the full language reference
-- :doc:`/examples/softmax` for a more complex kernel with reductions and multiple passes
-- :doc:`/examples/matmul` for tile-level matrix multiply with ``dot`` and ``tile_load``
+Continue with :doc:`/examples/softmax` for reductions,
+:doc:`/examples/matmul` for matrix tiles, or :doc:`/guide/language` for the
+kernel language.
