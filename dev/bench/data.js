@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788106931047,
+  "lastUpdate": 1791095527512,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2737,6 +2737,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 505.51,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc539b46c57154c8920ec5400307fe47353b894d",
+          "message": "Add Apple GPU compiler controls, standalone training kernels, and tooling (#36)\n\n* feat: add explicit Apple GPU compiler controls and standalone kernels\n\nIntroduce checked tensor, schedule, ownership, register-memory, staging, and epilogue contracts. Extract metile-kernels and organize compiler/kernel tests and benchmark tooling, preserving legacy checkout isolation.\n\n* bench: preserve Apple M5 compiler measurements and held-out gates\n\nRecord paired GPU and wall-time evidence, source fingerprints, tuning selections, and unsuccessful RMSNorm promotion gates without rewriting historical provenance.\n\n* docs: refresh guides, examples, citations, and benchmark graphics\n\nSimplify the README, add meTile branding, document explicit compiler controls and package migration, and retain research attribution with qualified performance claims.\n\n* fix: validate pipeline thread limits and report Metal execution errors\n\nReject unsupported threadgroup geometry before caching or dispatch, preserve explicit ownership, and surface failed command buffers instead of returning untouched output. Cover pipeline resource limits, failure cleanup, and portable register-copy execution without skipping correctness checks.\n\n* feat: add expression VJPs, explicit loop state, and strict Metal math\n\n* feat: add native attention and training kernel forward/backward pairs",
+          "timestamp": "2026-10-04T02:27:53-04:00",
+          "tree_id": "bf3a51612ecdaab5278053d67bf2d3ca6243cf00",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/cc539b46c57154c8920ec5400307fe47353b894d"
+        },
+        "date": 1791095526025,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 514.45,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4958.33,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 362.87,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1100.46,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 372.63,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1166.06,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 313.2,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 268.78,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 299.36,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 397.49,
             "unit": "us"
           }
         ]
