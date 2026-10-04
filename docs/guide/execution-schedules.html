@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,23 +281,23 @@
         <article role="main" id="furo-main-content">
           <section id="execution-schedules-and-fusion">
 <h1>Execution Schedules and Fusion<a class="headerlink" href="#execution-schedules-and-fusion" title="Link to this heading">¶</a></h1>
-<p>Use <code class="docutils literal notranslate"><span class="pre">metile.Schedule</span></code> to constrain how a kernel executes. Tensor declarations
-still describe the data; the schedule specifies requirements such as backend,
-thread count, and buffering. The compiler chooses unspecified decisions and
-reports an error when it cannot satisfy a requirement.</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">metile.Schedule</span></code> to specify execution requirements such as the backend,
+thread count and buffering. Tensor declarations still describe the data.
+The compiler picks the remaining settings and reports an error if it cannot
+meet your requirements.</p>
 <p>Compilation has three scheduling steps:</p>
 <ol class="arabic simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">plan_schedule</span></code> selects a legal backend, SIMD-group geometry and staging
 policy from Tile IR and target capabilities.</p></li>
-<li><p>Lowering materializes that plan; reusable passes choose buffering,
+<li><p>Lowering implements the plan; reusable passes choose buffering,
 vectorization and traversal within its constraints.</p></li>
 <li><p>Validation checks the materialized requirements, then an execution report
 records the resulting geometry, loops, allocations and passes.</p></li>
 </ol>
-<p>The checked scalar per-value ownership subset is documented in
-<a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a>; it is not yet a general distributed-layout language or a
-learned cost model. Backend defaults remain heuristics; autotuning compares
-supported configurations with measured timings.</p>
+<p>See <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a> for checked ownership of individual scalar values.
+That subset is not a general distributed-layout language or a learned cost
+model. Backend defaults use heuristics; autotuning compares supported
+configurations by measuring them.</p>
 <section id="checked-expert-controls">
 <h2>Checked expert controls<a class="headerlink" href="#checked-expert-controls" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
@@ -370,10 +370,11 @@ Threadgroup-memory capacity and shape checks still apply. Legacy <code class="do
 and <code class="docutils literal notranslate"><span class="pre">WM</span></code>/<code class="docutils literal notranslate"><span class="pre">WN</span></code> settings are checked against the selected geometry and any
 <code class="docutils literal notranslate"><span class="pre">Schedule</span></code> requirement. <code class="docutils literal notranslate"><span class="pre">Config(num_simdgroups=...)</span></code> now sets <code class="docutils literal notranslate"><span class="pre">NUM_SG</span></code>;
 its default is automatic.</p>
-<p>Automatic GEMM staging uses the existing legal MPP/device or SIMD-group/shared
-paths, not a general allocation-placement optimizer. Elementwise staging must
-match its actual memory operations. Specialized producer/consumer and persistent
-kernels retain their restricted schedules and reject controls they cannot honor.</p>
+<p>Automatic GEMM staging chooses between the supported MPP/device and
+SIMD-group/shared paths; it does not optimize arbitrary allocation placement.
+Elementwise staging must match the kernel’s memory operations. Specialized
+producer/consumer and persistent kernels keep their restricted schedules and
+reject controls they cannot honor.</p>
 </section>
 <section id="inspect-the-materialized-kernel">
 <h2>Inspect the materialized kernel<a class="headerlink" href="#inspect-the-materialized-kernel" title="Link to this heading">¶</a></h2>
@@ -400,9 +401,9 @@ and without software double buffering and independent elementwise bounds.</p>
 </section>
 <section id="pointwise-gemm-epilogues">
 <h2>Pointwise GEMM epilogues<a class="headerlink" href="#pointwise-gemm-epilogues" title="Link to this heading">¶</a></h2>
-<p>Descriptor-based GEMM extracts a pure SSA dependency graph from the stored
-value. Shared expressions can become part of the same epilogue.
-For example, after a canonical <code class="docutils literal notranslate"><span class="pre">metile.dot</span></code> reduction:</p>
+<p>Descriptor-based GEMM builds the epilogue from the stored value’s pure SSA
+dependencies, including expressions used more than once. For example,
+after a canonical <code class="docutils literal notranslate"><span class="pre">metile.dot</span></code> reduction:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">scaled</span> <span class="o">=</span> <span class="n">accumulator</span> <span class="o">*</span> <span class="n">alpha</span> <span class="o">+</span> <span class="n">beta</span>
 <span class="n">activated</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">scaled</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="n">scaled</span><span class="p">,</span> <span class="n">scaled</span> <span class="o">*</span> <span class="mf">0.1</span><span class="p">)</span>
 <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">row_origin</span><span class="p">,</span> <span class="n">column_origin</span><span class="p">),</span> <span class="n">activated</span><span class="p">)</span>
@@ -410,7 +411,8 @@ For example, after a canonical <code class="docutils literal notranslate"><span 
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">alpha</span></code> and <code class="docutils literal notranslate"><span class="pre">beta</span></code> may be independent runtime scalar parameters. Shared
 subexpressions, comparisons, selections and supported arithmetic/unary math
-lower into the accumulator epilogue without an intermediate device tensor.
+lower directly into the accumulator epilogue, avoiding an intermediate
+device tensor.
 Runtime coefficients are captured at kernel entry under compiler-generated
 names, before backend locals or dimension aliases can shadow their bindings.
 The same scalar program serves SIMD-group, MPP, and NAX emitters.</p>
@@ -422,20 +424,20 @@ including canonical <code class="docutils literal notranslate"><span class="pre"
 leaves because static specialization and dimension aliasing do not yet preserve
 their bindings across every backend. Unsupported descriptor programs fail
 compilation rather than losing operations.</p>
-<p>This is pointwise epilogue fusion, not general matmul-to-matmul fusion. Checked
-scalar layout conversions and canonical two-stage software buffer lifetimes now
-have explicit contracts; see <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a>. General matrix-fragment
-conversions, asynchronous copies and cooperative-tensor chains remain future
-work. Their dependency and layout contracts must precede expert controls.</p>
+<p>This supports pointwise epilogues, not general matmul-to-matmul fusion. Scalar
+layout conversions and canonical two-stage software buffering have checked
+contracts; see <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a>. General matrix-fragment conversions,
+asynchronous copies and cooperative-tensor chains remain future work. Before
+exposing these controls, their dependencies and layouts need explicit contracts.</p>
 </section>
 <section id="tuning-and-measurement">
 <h2>Tuning and measurement<a class="headerlink" href="#tuning-and-measurement" title="Link to this heading">¶</a></h2>
-<p>Tuning selection identity includes operand representation (type, dtype,
-shape and strides), caller compile-policy overrides, configurations and grid,
-source/compiler implementation fingerprints, relevant environment and target
-toolchain. A winner measured for another dtype or numerical policy is not reused.
-Caller overrides are applied consistently during preparation, launch and grid
-evaluation. This cache safety does not replace numerical validation of a candidate.</p>
+<p>The tuning cache identifies operands by type, dtype, shape and strides. It
+also includes caller compile-policy overrides, configurations, grid,
+source/compiler fingerprints, relevant environment and target toolchain. A
+winner measured for another dtype or numerical policy is not reused. Caller
+overrides apply consistently to preparation, launch and grid evaluation.
+These cache checks don’t replace numerical validation of each candidate.</p>
 <p>Reproduce the strict FP32 affine/leaky-selection fusion comparison with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">MLX_ENABLE_TF32</span><span class="o">=</span><span class="m">0</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.schedule_fusion<span class="w"> </span>--sizes<span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="m">256</span><span class="w"> </span><span class="m">1024</span><span class="w"> </span>--output<span class="w"> </span>/tmp/fusion.json
 python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.regression.paired_regression<span class="w"> </span>--baseline-root<span class="w"> </span>/path/to/pre-change/tree<span class="w"> </span>--rounds-per-sample<span class="w"> </span><span class="m">5</span>
@@ -446,12 +448,13 @@ following MLX’s <a class="reference external" href="https://ml-explore.github.
 alone does not establish full-precision matrix arithmetic. An initial run with
 MLX’s default policy failed the strict tolerance gate and was not timed; the
 benchmark does not widen tolerances to hide that mismatch.</p>
-<p>The fusion benchmark validates against NumPy and MLX before timing. It compares
-one fused dispatch with the same meTile matmul plus a separate pointwise dispatch,
-and with <code class="docutils literal notranslate"><span class="pre">mx.compile</span></code>. All use resident inputs and alternating synchronized
-wall latency. meTile uses preallocated outputs while MLX manages its output
-storage. This is an operation-boundary comparison, not isolated GPU instruction
-throughput or a bitwise-equivalence claim. Report losses as well as wins.</p>
+<p>The fusion benchmark checks NumPy and MLX agreement before timing. It compares
+one fused dispatch, the same meTile matmul followed by a separate pointwise
+dispatch, and <code class="docutils literal notranslate"><span class="pre">mx.compile</span></code>. All variants reuse resident inputs; execution
+order alternates while measuring synchronized wall latency. meTile preallocates
+outputs; MLX manages its own output storage. The comparison covers the full
+operation, not isolated GPU instruction throughput, and does not claim bitwise equality.
+Report regressions as well as improvements.</p>
 </section>
 <section id="recorded-results">
 <h2>Recorded results<a class="headerlink" href="#recorded-results" title="Link to this heading">¶</a></h2>

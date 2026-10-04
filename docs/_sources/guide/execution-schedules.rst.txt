@@ -1,24 +1,24 @@
 Execution Schedules and Fusion
 ==============================
 
-Use ``metile.Schedule`` to constrain how a kernel executes. Tensor declarations
-still describe the data; the schedule specifies requirements such as backend,
-thread count, and buffering. The compiler chooses unspecified decisions and
-reports an error when it cannot satisfy a requirement.
+Use ``metile.Schedule`` to specify execution requirements such as the backend,
+thread count and buffering. Tensor declarations still describe the data.
+The compiler picks the remaining settings and reports an error if it cannot
+meet your requirements.
 
 Compilation has three scheduling steps:
 
 1. ``plan_schedule`` selects a legal backend, SIMD-group geometry and staging
    policy from Tile IR and target capabilities.
-2. Lowering materializes that plan; reusable passes choose buffering,
+2. Lowering implements the plan; reusable passes choose buffering,
    vectorization and traversal within its constraints.
 3. Validation checks the materialized requirements, then an execution report
    records the resulting geometry, loops, allocations and passes.
 
-The checked scalar per-value ownership subset is documented in
-:doc:`thread-layouts`; it is not yet a general distributed-layout language or a
-learned cost model. Backend defaults remain heuristics; autotuning compares
-supported configurations with measured timings.
+See :doc:`thread-layouts` for checked ownership of individual scalar values.
+That subset is not a general distributed-layout language or a learned cost
+model. Backend defaults use heuristics; autotuning compares supported
+configurations by measuring them.
 
 Checked expert controls
 -----------------------
@@ -83,10 +83,11 @@ and ``WM``/``WN`` settings are checked against the selected geometry and any
 ``Schedule`` requirement. ``Config(num_simdgroups=...)`` now sets ``NUM_SG``;
 its default is automatic.
 
-Automatic GEMM staging uses the existing legal MPP/device or SIMD-group/shared
-paths, not a general allocation-placement optimizer. Elementwise staging must
-match its actual memory operations. Specialized producer/consumer and persistent
-kernels retain their restricted schedules and reject controls they cannot honor.
+Automatic GEMM staging chooses between the supported MPP/device and
+SIMD-group/shared paths; it does not optimize arbitrary allocation placement.
+Elementwise staging must match the kernel's memory operations. Specialized
+producer/consumer and persistent kernels keep their restricted schedules and
+reject controls they cannot honor.
 
 Inspect the materialized kernel
 -------------------------------
@@ -116,9 +117,9 @@ and without software double buffering and independent elementwise bounds.
 Pointwise GEMM epilogues
 ------------------------
 
-Descriptor-based GEMM extracts a pure SSA dependency graph from the stored
-value. Shared expressions can become part of the same epilogue.
-For example, after a canonical ``metile.dot`` reduction:
+Descriptor-based GEMM builds the epilogue from the stored value's pure SSA
+dependencies, including expressions used more than once. For example,
+after a canonical ``metile.dot`` reduction:
 
 .. code-block:: python
 
@@ -128,7 +129,8 @@ For example, after a canonical ``metile.dot`` reduction:
 
 ``alpha`` and ``beta`` may be independent runtime scalar parameters. Shared
 subexpressions, comparisons, selections and supported arithmetic/unary math
-lower into the accumulator epilogue without an intermediate device tensor.
+lower directly into the accumulator epilogue, avoiding an intermediate
+device tensor.
 Runtime coefficients are captured at kernel entry under compiler-generated
 names, before backend locals or dimension aliases can shadow their bindings.
 The same scalar program serves SIMD-group, MPP, and NAX emitters.
@@ -142,21 +144,21 @@ leaves because static specialization and dimension aliasing do not yet preserve
 their bindings across every backend. Unsupported descriptor programs fail
 compilation rather than losing operations.
 
-This is pointwise epilogue fusion, not general matmul-to-matmul fusion. Checked
-scalar layout conversions and canonical two-stage software buffer lifetimes now
-have explicit contracts; see :doc:`thread-layouts`. General matrix-fragment
-conversions, asynchronous copies and cooperative-tensor chains remain future
-work. Their dependency and layout contracts must precede expert controls.
+This supports pointwise epilogues, not general matmul-to-matmul fusion. Scalar
+layout conversions and canonical two-stage software buffering have checked
+contracts; see :doc:`thread-layouts`. General matrix-fragment conversions,
+asynchronous copies and cooperative-tensor chains remain future work. Before
+exposing these controls, their dependencies and layouts need explicit contracts.
 
 Tuning and measurement
 ----------------------
 
-Tuning selection identity includes operand representation (type, dtype,
-shape and strides), caller compile-policy overrides, configurations and grid,
-source/compiler implementation fingerprints, relevant environment and target
-toolchain. A winner measured for another dtype or numerical policy is not reused.
-Caller overrides are applied consistently during preparation, launch and grid
-evaluation. This cache safety does not replace numerical validation of a candidate.
+The tuning cache identifies operands by type, dtype, shape and strides. It
+also includes caller compile-policy overrides, configurations, grid,
+source/compiler fingerprints, relevant environment and target toolchain. A
+winner measured for another dtype or numerical policy is not reused. Caller
+overrides apply consistently to preparation, launch and grid evaluation.
+These cache checks don't replace numerical validation of each candidate.
 
 Reproduce the strict FP32 affine/leaky-selection fusion comparison with:
 
@@ -172,12 +174,13 @@ alone does not establish full-precision matrix arithmetic. An initial run with
 MLX's default policy failed the strict tolerance gate and was not timed; the
 benchmark does not widen tolerances to hide that mismatch.
 
-The fusion benchmark validates against NumPy and MLX before timing. It compares
-one fused dispatch with the same meTile matmul plus a separate pointwise dispatch,
-and with ``mx.compile``. All use resident inputs and alternating synchronized
-wall latency. meTile uses preallocated outputs while MLX manages its output
-storage. This is an operation-boundary comparison, not isolated GPU instruction
-throughput or a bitwise-equivalence claim. Report losses as well as wins.
+The fusion benchmark checks NumPy and MLX agreement before timing. It compares
+one fused dispatch, the same meTile matmul followed by a separate pointwise
+dispatch, and ``mx.compile``. All variants reuse resident inputs; execution
+order alternates while measuring synchronized wall latency. meTile preallocates
+outputs; MLX manages its own output storage. The comparison covers the full
+operation, not isolated GPU instruction throughput, and does not claim bitwise equality.
+Report regressions as well as improvements.
 
 Recorded results
 ----------------

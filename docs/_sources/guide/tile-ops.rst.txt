@@ -1,12 +1,12 @@
 Tile Operations and Hardware Mapping
 ====================================
 
-A matrix tile describes a piece of the computation, not a fixed set of GPU
-instructions. The compiler chooses how threads load that tile, hold its
-accumulators, and perform ``dot``. Tile sizes, dtype, device capabilities,
-and schedule requirements all constrain that choice.
+A matrix tile describes part of the computation, not a fixed sequence of GPU
+instructions. The compiler decides how threads load it, hold its accumulators
+and perform ``dot``, within the limits of the tile sizes, dtype, device and
+schedule requirements.
 
-Start with :doc:`/examples/matmul` for a runnable example. New kernels should
+See :doc:`/examples/matmul` for a working example. New kernels should
 declare ``metile.tensor(..., block_shape=...)`` views so the compiler knows
 their dimensions, bounds, and memory layouts. The older ``tile_load`` and
 ``tile_store`` interface remains available for existing kernels.
@@ -31,15 +31,16 @@ repository. Its current matrix schedule requires 32-by-32 output fragments
 per SIMDgroup, a reduction tile of 16, and aligned output-column and reduction
 dimensions. It is not a fallback for arbitrary ragged matrices.
 
-Automatic selection chooses an admissible lowering; it does not benchmark
-every backend during an ordinary kernel launch. Use autotuning to compare
-candidate schedules, or ``SCHEDULE=metile.Schedule(...)`` to request a
-specific supported plan. See :doc:`execution-schedules`.
+Automatic selection chooses a legal implementation; an ordinary launch does
+not benchmark every backend. Use autotuning to compare schedules, or
+``SCHEDULE=metile.Schedule(...)`` to require a particular supported plan.
+See :doc:`execution-schedules`.
 
 How tiling works
 ----------------
 
 .. image:: /_static/tiling-overview.svg
+   :target: ../_static/tiling-overview.svg
    :alt: Programs own output tiles and accumulate products from paired tiles along the reduction axis
    :width: 100%
 
@@ -75,12 +76,13 @@ described by the declared bounds.
      - Requested SIMDgroup grid over the output tile
      - 2-by-2 or 4-by-4
 
-These values are examples, not freely interchangeable options. The planner
-checks thread count, matrix fragment geometry, shared memory, and backend
-constraints. With a 128-by-128 output tile and a 4-by-4 tensor-ops SIMDgroup
-grid, each of the 16 SIMDgroups owns a 32-by-32 subtile:
+Not every combination of these example values is legal. The planner checks
+thread count, fragment geometry, shared memory and backend constraints. With
+a 128-by-128 output tile and a 4-by-4 tensor-ops SIMDgroup grid, each of the
+16 SIMDgroups owns a 32-by-32 subtile:
 
 .. image:: /_static/simdgroup-layout.svg
+   :target: ../_static/simdgroup-layout.svg
    :alt: Sixteen SIMDgroups divide a 128 by 128 output tile into 32 by 32 subtiles
    :width: 100%
 
@@ -93,9 +95,9 @@ against the accuracy requirements of the application.
 Pointwise epilogues
 ---------------------
 
-Supported arithmetic after the reduction loop can be applied before the
-output store. ReLU, scaling, and suitable GELU or SiLU expressions can thereby
-avoid an intermediate device-memory write/read and a second kernel launch.
+The compiler can apply supported arithmetic after the reduction loop and
+before the output store. This lets ReLU, scaling and suitable GELU or SiLU
+expressions avoid an intermediate device-memory write/read and a second launch.
 
 The descriptor epilogue extractor follows the stored expression's dependency
 graph. It supports selected unary, arithmetic, comparison, selection, and cast
@@ -103,19 +105,18 @@ operations rooted in the float32 accumulator, with independent scalar
 coefficients. Extra memory accesses, reductions, incompatible tile types,
 and unsupported control flow are outside this contract.
 
-Fusion still costs arithmetic and registers. Whether it is faster depends
-on the complete kernel. Inspect ``dispatch.explain()`` and measure the
-fused candidate rather than treating every epilogue as free. The complete
-contract is in :doc:`execution-schedules`.
+Fusion still needs instructions and registers, so measure the complete kernel
+to see whether it helps. Inspect ``dispatch.explain()`` alongside the
+timings. See :doc:`execution-schedules` for the supported epilogue contract.
 
 Tile traversal
 --------------
 
 Changing the mapping from threadgroups to output coordinates can improve
-reuse of input regions in cache. It does not guarantee the order in which
-the GPU physically executes threadgroups.
+cache reuse. It does not control the order in which the GPU runs threadgroups.
 
 .. image:: /_static/morton-swizzle.svg
+   :target: ../_static/morton-swizzle.svg
    :alt: Linear and Morton mappings visit output tiles in different coordinate orders
    :width: 100%
 
@@ -140,8 +141,8 @@ Inside a matrix kernel, an explicit request looks like this:
 Use ``block_size=4`` for Hilbert. Morton and Hilbert requests fall back to
 a valid traversal when the grid cannot be divided into their required panels.
 With ``pattern="auto"``, schedule algebra compares finite permutations and
-removes equivalent candidates before selection. This compiler search is
-distinct from timing candidates on the GPU.
+removes equivalent candidates before selection. This compiler-side search
+does not run and time candidates on the GPU.
 
 Fragment operations and live values
 -----------------------------------
@@ -150,7 +151,7 @@ The ``decompose_nax_fragments`` pass expands NAX setup, reduction,
 epilogue, and store operations into smaller pieces: tile/lane layout,
 accumulator initialization, vector fragment loads, cooperative-tensor
 packing, matrix multiply, pointwise apply, and fragment stores. Passes can
-then transform those pieces without substituting an entire shader template.
+then transform those pieces without replacing an entire shader template.
 
 Dense GEMM candidates vary reduction epochs and may preload two adjacent
 reduction fragments before their matrix operations. Other candidates move

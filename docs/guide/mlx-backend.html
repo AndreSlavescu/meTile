@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,16 +281,16 @@
         <article role="main" id="furo-main-content">
           <section id="mlx-lm-backend">
 <h1>MLX-LM Backend<a class="headerlink" href="#mlx-lm-backend" title="Link to this heading">¶</a></h1>
-<p>The optional MLX backend runs generated Metal kernels inside MLX’s lazy graph,
-using MLX arrays directly. Native MLX remains a candidate for every supported
-operation. The integration selects generated work after numerical checks and
-timing comparisons.</p>
+<p>The optional MLX backend executes generated Metal kernels in MLX’s lazy graph
+and uses MLX arrays directly. For every supported operation, native MLX remains
+a candidate. The integration selects a generated kernel only after numerical
+checks and timing comparisons.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[mlx-lm]"</span><span class="w"> </span>-e<span class="w"> </span>./kernels
 </pre></div>
 </div>
-<p>The integration uses the separate <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code> library as well as the
-root compiler project. Installing only the root project’s MLX dependencies
-does not install that library from this checkout.</p>
+<p>The integration requires both the root compiler project and the separate
+<code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code> library. Installing the root project’s MLX dependencies alone
+does not install the library from this checkout.</p>
 <section id="patch-a-model">
 <h2>Patch a model<a class="headerlink" href="#patch-a-model" title="Link to this heading">¶</a></h2>
 <p>The patch handle restores the original methods when its context exits:</p>
@@ -314,15 +314,16 @@ individual features. Unsupported calls use the original implementation.</p>
 query. Prefill attention, masks, sinks, quantized KV caches, and unsupported
 dimensions retain MLX-LM’s implementation. RMSNorm supports those storage
 types with FP32 accumulation.</p>
-<p>The integration also recognizes supported transformer residual-add/RMSNorm
-patterns. The graph planner preserves the residual as a second output and
-compares the fused operation with the original graph. See <a class="reference internal" href="graph-fusion.html"><span class="doc">Compute-Graph Fusion</span></a>
+<p>For supported transformer residual-add/RMSNorm patterns, the graph planner
+preserves the residual as a second output. The backend compares the fused
+operation with the original graph before choosing it. See <a class="reference internal" href="graph-fusion.html"><span class="doc">Compute-Graph Fusion</span></a>
 for matching and region-selection limits.</p>
 </section>
 <section id="prepare-projection-backends">
 <h2>Prepare projection backends<a class="headerlink" href="#prepare-projection-backends" title="Link to this heading">¶</a></h2>
-<p>Preparation is explicit because it may allocate additional weight views.
-For supported affine 4-bit projections, prepare a K-major repack:</p>
+<p>Projection backends require explicit preparation because they may allocate
+additional weight views. For supported affine 4-bit projections, prepare a
+K-major repack:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile.integrations.mlx_lm</span><span class="w"> </span><span class="kn">import</span> <span class="n">prepare_mlx_lm_affine_prefill</span>
 
 <span class="n">affine_prefill</span> <span class="o">=</span> <span class="n">prepare_mlx_lm_affine_prefill</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
@@ -331,11 +332,11 @@ For supported affine 4-bit projections, prepare a K-major repack:</p>
     <span class="n">mx</span><span class="o">.</span><span class="n">eval</span><span class="p">(</span><span class="n">logits</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>The repack preserves the original nibbles, scales, and biases. The backend
-tunes supported row tiles and traversal orders against native MLX. Row masks
-handle incomplete tiles. Prepared prefill projections restore their original
-class when the row count falls below the configured threshold. Restore each
-patch before applying a different configuration to the same model.</p>
+<p>Repacking preserves the original nibbles, scales, and biases. The backend
+compares supported row tiles and traversal orders with native MLX, using row
+masks for incomplete tiles. Prepared prefill projections restore their
+original class when the row count falls below the configured threshold. Restore
+each patch before applying a different configuration to the same model.</p>
 <p>For dense BF16 or FP16 checkpoints, use the dense preparation path:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile.integrations.mlx_lm</span><span class="w"> </span><span class="kn">import</span> <span class="n">prepare_mlx_lm_dense_mlp</span>
 
@@ -364,19 +365,20 @@ single-row result bit for bit; MLX’s batched implementation may use another
 reduction order. At larger row counts, supported candidates include two
 generated projections followed by the MLX epilogue and a fused dual-GEMM
 schedule. The fused BF16 path preserves MLX’s low-precision boundaries in
-sigmoid and the two products. Numerical and model-level checks decide which
-candidate is usable for the call.</p>
-<p>Quantized SwiGLU also compares eager MLX, compiled MLX, and generated schedules.
-One generated schedule writes the gate accumulator to threadgroup scratch,
-reuses its registers for up, then applies the epilogue. Its storage and barrier
-costs are part of the measured candidate.</p>
+sigmoid and the two products. Numerical and model-level checks determine
+whether a candidate can be used for the call.</p>
+<p>Quantized SwiGLU compares eager MLX, compiled MLX, and generated schedules in the
+same way. One generated schedule writes the gate accumulator to threadgroup
+scratch, reuses its registers for up, then applies the epilogue. Measurements
+include its storage and barrier costs.</p>
 </section>
 <section id="selection-and-fallback">
 <h2>Selection and fallback<a class="headerlink" href="#selection-and-fallback" title="Link to this heading">¶</a></h2>
-<a class="reference internal image-reference" href="../_images/runtime-dispatch.svg"><img alt="Native MLX and generated kernels pass numerical checks and timing comparisons before dispatch" src="../_images/runtime-dispatch.svg" style="width: 100%;" />
+<a class="reference external image-reference" href="../_static/runtime-dispatch.svg"><img alt="Native MLX and generated kernels pass numerical checks and timing comparisons before dispatch" src="../_images/runtime-dispatch.svg" style="width: 100%;" />
 </a>
-<p>Primitive selection uses family-specific switching margins. These are the
-current settings, which may differ from a saved benchmark’s policy:</p>
+<p>Each primitive family has a switching margin: a generated candidate must be
+faster by at least that amount to replace the baseline. The current settings
+below may differ from the policy used in a saved benchmark:</p>
 <div class="table-wrapper colwidths-given docutils container">
 <table class="docutils align-default">
 <colgroup>
@@ -410,22 +412,26 @@ current settings, which may differ from a saved benchmark’s policy:</p>
 </tbody>
 </table>
 </div>
-<p>Selections persist by device, MLX version, dtype, shape, source, and candidate
-policy. A cached native decision returns to the original operation. Compilation
-failures, numerical failures, and insufficient measured headroom also retain it.</p>
+<p>The backend caches selections by device, MLX version, dtype, shape, source,
+and candidate policy. A cached native decision bypasses the generated paths
+and calls the original operation directly. The backend also keeps that
+operation when compilation or numerical checks fail,
+or when the measured gain falls short of the switching margin.</p>
 <p>Use <code class="docutils literal notranslate"><span class="pre">autotune_metile_for_mlx_lm</span></code> to compare feature combinations on an actual
 model trajectory. It rejects plans that change the next token or exceed
 KL-divergence, mean-logit-error, or maximum-logit-error bounds. It measures
 related plans in stages, then checks finalists on a separate holdout of at
-least 32 decode steps and seven paired trials before persistence. A model plan
-can reject a composition even when its individual kernels win. The result is
-specific to the model, calibration workload, device, and backend policy.</p>
+least 32 decode steps and seven paired trials before saving the selection.
+Winning kernels do not necessarily make a winning model plan: their composition
+can still be rejected. The result is specific to the model, calibration
+workload, device, and backend policy.</p>
 </section>
 <section id="optional-weight-compression">
 <h2>Optional weight compression<a class="headerlink" href="#optional-weight-compression" title="Link to this heading">¶</a></h2>
-<p>Compression changes the weight representation. The affine-INT8 path keeps
-source BF16 weights and prepares compressed copies for selected one-row decode
-projections. Multi-row prefill uses the original projections.</p>
+<p>Unlike repacking, compression changes the weight representation. The
+affine-INT8 path keeps source BF16 weights and prepares compressed copies for
+selected one-row decode projections. Multi-row prefill continues to use the
+original projections.</p>
 <p>For a dense model, prepare and calibrate the down projections:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">metile.integrations.mlx_lm</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">autotune_metile_for_mlx_lm</span><span class="p">,</span>
@@ -461,8 +467,8 @@ by layer and preserves projection biases.</p></li>
 projection or an untied <code class="docutils literal notranslate"><span class="pre">lm_head</span></code>; embedding lookup remains unchanged.</p></li>
 </ul>
 <p>Pass each prepared object to both the model tuner and the patch function.
-Calibration can leave sensitive layers in BF16 and reject an entire feature
-when it does not compose well with the others.</p>
+Calibration may keep sensitive layers in BF16 or reject an entire feature if
+it fails the checks when combined with the others.</p>
 <p>Affine groups of 32, 64, and 128 are available. The default
 <code class="docutils literal notranslate"><span class="pre">group_size=&quot;auto&quot;</span></code> times compatible groups at the one-row projection shape.
 Attention additionally considers error among groups close to the fastest.
@@ -494,8 +500,8 @@ native Metal storage types. The selector checks compatibility and requires
 </section>
 <section id="read-and-reproduce-model-results">
 <h2>Read and reproduce model results<a class="headerlink" href="#read-and-reproduce-model-results" title="Link to this heading">¶</a></h2>
-<p><a class="reference internal" href="benchmarks.html"><span class="doc">Benchmarks</span></a> contains model charts, recorded results, and comparison rules.
-Distinguish these experiments:</p>
+<p><a class="reference internal" href="benchmarks.html"><span class="doc">Benchmarks</span></a> collects model charts, recorded results, and comparison rules.
+What a comparison tells you depends on the weight representation:</p>
 <ul class="simple">
 <li><p><strong>Matched weights:</strong> both implementations use the same values and format.
 Repacking without requantization belongs here.</p></li>
@@ -510,9 +516,10 @@ affine-INT8 projections execute through MLX <code class="docutils literal notran
 gains include reduced weight traffic, and no matched affine-INT8 model control
 suite is committed. Fidelity bounds apply to the recorded trajectories.</p>
 <p>The suite runner records preparation, model-plan tuning, confirmation, and
-steady-state measurement separately. Results include selected native/generated
-paths, raw samples, software identities, and MLX allocator peak memory.
-When the selected plan is entirely native, both labels share its sample.</p>
+steady-state measurement separately. Results identify the selected native or
+generated paths and include raw samples, software identities, and MLX allocator
+peak memory. If the selected plan is entirely native, both labels share its
+sample.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[mlx-lm,benchmarks]"</span><span class="w"> </span>-e<span class="w"> </span>./kernels
 python<span class="w"> </span>-m<span class="w"> </span>benchmarks.mlx.mlx_lm_suite<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--prompt-tokens<span class="w"> </span><span class="m">128</span><span class="w"> </span>--generation-tokens<span class="w"> </span><span class="m">256</span><span class="w"> </span><span class="se">\</span>

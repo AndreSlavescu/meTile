@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,10 +281,10 @@
         <article role="main" id="furo-main-content">
           <section id="softmax">
 <h1>Softmax<a class="headerlink" href="#softmax" title="Link to this heading">¶</a></h1>
-<p>This kernel computes softmax independently for each row of a contiguous
-float32 matrix. It makes three passes: find the maximum, sum the shifted
-exponentials, then normalize. Subtracting the maximum keeps the exponential
-arguments nonpositive for finite inputs.</p>
+<p>This kernel applies softmax to each row of a contiguous float32 matrix. Three
+passes find the maximum, sum the shifted exponentials and normalize the row.
+Subtracting the maximum keeps the exponential arguments nonpositive for finite
+inputs.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
@@ -333,19 +333,18 @@ arguments nonpositive for finite inputs.</p>
 </div>
 <section id="mask-the-reduction-too">
 <h2>Mask the reduction, too<a class="headerlink" href="#mask-the-reduction-too" title="Link to this heading">¶</a></h2>
-<p>The width is 300, so the second 256-element tile contains padding. Bounds
-checks alone do not make every reduction correct: a zero-filled load would
-contribute <code class="docutils literal notranslate"><span class="pre">exp(0</span> <span class="pre">-</span> <span class="pre">row_maximum)</span></code> to the denominator. The explicit <code class="docutils literal notranslate"><span class="pre">where</span></code>
-sets those contributions to zero. The maximum pass instead fills padding with
-negative infinity, the identity for a maximum reduction.</p>
+<p>At width 300, the second 256-element tile contains padding. Bounds checks
+alone are not enough: a zero-filled load would add <code class="docutils literal notranslate"><span class="pre">exp(0</span> <span class="pre">-</span> <span class="pre">row_maximum)</span></code>
+to the denominator. The explicit <code class="docutils literal notranslate"><span class="pre">where</span></code> removes that contribution. The
+maximum pass fills padding with negative infinity instead, the identity for
+a maximum reduction.</p>
 <p>The loop-carried values contain one partial result per lane. <code class="docutils literal notranslate"><span class="pre">metile.max</span></code>
 and <code class="docutils literal notranslate"><span class="pre">metile.sum</span></code> combine those partials across the tile. This example assumes
 positive row and column counts and finite input values; it does not define
 special behavior for rows containing NaNs or infinities.</p>
-<p>meTile can recognize some softmax forms and rewrite them into an online
-algorithm. That optimization is pattern-dependent. Inspect the generated IR
-when evaluating a particular kernel, and compare its output against a
-reference regardless of whether the rewrite occurs.</p>
+<p>meTile can rewrite some softmax forms into an online algorithm, but only when
+they match a supported pattern. Inspect the generated IR to see whether a
+kernel uses that rewrite. In either case, check the output against a reference.</p>
 </section>
 </section>
 

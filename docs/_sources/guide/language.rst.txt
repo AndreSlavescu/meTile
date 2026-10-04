@@ -1,14 +1,13 @@
 Language Reference
 ==================
 
-meTile's kernel language is embedded in Python. A decorated function executes
-with symbolic arguments during tracing; its operations become a GPU program.
-Python still controls tracing, so a Python ``if`` or ``range`` must depend
-on values known at compile time. Use ``where`` for a per-element selection
-and ``tile_range`` for a traced loop.
+meTile traces a decorated Python function with symbolic arguments, then
+compiles the recorded operations into a GPU program. Because Python controls
+the trace, a Python ``if`` or ``range`` must depend on compile-time values.
+Use ``where`` for per-element selection and ``tile_range`` for a traced loop.
 
-The snippets on this page illustrate individual operations inside a kernel.
-For complete programs with launch code and numerical checks, start with
+The snippets below go inside a kernel. For a complete program with launch
+code and numerical checks, start with
 :doc:`/getting-started/first-kernel` or :doc:`/examples/matmul`.
 
 Define and launch a kernel
@@ -35,15 +34,15 @@ Avoid postponed/string annotations on kernel parameters: a file containing
 ``from __future__ import annotations`` does not currently preserve this
 identity check.
 
-A launch grid is a tuple of program counts. Elementwise kernels support one,
-two, or three axes; the standard GEMM path uses a two-dimensional output grid.
-Each program is a Metal threadgroup. A grid is not the number of elements or
-the number of threads inside each group.
+A launch grid is a tuple of program counts, not element counts or threads per
+group. Each program runs as a Metal threadgroup. Elementwise kernels support
+one, two or three grid axes; the standard GEMM path uses a two-dimensional
+output grid.
 
-``kernel[grid].prepare(...)`` performs a launch, synchronizes, and returns
+``kernel[grid].prepare(...)`` launches, synchronizes, and returns
 a dispatcher bound to those resources and scalar values. Preparation is not
-a compile-only operation. Prefer explicit ``Buffer`` arguments when reusing
-a dispatcher; see :doc:`memory`.
+a compile-only operation. If you plan to reuse a dispatcher, prefer explicit
+``Buffer`` arguments; see :doc:`memory`.
 
 Program identity and indices
 ----------------------------
@@ -84,9 +83,9 @@ Tensor declarations
    An explicit address space must match the pointer's allocation.
 
    Declare views near the start of the kernel, then use ``view.load(indices,
-   other=0)`` and ``view.store(indices, value)``. Loads and stores check
-   logical coordinate bounds. The caller remains responsible for allocation
-   capacity and signed 32-bit index/offset arithmetic.
+   other=0)`` and ``view.store(indices, value)``. These check logical coordinate
+   bounds. The caller must still provide enough storage and keep index/offset
+   arithmetic within signed 32-bit range.
 
    ``block_shape`` selects supported two-dimensional matrix-tile access.
    It does not allocate memory or set thread/register ownership.
@@ -157,8 +156,8 @@ Control flow and scalar state
    producing the operations repeated at execution time. A positive
    compile-time integer step is the usual tiling pattern.
 
-   ``num_stages`` records a staging request; support depends on the chosen
-   lowering path. It is not a guarantee of overlapped memory and compute.
+   ``num_stages`` requests staging on a supported lowering path. It does not
+   guarantee that memory access and computation overlap.
 
 .. code-block:: python
 
@@ -207,9 +206,9 @@ not describe elementwise operations.
    * - ``metile.cast(value, dtype)``
      - Convert a scalar or tile, for example to ``"f32"``
 
-A ``where`` around an unmasked load does not make that load safe: its inputs
-are computed before selection. Put the bounds in the load's mask or use a
-tensor view.
+``where`` evaluates its inputs before choosing one. Wrapping an unmasked load
+in ``where`` therefore does not make the load safe. Mask the load directly or
+use a tensor view.
 
 Reductions
 ----------
@@ -230,8 +229,8 @@ order may differ from a CPU reference.
 Thread and SIMDgroup operations
 -------------------------------
 
-These operations expose physical execution details. A SIMDgroup has 32
-threads on the supported Apple GPU paths.
+These operations expose physical execution details. On the supported Apple
+GPU paths, a SIMDgroup contains 32 threads.
 
 .. function:: metile.thread_id()
 
@@ -287,10 +286,10 @@ supported operations and communication rules.
    grouped traversals. Unsupported panel geometries fall back to a valid
    traversal. See :doc:`tile-ops` for the panel-size constraints.
 
-Pass ``SCHEDULE=metile.Schedule(...)`` at launch to request a backend,
-SIMDgroup geometry, staging, or supported vector width. The compiler checks
-these requirements. A prepared dispatch's ``explain()`` report records the
-selected schedule and materialized decisions; see :doc:`execution-schedules`.
+Pass ``SCHEDULE=metile.Schedule(...)`` at launch to require a backend,
+SIMDgroup geometry, staging or supported vector width. The compiler checks
+those requirements. Use the prepared dispatch's ``explain()`` report to see
+the selected schedule and what lowering produced; see :doc:`execution-schedules`.
 
 Host APIs and specialized integrations are listed in :doc:`/api/reference`.
-They are separate from the traced kernel operations described here.
+They are not part of the traced kernel operations described here.

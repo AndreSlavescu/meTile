@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -282,10 +282,10 @@
           <section id="metile">
 <h1>meTile<a class="headerlink" href="#metile" title="Link to this heading">¶</a></h1>
 <p><strong>GPU kernels in Python. Compiled for Apple silicon.</strong></p>
-<p>Write the computation in Python without writing Objective-C, Swift or a Metal
-shader by hand. Declare tensor memory at the top of the kernel, then let meTile
-lower the operations. Explicit layouts and schedules give you more control when
-you need it.</p>
+<p>Declare tensor memory at the top of a Python kernel, then write the computation.
+meTile compiles it to Metal; you do not need to write an Objective-C host, Swift
+wrapper or Metal shader. Use explicit layouts and schedules when you need to
+control execution.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
 <span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
@@ -297,20 +297,20 @@ you need it.</p>
     <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">offsets</span><span class="p">,),</span> <span class="n">left</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">offsets</span><span class="p">,))</span> <span class="o">+</span> <span class="n">right</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">offsets</span><span class="p">,)))</span>
 </pre></div>
 </div>
-<p>Tensor descriptors generate the bounds masks in this example. The
-<a class="reference internal" href="getting-started/first-kernel.html"><span class="doc">first-kernel tutorial</span></a> includes allocation,
-launch and a numerical check.</p>
+<p>The tensor descriptors supply this example’s bounds checks. Follow the
+<a class="reference internal" href="getting-started/first-kernel.html"><span class="doc">first-kernel tutorial</span></a> to allocate buffers,
+launch the kernel and check its output.</p>
 <p>meTile traces Python into Tile IR, lowers it to Metal IR and emits Metal Shading
-Language. Apple’s compiler produces the device code. Available matrix backends
-depend on the GPU and toolchain; native tensor operations are not available on
-every Apple silicon Mac. See <a class="reference internal" href="guide/architecture.html"><span class="doc">Compiler Architecture</span></a> for the full path.</p>
+Language. Apple’s compiler then produces device code. Matrix backend support
+depends on the GPU and toolchain; not every Apple silicon Mac supports native
+tensor operations. See <a class="reference internal" href="guide/architecture.html"><span class="doc">Compiler Architecture</span></a> for the compilation steps.</p>
 <section id="start-here">
 <h2>Start here<a class="headerlink" href="#start-here" title="Link to this heading">¶</a></h2>
 <ul class="simple">
 <li><p><strong>Write a kernel:</strong> install meTile and work through the first example.</p></li>
 <li><p><strong>Tune a kernel:</strong> learn tensor declarations before layouts and schedules.</p></li>
 <li><p><strong>Use MLX:</strong> read the integration guide and its correctness checks.</p></li>
-<li><p><strong>Evaluate performance:</strong> start with the benchmark methodology, not a headline speedup.</p></li>
+<li><p><strong>Evaluate performance:</strong> check the benchmark methodology before comparing results.</p></li>
 </ul>
 <div class="toctree-wrapper compound">
 <ul>

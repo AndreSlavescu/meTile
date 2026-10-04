@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,9 +281,9 @@
         <article role="main" id="furo-main-content">
           <section id="matrix-multiply-gemm">
 <h1>Matrix Multiply (GEMM)<a class="headerlink" href="#matrix-multiply-gemm" title="Link to this heading">¶</a></h1>
-<p>A matrix multiply reduces pairs of input tiles into an output tile. This
-example uses contiguous float32 matrices and deliberately uneven dimensions,
-so loads and stores must handle partial tiles.</p>
+<p>A matrix multiply accumulates products of input tiles into an output tile.
+This example uses contiguous float32 matrices with uneven dimensions to
+exercise partial loads and stores.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
@@ -335,9 +335,9 @@ so loads and stores must handle partial tiles.</p>
 </div>
 <section id="how-the-tiles-fit-together">
 <h2>How the tiles fit together<a class="headerlink" href="#how-the-tiles-fit-together" title="Link to this heading">¶</a></h2>
-<a class="reference internal image-reference" href="../_images/gemm-tiling.svg"><img alt="Each program owns an output matrix tile and accumulates products along K" src="../_images/gemm-tiling.svg" style="width: 100%;" />
+<a class="reference external image-reference" href="../_static/gemm-tiling.svg"><img alt="Each program owns an output matrix tile and accumulates products along K" src="../_images/gemm-tiling.svg" style="width: 100%;" />
 </a>
-<p><code class="docutils literal notranslate"><span class="pre">block_shape</span></code> defines the matrix tile loaded or stored by a view. Here,
+<p><code class="docutils literal notranslate"><span class="pre">block_shape</span></code> sets the matrix tile that a view loads or stores. Here,
 each program owns a 32-by-32 output tile. Every loop iteration loads a
 32-by-16 left tile and a 16-by-32 right tile, then accumulates their product
 with <code class="docutils literal notranslate"><span class="pre">dot</span></code>. The logical tensor shapes supply bounds for all three axes:
@@ -348,14 +348,14 @@ supported float16 configurations accumulate in float32; the store converts
 to the output storage dtype. Use positive dimensions. Not every tile size,
 dtype, and schedule combination is legal. See <a class="reference internal" href="../guide/tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> and
 <a class="reference internal" href="../guide/tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a> before changing them.</p>
-<p>The compiler chooses a supported matrix backend using device and toolchain
-capabilities. A newer chip name alone does not establish Metal 4 tensor-ops
-support. The direct NAX path has additional tile and alignment requirements.</p>
+<p>The compiler chooses a matrix backend supported by the device and toolchain.
+A newer chip name alone does not establish Metal 4 tensor-ops support. The
+direct NAX path also has tile and alignment requirements.</p>
 </section>
 <section id="fuse-an-activation">
 <h2>Fuse an activation<a class="headerlink" href="#fuse-an-activation" title="Link to this heading">¶</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">RELU</span></code> argument is a compile-time boolean. With <code class="docutils literal notranslate"><span class="pre">RELU=True</span></code>, the
-compiler incorporates the pointwise activation into the GEMM epilogue:</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">RELU</span></code> argument is a compile-time boolean. Set <code class="docutils literal notranslate"><span class="pre">RELU=True</span></code> to include
+the pointwise activation in the GEMM epilogue:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">matmul</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span>
     <span class="n">left_buffer</span><span class="p">,</span> <span class="n">right_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">reduction</span><span class="p">,</span>
     <span class="n">BLOCK_M</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">BLOCK_K</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">RELU</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
@@ -394,11 +394,11 @@ recomputed for each candidate, so every candidate covers the full output.</p>
 <span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">output_buffer</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Tuning executes candidates and writes the output. Measure its cost separately
-from repeated execution of the selected kernel. Tile traversal is another
-schedule choice: <code class="docutils literal notranslate"><span class="pre">tile_swizzle</span></code> supports automatic selection or explicit
-patterns such as Morton and Hilbert. See <a class="reference internal" href="../guide/autotuning.html"><span class="doc">Autotuning</span></a> and
-<a class="reference internal" href="../guide/tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a> for the search and grid constraints.</p>
+<p>Tuning runs candidates and writes the output; measure that cost separately
+from repeated execution of the winner. You can also tune tile traversal:
+<code class="docutils literal notranslate"><span class="pre">tile_swizzle</span></code> supports automatic selection and explicit patterns such as
+Morton and Hilbert. See <a class="reference internal" href="../guide/autotuning.html"><span class="doc">Autotuning</span></a> and <a class="reference internal" href="../guide/tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a>
+for the search and grid constraints.</p>
 </section>
 </section>
 

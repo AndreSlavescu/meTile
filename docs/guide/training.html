@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,30 +281,31 @@
         <article role="main" id="furo-main-content">
           <section id="training-kernels-and-gradients">
 <h1>Training kernels and gradients<a class="headerlink" href="#training-kernels-and-gradients" title="Link to this heading">¶</a></h1>
-<p>The kernel library is a separate package, <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code>. Its modules
-contain DSL kernels; <code class="docutils literal notranslate"><span class="pre">metile.backends</span></code> handles allocation, saved tensors,
-and multi-kernel launches. Install both projects when working from source:</p>
+<p>The separate <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code> package contains the DSL kernels.
+<code class="docutils literal notranslate"><span class="pre">metile.backends</span></code> allocates buffers, manages saved tensors, and coordinates
+multi-kernel launches. Install both projects when working from source:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">e</span> <span class="o">.</span> <span class="o">-</span><span class="n">e</span> <span class="o">./</span><span class="n">kernels</span>
 </pre></div>
 </div>
 <p>These APIs return explicit first-order gradients. They do <strong>not</strong> register
 MLX or PyTorch autograd rules, automatically patch models, or implement
-higher-order differentiation. Read <a class="reference internal" href="kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> before treating an
-operation as training-ready. Liger parity is a tracked target, not a claim
-that every upstream operation or option is already supported.</p>
+higher-order differentiation. <a class="reference internal" href="kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> lists the contracts and
+remaining work for each operation. Liger parity is a tracked target, not a
+claim that every upstream operation or option is already supported.</p>
 <p>Most native entry points accept NumPy arrays or <code class="docutils literal notranslate"><span class="pre">metile.Buffer</span></code> objects.
 NumPy inputs are copied; saved Buffer inputs must not be mutated before
-backward. Returned buffers remain on the device until <code class="docutils literal notranslate"><span class="pre">.numpy()</span></code> is called.
-Floating gradients use FP32 storage even when inputs use FP16. Integer
+backward. Calling <code class="docutils literal notranslate"><span class="pre">.numpy()</span></code> synchronizes outstanding GPU work and returns a
+NumPy view of the buffer’s shared memory. Floating gradients use FP32 storage
+even when inputs use FP16. Integer
 indices, boolean masks, geometry, and fixed scalar configuration have no
 gradient. Finite inputs and finite intermediate dot products are required.</p>
 <section id="normalization">
 <h2>Normalization<a class="headerlink" href="#normalization" title="Link to this heading">¶</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_norms</span></code> provides explicit RMSNorm, LayerNorm and
-residual-add RMSNorm forward/backward pairs. Inputs are two-dimensional rows,
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_norms</span></code> provides RMSNorm, LayerNorm, and
+residual-add RMSNorm forward/backward pairs. Inputs are two-dimensional rows
 with widths 1–8192 and FP16 or FP32 storage. Statistics and all gradients use
 FP32. Weight and bias have one value per column; parameter gradients are
-reduced across rows in a fixed order without atomics.</p>
+summed across rows in a fixed order without atomics.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.training_norms</span><span class="w"> </span><span class="kn">import</span> <span class="n">layer_norm_forward</span><span class="p">,</span> <span class="n">norm_backward</span>
 
@@ -341,12 +342,12 @@ in-place, BF16, arbitrary-axis or Liger casting-mode variants. See
 <span class="k">assert</span> <span class="n">dgate</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">gate</span><span class="o">.</span><span class="n">shape</span>
 </pre></div>
 </div>
-<p>Supplying <code class="docutils literal notranslate"><span class="pre">up</span></code> produces a gated operation; omitting it produces a unary
-operation. Supported names are <code class="docutils literal notranslate"><span class="pre">silu</span></code>, <code class="docutils literal notranslate"><span class="pre">sigmoid</span></code>, <code class="docutils literal notranslate"><span class="pre">gelu_tanh</span></code>,
+<p>Specify <code class="docutils literal notranslate"><span class="pre">up</span></code> for a gated activation, or leave it out for a unary operation.
+Supported names are <code class="docutils literal notranslate"><span class="pre">silu</span></code>, <code class="docutils literal notranslate"><span class="pre">sigmoid</span></code>, <code class="docutils literal notranslate"><span class="pre">gelu_tanh</span></code>,
 <code class="docutils literal notranslate"><span class="pre">quick_gelu</span></code>, <code class="docutils literal notranslate"><span class="pre">relu</span></code>, and <code class="docutils literal notranslate"><span class="pre">tanh</span></code>. <code class="docutils literal notranslate"><span class="pre">silu</span></code> plus <code class="docutils literal notranslate"><span class="pre">up</span></code> is SwiGLU;
 <code class="docutils literal notranslate"><span class="pre">gelu_tanh</span></code> plus <code class="docutils literal notranslate"><span class="pre">up</span></code> is the tanh-GELU GeGLU variant. The legacy
-sigmoid-based GELU approximation is called <code class="docutils literal notranslate"><span class="pre">quick_gelu</span></code> here. They are not
-interchangeable. ReLU uses derivative zero at zero.</p>
+sigmoid-based GELU approximation is called <code class="docutils literal notranslate"><span class="pre">quick_gelu</span></code> here; it is not
+interchangeable with tanh-GELU. ReLU uses derivative zero at zero.</p>
 </section>
 <section id="rotary-embeddings">
 <h2>Rotary embeddings<a class="headerlink" href="#rotary-embeddings" title="Link to this heading">¶</a></h2>
@@ -356,9 +357,9 @@ interchangeable. ReLU uses derivative zero at zero.</p>
 <code class="docutils literal notranslate"><span class="pre">interleaved=False</span></code> pairs the two rotary halves; <code class="docutils literal notranslate"><span class="pre">True</span></code> pairs adjacent
 components. The unrotated suffix is copied.</p>
 <p><code class="docutils literal notranslate"><span class="pre">rope_backward(saved,</span> <span class="pre">gradient)</span></code> returns gradients for the values, cosine,
-and sine arrays. It uses the transpose of the supplied rotation, not an
-assumed inverse: coefficients need not have unit norm. When coefficient rows
-were broadcast by a model adapter, that adapter must sum their gradients.
+and sine arrays. It uses the transpose of the supplied rotation rather than
+assuming an inverse: coefficients need not have unit norm. If a model adapter
+broadcast coefficient rows, the adapter must also sum their gradients.
 Q and K with different head counts require separate calls. Position IDs,
 YaRN frequency construction, MRoPE axis selection, and cache layouts remain
 the adapter’s responsibility. See the original <a class="reference external" href="https://arxiv.org/abs/2104.09864">RoFormer paper</a>.</p>
@@ -367,9 +368,10 @@ the adapter’s responsibility. See the original <a class="reference external" h
 <h2>Softmax and cross entropy<a class="headerlink" href="#softmax-and-cross-entropy" title="Link to this heading">¶</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">metile.backends.training_losses</span></code> normalizes the final axis of contiguous
 FP32 arrays. <code class="docutils literal notranslate"><span class="pre">softmax_forward</span></code> and <code class="docutils literal notranslate"><span class="pre">log_softmax_forward</span></code> return device
-buffers; their backward functions take that saved output and an equally
-shaped cotangent. The log-softmax path subtracts the row maximum before the
-log denominator, so it does not compute <code class="docutils literal notranslate"><span class="pre">log(softmax(x))</span></code> after underflow.</p>
+buffers; their backward functions take the saved output and a cotangent of
+the same shape. Log-softmax subtracts the row maximum before the log
+denominator, avoiding the underflow that can occur when computing
+<code class="docutils literal notranslate"><span class="pre">log(softmax(x))</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">metile.backends.training_losses</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">softmax_forward</span><span class="p">,</span> <span class="n">softmax_backward</span><span class="p">,</span>
@@ -413,9 +415,9 @@ cross entropy are not implemented by this API.</p>
 returns <code class="docutils literal notranslate"><span class="pre">dA</span> <span class="pre">=</span> <span class="pre">gradient</span> <span class="pre">&#64;</span> <span class="pre">B.T</span></code> and <code class="docutils literal notranslate"><span class="pre">dB</span> <span class="pre">=</span> <span class="pre">A.T</span> <span class="pre">&#64;</span> <span class="pre">gradient</span></code>. Optional
 <code class="docutils literal notranslate"><span class="pre">activation=&quot;relu&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;silu&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;quick_gelu&quot;</span></code>, or another supported
 activation saves the unrounded preactivation for its derivative.</p>
-<p>This baseline packs operands into FP32 and selects the SIMD-group matrix
-backend explicitly. It does not silently select a reduced-precision matrix
-backend. Transposes and both gradient products execute as DSL kernels. The
+<p>This baseline packs operands into FP32 and explicitly selects the SIMD-group
+matrix backend; it does not silently switch to a reduced-precision backend.
+Transposes and both gradient products execute as DSL kernels. The
 default per-call workspace bound is 256 MiB, excluding caller inputs and
 NumPy input copies. This is not a fused-linear loss, batched product,
 quantized-weight gradient, or optimized throughput claim.</p>
@@ -448,13 +450,16 @@ Fully masked rows produce zero output and zero gradients.</p>
 <li><p>Keep accumulation and saved, unrounded output in FP32; apply dQ/dK scale
 after accumulation.</p></li>
 </ul>
-<p>The kernels use output ownership and deterministic reductions, not
-floating-point atomics. No quadratic attention matrix is saved. This is a
-bounded correctness-oriented Metal implementation, not a port of KohakuFA’s
-CUDA schedule; its upstream GPU performance numbers do not apply here.</p>
+<p>The kernels assign ownership of each output and use deterministic reductions
+rather than floating-point atomics. They do not save a quadratic attention
+matrix. This bounded Metal implementation prioritizes correctness; it is not
+a port of KohakuFA’s CUDA schedule, and upstream GPU performance numbers do
+not apply here.</p>
 </section>
 <section id="different-attention-mechanisms-stay-different">
 <h2>Different attention mechanisms stay different<a class="headerlink" href="#different-attention-mechanisms-stay-different" title="Link to this heading">¶</a></h2>
+<section id="recurrent-delta-attention">
+<h3>Recurrent delta attention<a class="headerlink" href="#recurrent-delta-attention" title="Link to this heading">¶</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">metile.backends.gated_delta</span></code> implements decay-before-correction delta
 recurrences with explicit initial and final states. Query/key use
 <code class="docutils literal notranslate"><span class="pre">[B,T,H,K]</span></code>; values use <code class="docutils literal notranslate"><span class="pre">[B,T,H,V]</span></code>; state uses <code class="docutils literal notranslate"><span class="pre">[B,H,K,V]</span></code>.
@@ -471,36 +476,43 @@ deliberately differ from softmax attention. All heads must match.</p>
 <p>Call <code class="docutils literal notranslate"><span class="pre">gated_delta_forward(...,</span> <span class="pre">save_states=True)</span></code> when backward is needed.
 <code class="docutils literal notranslate"><span class="pre">gated_delta_backward</span></code> consumes those states and both output and final-state
 cotangents. It returns all six tensor-input gradients, including the initial
-state. This supports differentiated state chains rather than detaching the
-cache silently. The initial implementation is FP32 only, with documented
-shape and workspace bounds; saving every state and per-value gradient partials
-can be expensive.</p>
+state, so gradients can flow through a chain of states rather than stopping
+silently at a detached cache. The initial implementation is FP32 only, with
+documented shape and workspace bounds. Retaining every state and the per-value
+gradient partials can consume substantial memory.</p>
 <p>The formula follows <a class="reference external" href="https://arxiv.org/html/2510.26692v1">Kimi Linear, equation (1)</a>; the scalar-decay model context is
 <a class="reference external" href="https://qwen.ai/blog?id=qwen3-next">Qwen3-Next</a>. Normalization, short
 convolution, gate transformations, grouped-head expansion, padding policy,
 and model-specific cache conversion are not part of this recurrence kernel.
-It is not a claim of complete Kimi or Qwen model compatibility.</p>
-<p><code class="docutils literal notranslate"><span class="pre">metile.backends.dual_chunk_attention</span></code> implements three <strong>already rotated</strong>
-query branches: intra-chunk, successive-chunk, and inter-chunk. Keys are
-partitioned by global chunk coordinates and causality. Branches merge under
-one global softmax denominator; summing three independently normalized outputs
-would be wrong. Backward returns three query gradients and combined K/V
-gradients. The positional helper follows pinned
+Supporting the recurrence does not establish complete Kimi or Qwen model
+compatibility.</p>
+</section>
+<section id="dual-chunk-attention">
+<h3>Dual Chunk Attention<a class="headerlink" href="#dual-chunk-attention" title="Link to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">metile.backends.dual_chunk_attention</span></code> takes three <strong>already rotated</strong> query
+branches: intra-chunk, successive-chunk, and inter-chunk. It partitions keys
+by global chunk coordinates and causality, then merges the branches under one
+global softmax denominator. Summing three independently normalized outputs
+would give a different result. Backward returns three query gradients and
+combined K/V gradients. The positional helper follows pinned
 <a class="reference external" href="https://github.com/HKUNLP/ChunkLlama/tree/2add4d7c99d24dcc1ab03414cc602abb2e28cf2c">ChunkLlama semantics</a>;
 see also the <a class="reference external" href="https://arxiv.org/abs/2402.17463">Dual Chunk Attention paper</a>
 and <a class="reference external" href="https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2.5-1M/Qwen2_5_1M_Technical_Report.pdf">Qwen2.5-1M report</a>.
 This reference path materializes partition masks with a workspace guard. It
 is causal, not bidirectional Qwen attention, and is not a complete RoPE/YaRN
 or model-loading implementation.</p>
+</section>
+<section id="explicit-attention-graphs">
+<h3>Explicit attention graphs<a class="headerlink" href="#explicit-attention-graphs" title="Link to this heading">¶</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">metile.ir.attention_graph</span></code> exposes distinct typed builders for these
 mechanisms. <code class="docutils literal notranslate"><span class="pre">compile_native_attention_graph</span></code> in
 <code class="docutils literal notranslate"><span class="pre">metile.backends.native_attention_graph</span></code> dispatches those explicit nodes;
 it rejects unrelated operators. Ordinary softmax graph patterns must not be
 rewritten into delta recurrences or Dual Chunk Attention: their semantics and
 state requirements differ.</p>
-<p>The native executable also supplies an explicit reverse pass for all four
-operators. <code class="docutils literal notranslate"><span class="pre">forward_with_context</span></code> records a tape; <code class="docutils literal notranslate"><span class="pre">backward</span></code> consumes
-output cotangents and returns input gradients in graph-input order:</p>
+<p>The native executable supplies a reverse pass for all four operators.
+<code class="docutils literal notranslate"><span class="pre">forward_with_context</span></code> records a tape; <code class="docutils literal notranslate"><span class="pre">backward</span></code> takes output cotangents
+and returns input gradients in graph-input order:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">metile.ir.graph_ir</span><span class="w"> </span><span class="kn">import</span> <span class="n">GraphBuilder</span><span class="p">,</span> <span class="n">TensorSpec</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">metile.ir.attention_graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">stable_attention</span>
@@ -526,18 +538,20 @@ GDN and KDA nodes expose both output and final state, so state edges between
 nodes participate in the reverse pass. Shared inputs and repeated graph
 outputs accumulate every contribution in FP32 without atomics. Disconnected
 floating inputs receive zero buffers; masks receive <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
-<p>Recording snapshots NumPy inputs, but device inputs and saved buffers must
-remain unchanged until backward finishes. Graph structure and metadata changes
-invalidate the tape. Backward does not overwrite inputs or cotangents. Calling
-the executable normally does not retain a tape or recurrent state history.
+<p>Tape recording copies NumPy inputs, but device inputs and saved buffers must
+remain unchanged until backward finishes. Changing graph structure or metadata
+invalidates the tape. Backward does not overwrite inputs or cotangents. A
+normal call to the executable retains neither a tape nor recurrent state
+history.
 Per-operator workspace limits do not bound the entire graph tape and its
 accumulated gradients. This API does not register framework autograd or
 differentiate operators outside the four explicit attention families.</p>
 </section>
+</section>
 <section id="expression-vjps-inside-the-dsl">
 <h2>Expression VJPs inside the DSL<a class="headerlink" href="#expression-vjps-inside-the-dsl" title="Link to this heading">¶</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">metile.vjp(output,</span> <span class="pre">inputs,</span> <span class="pre">cotangent)</span></code> constructs a reverse expression
-during tracing. For example, inside a kernel:</p>
+<p><code class="docutils literal notranslate"><span class="pre">metile.vjp(output,</span> <span class="pre">inputs,</span> <span class="pre">cotangent)</span></code> builds a reverse expression during
+tracing. For example, inside a kernel:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">values</span> <span class="o">=</span> <span class="n">inputs</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
 <span class="n">seed</span> <span class="o">=</span> <span class="n">seeds</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span>
 <span class="n">transformed</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tanh</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">*</span> <span class="n">values</span>
@@ -551,15 +565,16 @@ are frozen coefficients; memory is not automatically given a gradient buffer.
 Scalar broadcast cotangents reduce back to the scalar; max/min ties split
 equally; abs uses derivative zero at zero. Floating casts use the usual
 real-arithmetic training convention, not a derivative of discrete rounding.</p>
-<p>Unsupported differentiated operations raise <code class="docutils literal notranslate"><span class="pre">NotImplementedError</span></code>. This is
-not whole-kernel autodiff: matrix dot, loop reversal, memory scatter adjoints,
-layout/collective transposes and alias-aware accumulation still need dedicated
-rules. <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code> uses the exponential derivative convention rather than a
-proof about the hardware approximation’s derivative.</p>
+<p>Differentiating an unsupported operation raises <code class="docutils literal notranslate"><span class="pre">NotImplementedError</span></code>. This
+is not whole-kernel autodiff: matrix dot, loop reversal, memory scatter
+adjoints, layout/collective transposes, and alias-aware accumulation still
+need dedicated rules. For <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code>, the VJP uses the exponential
+derivative convention; it does not prove the derivative of the hardware
+approximation.</p>
 </section>
 <section id="explicit-state-and-strict-math">
 <h2>Explicit state and strict math<a class="headerlink" href="#explicit-state-and-strict-math" title="Link to this heading">¶</a></h2>
-<p>Loaded loop state must not depend on inference from Python rebinding:</p>
+<p>Declare loop-carried state explicitly rather than relying on Python rebinding:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">state</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">loop_state</span><span class="p">(</span><span class="n">initial</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,)))</span>
 <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">steps</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
     <span class="n">previous</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">value</span>
@@ -568,16 +583,17 @@ proof about the hardware approximation’s derivative.</p>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">.value</span></code> creates a snapshot at that program point; <code class="docutils literal notranslate"><span class="pre">.update</span></code> assigns
-same-dtype, same-shape state. A zero-trip loop keeps its initial value.
+same-dtype, same-shape state. A loop that never iterates leaves the initial state
+unchanged.
 State is per-thread scalar/one-dimensional tile storage, not shared memory.
 Explicit <code class="docutils literal notranslate"><span class="pre">ThreadLayout</span></code> state is not supported yet. A state declaration
 must dominate its uses. This API enables recurrences, not their automatic
 reverse-mode differentiation.</p>
-<p>Training backends pass <code class="docutils literal notranslate"><span class="pre">STRICT_MATH=True</span></code>. That setting disables Metal
-fast-math in both offline and runtime compilation and is included in cache
-identity. It does not turn explicit <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code> into an accurate intrinsic,
-prove every compiler rewrite IEEE-exact, or change a selected matrix backend’s
-precision. Geometry and bounds contracts still apply.</p>
+<p>Training backends pass <code class="docutils literal notranslate"><span class="pre">STRICT_MATH=True</span></code> to disable Metal fast-math in both
+offline and runtime compilation. The setting is part of the cache identity.
+It does not turn explicit <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code> into an accurate intrinsic, prove every
+compiler rewrite IEEE-exact, or change a selected matrix backend’s precision.
+Geometry and bounds contracts still apply.</p>
 </section>
 </section>
 
@@ -643,7 +659,12 @@ precision. Geometry and bounds contracts still apply.</p>
 <li><a class="reference internal" href="#softmax-and-cross-entropy">Softmax and cross entropy</a></li>
 <li><a class="reference internal" href="#dense-products">Dense products</a></li>
 <li><a class="reference internal" href="#stable-softmax-attention">Stable softmax attention</a></li>
-<li><a class="reference internal" href="#different-attention-mechanisms-stay-different">Different attention mechanisms stay different</a></li>
+<li><a class="reference internal" href="#different-attention-mechanisms-stay-different">Different attention mechanisms stay different</a><ul>
+<li><a class="reference internal" href="#recurrent-delta-attention">Recurrent delta attention</a></li>
+<li><a class="reference internal" href="#dual-chunk-attention">Dual Chunk Attention</a></li>
+<li><a class="reference internal" href="#explicit-attention-graphs">Explicit attention graphs</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#expression-vjps-inside-the-dsl">Expression VJPs inside the DSL</a></li>
 <li><a class="reference internal" href="#explicit-state-and-strict-math">Explicit state and strict math</a></li>
 </ul>

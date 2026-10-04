@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,14 +281,14 @@
         <article role="main" id="furo-main-content">
           <section id="tensor-and-memory-contracts">
 <h1>Tensor and Memory Contracts<a class="headerlink" href="#tensor-and-memory-contracts" title="Link to this heading">¶</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> describes a buffer’s shape, strides, access permissions, and
-address space. The compiler uses those declarations to check accesses and
-lower supported computations. Execution choices are separate: see
-<a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for schedule constraints and <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a>
-for explicit ownership of values by threads and register slots.</p>
+<p><code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> declares a buffer’s shape, strides, access permissions and
+address space. The compiler checks accesses against those declarations when
+lowering supported computations. To control execution separately, use
+<a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for schedule requirements and <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a>
+for thread and register ownership.</p>
 <section id="declare-data-before-computation">
 <h2>Declare data before computation<a class="headerlink" href="#declare-data-before-computation" title="Link to this heading">¶</a></h2>
-<p>Use <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> near the beginning of a kernel to describe each buffer:</p>
+<p>Declare a <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> near the start of the kernel to describe each buffer:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">source</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
     <span class="n">Input</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span>
 <span class="p">)</span>
@@ -302,10 +302,10 @@ for explicit ownership of values by threads and register slots.</p>
 <span class="n">destination</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="n">column</span><span class="p">),</span> <span class="n">values</span> <span class="o">*</span> <span class="mf">2.0</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Omitting strides selects contiguous row-major storage. Explicit strides are
-in elements rather than bytes. Shape and stride expressions can use kernel
-scalar arguments. The descriptor is tracing metadata; it does not allocate a
-buffer or create an object for each element.</p>
+<p>Without explicit strides, the view uses contiguous row-major storage. Strides
+are measured in elements, not bytes, and both shape and stride expressions
+can use kernel scalar arguments. A descriptor exists only as tracing metadata:
+it neither allocates a buffer nor creates an object for every element.</p>
 <p>The indexing path uses signed 32-bit coordinates and element offsets.
 Shapes, strides, and intermediate offset calculations must fit that arithmetic
 and describe an existing allocation. Statically known overflowing dimensions,
@@ -344,9 +344,9 @@ selects tiled loads and stores:</p>
 <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">row_origin</span><span class="p">,</span> <span class="n">column_origin</span><span class="p">),</span> <span class="n">accumulator</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>This fragment illustrates declarations and operations, not a complete GEMM:
-the surrounding kernel supplies tile origins, initializes the accumulator,
-and loops over the reduction dimension before storing the final result.
+<p>This is a fragment, not a complete GEMM. The surrounding kernel must supply
+tile origins, initialize the accumulator and loop over the reduction dimension
+before storing the result.
 The tiled path requires two dimensions, positive compile-time block
 sizes, scalar origins, device storage, and zero padding. GEMM lowering has
 additional supported-pattern checks: contiguous row-major operands with matching
@@ -395,20 +395,20 @@ interfaces. Use <code class="docutils literal notranslate"><span class="pre">met
 </tbody>
 </table>
 </div>
-<p>A transpose changes the logical-to-memory map. Moving a value between lanes
-changes its execution layout. Staging it in threadgroup memory changes its
-storage and introduces synchronization obligations. These must be distinct
-IR transformations, even when a particular optimization performs all three.</p>
+<p>A transpose changes the logical-to-memory map. Moving values between lanes
+changes the execution layout. Staging values in threadgroup memory changes
+their storage and requires synchronization. The IR must keep those changes
+distinct even when an optimization performs all three.</p>
 <p>Tensor declarations and memory-operation metadata preserve logical and memory
 contracts in Tile IR. <code class="docutils literal notranslate"><span class="pre">ThreadLayout</span></code> adds a checked execution layout to
 supported scalar values. The current subset covers register/thread bit
 permutations; arbitrary distributed layouts and matrix-fragment conversions
 remain unsupported.</p>
-<p>Descriptor-based GEMM lowering follows the actual operands of a matrix operation
-and its output stores. Pointer positions, argument names such as <code class="docutils literal notranslate"><span class="pre">M</span></code> and
-<code class="docutils literal notranslate"><span class="pre">N</span></code>, or the presence of any tiled load are insufficient to establish GEMM
-semantics. A supported fast path must match the program it replaces; an
-unsupported pattern must produce a diagnostic instead of dropping operations.</p>
+<p>Descriptor-based GEMM lowering follows the matrix operation’s operands and
+output stores. Pointer positions, names such as <code class="docutils literal notranslate"><span class="pre">M</span></code> and <code class="docutils literal notranslate"><span class="pre">N</span></code>, or a tiled
+load alone do not establish GEMM semantics. A fast path must preserve the
+program it replaces. Unsupported patterns must produce a diagnostic rather
+than drop operations.</p>
 </section>
 <section id="legality-before-optimization">
 <h2>Legality before optimization<a class="headerlink" href="#legality-before-optimization" title="Link to this heading">¶</a></h2>
@@ -419,16 +419,15 @@ Independent tensor extents, shifted coordinates, and separate row bounds
 retain their checks. The scalar tail retains the original masks and fill
 values. This lets supported normalization kernels keep vectorized interiors
 without treating every descriptor as contiguous and in bounds.</p>
-<p>Vectorization also requires a unit increment in the memory address between
-adjacent logical elements. A valid logical index does not establish contiguous
-storage: a stride of two must not become a four-element contiguous load.
-The current pass rejects surviving masks, nonunit lane strides, and lane
-expressions it cannot safely rescale.</p>
-<p>Matrix-backend selection needs the same discipline. Shape alignment alone
-does not establish that a reduction loop is legal. The backend must account
-for the full K step after fragment selection and unrolling, and either prove
-that K is divisible by that step or provide a correct masked tail. For example,
-alignment to 32 does not justify an unmasked K step of 96.</p>
+<p>Vectorization also needs adjacent logical elements to occupy adjacent memory
+addresses. Valid indices do not prove contiguity: a stride of two must not
+become a four-element contiguous load. The current pass rejects surviving
+masks, nonunit lane strides and lane expressions it cannot safely rescale.</p>
+<p>Matrix-backend selection needs the same checks. Shape alignment alone does
+not prove a reduction loop safe. After choosing fragments and unrolling, the
+backend must either prove that K is divisible by the full K step or provide
+a correct masked tail. Alignment to 32, for example, does not justify an
+unmasked K step of 96.</p>
 <p>Precision requirements must reach the actual matrix-operation descriptor.
 Checking only a Python configuration flag is insufficient. The generic MPP and
 NAX fragment paths propagate <code class="docutils literal notranslate"><span class="pre">RELAXED_PRECISION</span></code> through their Metal IR
@@ -454,8 +453,8 @@ references. This requirement is exercised by the migrated normalization tests.</
 </section>
 <section id="related-compiler-designs">
 <h2>Related compiler designs<a class="headerlink" href="#related-compiler-designs" title="Link to this heading">¶</a></h2>
-<p>Meta’s TLX, Triton Low-level Language Extensions, offers explicit buffers
-while leaving their physical layouts inferred from consumers. Its
+<p>Meta’s TLX, Triton Low-level Language Extensions, exposes explicit buffers
+while inferring their physical layouts from consumers. Its
 <code class="docutils literal notranslate"><span class="pre">local_alloc</span></code> separates allocation from buffer views
 and loads; optional layout requirements let experts constrain selected
 values. This is a useful model for top-level memory declarations with
@@ -471,12 +470,12 @@ and <a class="reference external" href="https://triton-lang.org/main/getting-sta
 <p>Meta’s AutoWS design separates scheduling decisions from the passes that
 materialize partitions, storage, and synchronization. In meTile, a schedule
 plan is also separate from the lowering that constructs executable operations.
-This makes the plan available for inspection and testing. See
+Keeping these steps separate lets us inspect and test the plan. See
 <a class="reference external" href="https://facebookexperimental.github.io/triton/website/triton.html">the compiler pipeline</a>.</p>
-<p>An expert control must be either a checked requirement or an explicitly
-documented preference. Unsupported requirements should fail compilation;
-preferences may be overridden with an explanation. No control should be
-accepted and silently ignored.</p>
+<p>An expert control must either enforce a requirement or state that it is a
+preference. Unsupported requirements should fail compilation. The compiler
+may override preferences with an explanation, but should never silently ignore
+an accepted control.</p>
 </section>
 <section id="placement-and-fusion-on-apple-gpus">
 <h2>Placement and fusion on Apple GPUs<a class="headerlink" href="#placement-and-fusion-on-apple-gpus" title="Link to this heading">¶</a></h2>
@@ -486,11 +485,10 @@ pipelining. It also identifies tile size, traversal order, static interior
 extents, and occasional K-loop synchronization as tuning opportunities.
 These are candidate policies, not guarantees for every dtype or workload.
 See the <a class="reference external" href="https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf">MPP programming guide</a>.</p>
-<p>General automatic placement remains future work; there is no
-<code class="docutils literal notranslate"><span class="pre">placement=auto</span></code> tensor option. A placement policy would need to compare
-direct loads, reused values, and staged storage using measured costs and live
-ranges. Quantized unpacking and irregular accesses may need a different
-policy from dense GEMM.</p>
+<p>Automatic placement remains future work; there is no <code class="docutils literal notranslate"><span class="pre">placement=auto</span></code> tensor
+option. Such a policy would need measured costs and live ranges to compare
+direct loads, value reuse and staged storage. Quantized unpacking and irregular
+access may need different policies from dense GEMM.</p>
 <p>Read-only inspection and offline compilation on October 2, 2026 confirmed
 that the installed macOS 26.2 SDK and Metal compiler 32023.864 accept a
 Metal 4.0 shader using cooperative-tensor row reduction and a cooperative
@@ -507,14 +505,14 @@ impose these constraints on that path:</p>
 failed the SDK’s cooperative-input type checks while a mutable tensor view
 compiled. Keep logical read permissions in the IR even when the backend
 needs a mutable view to satisfy this SDK interface.</p>
-<p>These capabilities make general matmul-to-elementwise-to-matmul fusion worth
-investigating. They are not yet a promise that arbitrary meTile operation
-chains can remain in cooperative tensors. Incompatible layouts need an
-explicit conversion or a supported memory path.</p>
+<p>These capabilities provide a starting point for exploring
+matmul-to-elementwise-to-matmul fusion. They do not establish that arbitrary
+meTile chains can stay in cooperative tensors. Incompatible layouts still
+need an explicit conversion or a supported memory path.</p>
 </section>
 <section id="pipeline-and-synchronization-requirements">
 <h2>Pipeline and synchronization requirements<a class="headerlink" href="#pipeline-and-synchronization-requirements" title="Link to this heading">¶</a></h2>
-<p>TLX’s asynchronous descriptor loads name a source descriptor, destination
+<p>TLX’s asynchronous descriptor loads specify a source descriptor, destination
 buffer, tile origin, and completion barrier. Its copy-group operations track
 completion explicitly. See the
 <a class="reference external" href="https://facebookexperimental.github.io/triton/website/async-memory.html">async memory reference</a>.
@@ -528,11 +526,11 @@ NVIDIA/AMD mechanisms do not establish equivalent public Apple instructions.</p>
 <li><p>Execution scope and uniform participation for each collective operation.</p></li>
 <li><p>Pipeline depth constrained by storage capacity and register pressure.</p></li>
 </ul>
-<p>The compiler should derive barriers and rotating-buffer indices from those
-dependencies. An unsupported asynchronous request must be rejected or lowered
-to a documented synchronous implementation with identical semantics; it must
-not pretend a normal load is an asynchronous hardware copy. Existing explicit
-SIMD-group roles are not proof of a general pipeline planner.</p>
+<p>The compiler should derive barriers and rotating-buffer indices from these
+dependencies. If an asynchronous request is unsupported, it must be rejected
+or use a documented synchronous implementation with identical semantics.
+A normal load must not be described as an asynchronous hardware copy. Explicit
+SIMD-group roles alone do not provide a general pipeline planner.</p>
 </section>
 <section id="current-coverage-and-next-steps">
 <h2>Current coverage and next steps<a class="headerlink" href="#current-coverage-and-next-steps" title="Link to this heading">¶</a></h2>
@@ -572,9 +570,9 @@ Normalization was approximately at parity.</p>
 <p>See <a class="reference internal" href="benchmarks.html"><span class="doc">Benchmarks</span></a> for the measurements and artifact links, including
 <code class="docutils literal notranslate"><span class="pre">m5-fp16-tensor-ops.json</span></code>, <code class="docutils literal notranslate"><span class="pre">m5-tensor-memory.json</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">m5-tensor-memory-baseline.json</span></code>. The records preserve source hashes and
-different timing regimes. Cross-revision performance checks use
-<code class="docutils literal notranslate"><span class="pre">benchmarks/regression/paired_regression.py</span></code>; a single current-versus-MLX run does not
-replace that comparison.</p>
+different timing regimes. Use <code class="docutils literal notranslate"><span class="pre">benchmarks/regression/paired_regression.py</span></code>
+for cross-revision performance checks; a single current-versus-MLX run does
+not replace that comparison.</p>
 </section>
 </section>
 

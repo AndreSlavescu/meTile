@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,9 +281,9 @@
         <article role="main" id="furo-main-content">
           <section id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h1>
-<p>meTile runs GPU kernels on Apple Silicon Macs through Metal. Use Python 3.10
-or later. NumPy is the only required Python runtime dependency; the runtime
-also loads the macOS Metal and Objective-C frameworks.</p>
+<p>meTile runs GPU kernels through Metal on Apple Silicon Macs. It requires Python
+3.10 or later and NumPy. At runtime, it also loads the macOS Metal and
+Objective-C frameworks.</p>
 <section id="install-from-the-repository">
 <h2>Install from the repository<a class="headerlink" href="#install-from-the-repository" title="Link to this heading">¶</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/AndreSlavescu/meTile.git
@@ -297,9 +297,9 @@ python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </sp
 compiler, and runtime; <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code> provides ready-made kernels under
 the <code class="docutils literal notranslate"><span class="pre">metile_kernels</span></code> namespace. The <code class="docutils literal notranslate"><span class="pre">dev</span></code> extra adds pytest, Ruff, and
 Vulture.</p>
-<p>To write your own kernels without the ready-made library, install only the
-compiler project with <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">.</span></code>. It has no dependency on
-<code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code>. You can add the library later with
+<p>If you only want to write your own kernels, install the compiler with
+<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">.</span></code>. It does not depend on <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code>.
+Add the library later with
 <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">./kernels</span></code>. Its source lives in
 <code class="docutils literal notranslate"><span class="pre">kernels/src/metile_kernels/</span></code> and it depends on <code class="docutils literal notranslate"><span class="pre">metile</span></code>.</p>
 <p>Optional extras have separate dependencies:</p>
@@ -308,11 +308,11 @@ python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </sp
 python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[mlx-lm]"</span><span class="w"> </span>-e<span class="w"> </span>./kernels
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">docs</span></code> extra installs Sphinx and the documentation theme;
-<code class="docutils literal notranslate"><span class="pre">benchmarks</span></code> adds plotting support; <code class="docutils literal notranslate"><span class="pre">mlx-lm</span></code> adds the MLX model
-dependencies. The MLX integration also needs <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code>, so install
-both projects with the combined command above. Plotting saved results and
-building documentation do not require the kernel library.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">docs</span></code> extra installs Sphinx and the documentation theme.
+<code class="docutils literal notranslate"><span class="pre">benchmarks</span></code> adds plotting support, and <code class="docutils literal notranslate"><span class="pre">mlx-lm</span></code> adds MLX model
+dependencies. MLX integration also needs <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code>; the combined
+command installs both projects. You do not need the kernel library to plot
+saved results or build the docs.</p>
 </section>
 <section id="metal-compiler-and-feature-support">
 <h2>Metal compiler and feature support<a class="headerlink" href="#metal-compiler-and-feature-support" title="Link to this heading">¶</a></h2>
@@ -334,10 +334,9 @@ compiler that accepts <code class="docutils literal notranslate"><span class="pr
 probes this combination before choosing that backend. The direct NAX path
 adds its own target and shape requirements. Do not infer these capabilities
 from an M-series chip name or a Python package installation alone.</p>
-<p>The project does not enforce a single minimum macOS version in its package
-metadata. Available backends depend on the installed OS, device, and
-toolchain; passing the checks below is more useful than assuming that every
-feature works on an older macOS release.</p>
+<p>The package metadata does not enforce a single minimum macOS version.
+Backend support depends on the installed OS, device and toolchain. Run the
+checks below rather than assuming every feature works on an older macOS release.</p>
 </section>
 <section id="check-the-installation">
 <h2>Check the installation<a class="headerlink" href="#check-the-installation" title="Link to this heading">¶</a></h2>
@@ -346,9 +345,9 @@ feature works on an older macOS release.</p>
 python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests/docs/test_documentation_examples.py<span class="w"> </span>-q
 </pre></div>
 </div>
-<p>The first command checks compiler data structures. The second executes the
-complete tutorial examples and compares GPU output with NumPy. GPU execution
-requires the Apple Silicon/Metal environment described above.</p>
+<p>The first command checks compiler data structures without running kernels.
+The second runs the complete tutorial examples and compares GPU output with
+NumPy, so it requires the Apple Silicon/Metal setup described above.</p>
 <p>The tutorial’s attention example uses <code class="docutils literal notranslate"><span class="pre">metile.backends.attention_runtime</span></code>,
 whose GPU kernels come from the companion library; it does not need MLX.
 For the full suite, install both projects and the benchmark extra:</p>

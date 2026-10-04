@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,18 +281,18 @@
         <article role="main" id="furo-main-content">
           <section id="decode-attention">
 <h1>Decode Attention<a class="headerlink" href="#decode-attention" title="Link to this heading">¶</a></h1>
-<p>This page describes the inference decode launcher. For full-sequence stable
-attention, explicit backward kernels, Dual Chunk Attention, and GDN/KDA,
-see <a class="reference internal" href="../guide/training.html"><span class="doc">Training kernels and gradients</span></a> and the <a class="reference internal" href="../guide/kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> checklist.</p>
+<p>Use this launcher for inference decoding. For full-sequence stable attention,
+explicit backward kernels, Dual Chunk Attention and GDN/KDA, see
+<a class="reference internal" href="../guide/training.html"><span class="doc">Training kernels and gradients</span></a> and the <a class="reference internal" href="../guide/kernel-coverage.html"><span class="doc">Kernel coverage and training scope</span></a> checklist.</p>
 <p><code class="docutils literal notranslate"><span class="pre">metile.backends.attention_runtime.attention_decode</span></code> computes attention for one query token
 per head. It supports multi-head attention (MHA), grouped-query attention
 (GQA), and multi-query attention (MQA). The kernel streams keys and values
 while maintaining an online softmax state, avoiding a full attention-score
 matrix in device memory.</p>
-<p>The backend owns argument validation, scratch allocation, tuning, and
-multi-pass dispatch. GPU kernels remain in <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention</span></code>;
-install both projects as shown in <a class="reference internal" href="../getting-started/install.html"><span class="doc">Installation</span></a>. This
-backend does not require MLX.</p>
+<p>The backend validates arguments, allocates scratch buffers, tunes candidates
+and dispatches the passes. GPU kernels live in <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention</span></code>;
+install both projects as shown in <a class="reference internal" href="../getting-started/install.html"><span class="doc">Installation</span></a>. This example
+does not require MLX.</p>
 <p>Code using <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention_decode</span></code> or
 <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention_runtime</span></code> should use the backend import below.
 The launcher arguments and preparation behavior are unchanged.</p>
@@ -333,19 +333,19 @@ use contiguous float32 storage.</p>
 <span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">numpy</span><span class="p">(),</span> <span class="n">reference</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>The layout contract is query/output <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">query_heads,</span> <span class="pre">head_dim]</span></code> and
-key/value <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">key_value_heads,</span> <span class="pre">tokens,</span> <span class="pre">head_dim]</span></code>. Batch size, head
-counts, and context length must be positive. Query heads must be divisible by
-key/value heads; the head dimension must be a positive multiple of 32.
+<p>Query and output have shape <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">query_heads,</span> <span class="pre">head_dim]</span></code>; key and value
+have shape <code class="docutils literal notranslate"><span class="pre">[batch,</span> <span class="pre">key_value_heads,</span> <span class="pre">tokens,</span> <span class="pre">head_dim]</span></code>. Batch size, head
+counts, and context length must be positive. The number of query heads must
+be divisible by the number of key/value heads; the head dimension must be a
+positive multiple of 32.
 The public decode wrapper validates float32 storage and buffer capacity.</p>
 </section>
 <section id="preparation-and-reuse">
 <h2>Preparation and reuse<a class="headerlink" href="#preparation-and-reuse" title="Link to this heading">¶</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">prepare</span></code> runs candidate kernels when tuning is needed, so it can write
-the output before returning. The returned dispatcher retains the supplied
-buffers and fixed dimensions. It is useful for repeating that same problem;
-prepare again when the context length, shape, or buffer bindings change.
-Reading <code class="docutils literal notranslate"><span class="pre">output.numpy()</span></code> synchronizes pending work.</p>
+<p><code class="docutils literal notranslate"><span class="pre">prepare</span></code> runs candidates when tuning is needed and may write the output
+before returning. Its dispatcher retains the supplied buffers and dimensions
+for repeated calls. Prepare again if the context length, shape or buffer
+bindings change. Reading <code class="docutils literal notranslate"><span class="pre">output.numpy()</span></code> synchronizes pending work.</p>
 <p>The search compares single-pass threadgroups with 32 through 1024 threads
 and, for longer contexts, two-pass candidates. The latter split tokens across
 threadgroups, then merge unnormalized softmax partials in another kernel.
@@ -357,10 +357,10 @@ selected configuration and measured latency can be reused across processes.</p>
 </section>
 <section id="inside-the-recurrence">
 <h2>Inside the recurrence<a class="headerlink" href="#inside-the-recurrence" title="Link to this heading">¶</a></h2>
-<p>Each SIMDgroup tracks a running maximum, normalization sum, and weighted
-output. When the maximum changes, the previous sum and output are rescaled
-before the next contribution is added. Shared memory and a threadgroup
-barrier make the final merge possible.</p>
+<p>Each SIMDgroup tracks a running maximum, normalization sum and weighted
+output. When the maximum changes, it rescales the previous sum and output
+before adding the next contribution. Shared memory and a threadgroup barrier
+coordinate the final merge.</p>
 <p>The implementation uses ordinary frontend operations: <code class="docutils literal notranslate"><span class="pre">scalar</span></code> for
 loop-carried scalar state, <code class="docutils literal notranslate"><span class="pre">tile_range</span></code> for token iteration,
 <code class="docutils literal notranslate"><span class="pre">simd_sum</span></code> and <code class="docutils literal notranslate"><span class="pre">simd_max</span></code> for SIMDgroup reductions, and <code class="docutils literal notranslate"><span class="pre">fast_exp</span></code>

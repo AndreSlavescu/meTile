@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,11 +281,11 @@
         <article role="main" id="furo-main-content">
           <section id="tile-operations-and-hardware-mapping">
 <h1>Tile Operations and Hardware Mapping<a class="headerlink" href="#tile-operations-and-hardware-mapping" title="Link to this heading">¶</a></h1>
-<p>A matrix tile describes a piece of the computation, not a fixed set of GPU
-instructions. The compiler chooses how threads load that tile, hold its
-accumulators, and perform <code class="docutils literal notranslate"><span class="pre">dot</span></code>. Tile sizes, dtype, device capabilities,
-and schedule requirements all constrain that choice.</p>
-<p>Start with <a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> for a runnable example. New kernels should
+<p>A matrix tile describes part of the computation, not a fixed sequence of GPU
+instructions. The compiler decides how threads load it, hold its accumulators
+and perform <code class="docutils literal notranslate"><span class="pre">dot</span></code>, within the limits of the tile sizes, dtype, device and
+schedule requirements.</p>
+<p>See <a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> for a working example. New kernels should
 declare <code class="docutils literal notranslate"><span class="pre">metile.tensor(...,</span> <span class="pre">block_shape=...)</span></code> views so the compiler knows
 their dimensions, bounds, and memory layouts. The older <code class="docutils literal notranslate"><span class="pre">tile_load</span></code> and
 <code class="docutils literal notranslate"><span class="pre">tile_store</span></code> interface remains available for existing kernels.</p>
@@ -305,14 +305,14 @@ Metal IR operations. It is tuned for the M5 workloads measured in this
 repository. Its current matrix schedule requires 32-by-32 output fragments
 per SIMDgroup, a reduction tile of 16, and aligned output-column and reduction
 dimensions. It is not a fallback for arbitrary ragged matrices.</p>
-<p>Automatic selection chooses an admissible lowering; it does not benchmark
-every backend during an ordinary kernel launch. Use autotuning to compare
-candidate schedules, or <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> to request a
-specific supported plan. See <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
+<p>Automatic selection chooses a legal implementation; an ordinary launch does
+not benchmark every backend. Use autotuning to compare schedules, or
+<code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> to require a particular supported plan.
+See <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
 </section>
 <section id="how-tiling-works">
 <h2>How tiling works<a class="headerlink" href="#how-tiling-works" title="Link to this heading">¶</a></h2>
-<a class="reference internal image-reference" href="../_images/tiling-overview.svg"><img alt="Programs own output tiles and accumulate products from paired tiles along the reduction axis" src="../_images/tiling-overview.svg" style="width: 100%;" />
+<a class="reference external image-reference" href="../_static/tiling-overview.svg"><img alt="Programs own output tiles and accumulate products from paired tiles along the reduction axis" src="../_images/tiling-overview.svg" style="width: 100%;" />
 </a>
 <p>A program owns one <code class="docutils literal notranslate"><span class="pre">BLOCK_M</span></code>-by-<code class="docutils literal notranslate"><span class="pre">BLOCK_N</span></code> output tile. It initializes
 a float32 accumulator, then iterates over the reduction dimension in
@@ -357,11 +357,11 @@ described by the declared bounds.</p>
 </tbody>
 </table>
 </div>
-<p>These values are examples, not freely interchangeable options. The planner
-checks thread count, matrix fragment geometry, shared memory, and backend
-constraints. With a 128-by-128 output tile and a 4-by-4 tensor-ops SIMDgroup
-grid, each of the 16 SIMDgroups owns a 32-by-32 subtile:</p>
-<a class="reference internal image-reference" href="../_images/simdgroup-layout.svg"><img alt="Sixteen SIMDgroups divide a 128 by 128 output tile into 32 by 32 subtiles" src="../_images/simdgroup-layout.svg" style="width: 100%;" />
+<p>Not every combination of these example values is legal. The planner checks
+thread count, fragment geometry, shared memory and backend constraints. With
+a 128-by-128 output tile and a 4-by-4 tensor-ops SIMDgroup grid, each of the
+16 SIMDgroups owns a 32-by-32 subtile:</p>
+<a class="reference external image-reference" href="../_static/simdgroup-layout.svg"><img alt="Sixteen SIMDgroups divide a 128 by 128 output tile into 32 by 32 subtiles" src="../_images/simdgroup-layout.svg" style="width: 100%;" />
 </a>
 <p>Float16 input storage can reduce bandwidth and register use while retaining
 float32 accumulation on supported paths. Float32 tensor-ops configurations
@@ -371,25 +371,23 @@ against the accuracy requirements of the application.</p>
 </section>
 <section id="pointwise-epilogues">
 <h2>Pointwise epilogues<a class="headerlink" href="#pointwise-epilogues" title="Link to this heading">¶</a></h2>
-<p>Supported arithmetic after the reduction loop can be applied before the
-output store. ReLU, scaling, and suitable GELU or SiLU expressions can thereby
-avoid an intermediate device-memory write/read and a second kernel launch.</p>
+<p>The compiler can apply supported arithmetic after the reduction loop and
+before the output store. This lets ReLU, scaling and suitable GELU or SiLU
+expressions avoid an intermediate device-memory write/read and a second launch.</p>
 <p>The descriptor epilogue extractor follows the stored expression’s dependency
 graph. It supports selected unary, arithmetic, comparison, selection, and cast
 operations rooted in the float32 accumulator, with independent scalar
 coefficients. Extra memory accesses, reductions, incompatible tile types,
 and unsupported control flow are outside this contract.</p>
-<p>Fusion still costs arithmetic and registers. Whether it is faster depends
-on the complete kernel. Inspect <code class="docutils literal notranslate"><span class="pre">dispatch.explain()</span></code> and measure the
-fused candidate rather than treating every epilogue as free. The complete
-contract is in <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
+<p>Fusion still needs instructions and registers, so measure the complete kernel
+to see whether it helps. Inspect <code class="docutils literal notranslate"><span class="pre">dispatch.explain()</span></code> alongside the
+timings. See <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for the supported epilogue contract.</p>
 </section>
 <section id="tile-traversal">
 <h2>Tile traversal<a class="headerlink" href="#tile-traversal" title="Link to this heading">¶</a></h2>
 <p>Changing the mapping from threadgroups to output coordinates can improve
-reuse of input regions in cache. It does not guarantee the order in which
-the GPU physically executes threadgroups.</p>
-<a class="reference internal image-reference" href="../_images/morton-swizzle.svg"><img alt="Linear and Morton mappings visit output tiles in different coordinate orders" src="../_images/morton-swizzle.svg" style="width: 100%;" />
+cache reuse. It does not control the order in which the GPU runs threadgroups.</p>
+<a class="reference external image-reference" href="../_static/morton-swizzle.svg"><img alt="Linear and Morton mappings visit output tiles in different coordinate orders" src="../_images/morton-swizzle.svg" style="width: 100%;" />
 </a>
 <p>The supported patterns include:</p>
 <ul class="simple">
@@ -410,8 +408,8 @@ neighboring output-row tiles before moving across columns.</p></li>
 <p>Use <code class="docutils literal notranslate"><span class="pre">block_size=4</span></code> for Hilbert. Morton and Hilbert requests fall back to
 a valid traversal when the grid cannot be divided into their required panels.
 With <code class="docutils literal notranslate"><span class="pre">pattern=&quot;auto&quot;</span></code>, schedule algebra compares finite permutations and
-removes equivalent candidates before selection. This compiler search is
-distinct from timing candidates on the GPU.</p>
+removes equivalent candidates before selection. This compiler-side search
+does not run and time candidates on the GPU.</p>
 </section>
 <section id="fragment-operations-and-live-values">
 <h2>Fragment operations and live values<a class="headerlink" href="#fragment-operations-and-live-values" title="Link to this heading">¶</a></h2>
@@ -419,7 +417,7 @@ distinct from timing candidates on the GPU.</p>
 epilogue, and store operations into smaller pieces: tile/lane layout,
 accumulator initialization, vector fragment loads, cooperative-tensor
 packing, matrix multiply, pointwise apply, and fragment stores. Passes can
-then transform those pieces without substituting an entire shader template.</p>
+then transform those pieces without replacing an entire shader template.</p>
 <p>Dense GEMM candidates vary reduction epochs and may preload two adjacent
 reduction fragments before their matrix operations. Other candidates move
 epoch fences or omit a redundant initial fence. These choices change address

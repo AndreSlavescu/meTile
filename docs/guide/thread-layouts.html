@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,13 +281,13 @@
         <article role="main" id="furo-main-content">
           <section id="thread-ownership-and-software-staging">
 <h1>Thread Ownership and Software Staging<a class="headerlink" href="#thread-ownership-and-software-staging" title="Link to this heading">¶</a></h1>
-<p>Tensor declarations describe logical memory. Thread layouts describe which GPU
-thread owns each logical value. Keeping these separate lets the compiler select
-communication without putting pointer arithmetic, scratch arrays and barriers
-into every kernel definition.</p>
+<p>Tensor declarations describe logical memory; thread layouts assign each logical
+value to a GPU thread. Keeping these separate lets the compiler arrange
+communication without requiring pointer arithmetic, scratch arrays and barriers
+in every kernel.</p>
 <p>Explicit layouts support 1, 2, 4, 8, 16, or 32 scalar values per thread in
-straight-line programs using tensor descriptors. Multi-register paths also
-support FP32 sum reductions. The subset is deliberately limited; existing
+straight-line programs with tensor descriptors. Multi-register paths also
+support FP32 sum reductions. These controls cover a limited subset; existing
 kernels keep their automatic execution path.</p>
 <section id="declare-memory-first-then-ownership">
 <h2>Declare memory first, then ownership<a class="headerlink" href="#declare-memory-first-then-ownership" title="Link to this heading">¶</a></h2>
@@ -327,12 +327,12 @@ ownership. <code class="docutils literal notranslate"><span class="pre">logical_
 elements; <code class="docutils literal notranslate"><span class="pre">thread_count</span></code> counts physical threads. The representation supports
 bit permutations plus an XOR constant, rather than arbitrary binary linear
 transformations.</p>
-<p>The compiler propagates ownership through arithmetic, comparisons, selections,
-casts and descriptor loads. Uniform scalar values broadcast. Combining tiles
-with different owners requires an explicit <code class="docutils literal notranslate"><span class="pre">convert_layout</span></code>; implicit
-ownership means identity when it interacts with an explicit layout. A legacy
-operation that loses per-thread ownership by reporting a nonuniform scalar is
-rejected rather than treated as a uniform broadcast.</p>
+<p>Arithmetic, comparisons, selections, casts and descriptor loads preserve
+ownership. Uniform scalars broadcast. To combine tiles with different owners,
+use an explicit <code class="docutils literal notranslate"><span class="pre">convert_layout</span></code>; an implicit layout means identity when
+combined with an explicit one. Legacy operations that report a nonuniform
+scalar lose per-thread ownership. The compiler rejects those values rather
+than treating them as uniform broadcasts.</p>
 </section>
 <section id="compiler-selected-communication">
 <h2>Compiler-selected communication<a class="headerlink" href="#compiler-selected-communication" title="Link to this heading">¶</a></h2>
@@ -362,10 +362,10 @@ load from the source owner, then release with a second barrier.</p></td>
 </tbody>
 </table>
 </div>
-<p>Every launched thread participates in an exchange, even when its logical device
-load or store is out of bounds. Scratch can be reused by later conversions of
-the same dtype only after the release barrier. A post-pass verifier checks the
-allocation, owner map, geometry, unconditional barriers and access sequence.
+<p>Every launched thread takes part in an exchange, whether or not its logical
+device load or store is in bounds. Later conversions of the same dtype can
+reuse scratch only after the release barrier. After the pass, a verifier checks
+the allocation, owner map, geometry, unconditional barriers and access sequence.
 <code class="docutils literal notranslate"><span class="pre">execution_report.value_layouts</span></code> records per-value ownership;
 <code class="docutils literal notranslate"><span class="pre">layout_conversions</span></code> records each chosen mechanism and scratch identity.
 <code class="docutils literal notranslate"><span class="pre">allocations</span></code> includes the actual byte count.</p>
@@ -398,21 +398,20 @@ positions, with <code class="docutils literal notranslate"><span class="pre">Thr
 <span class="pre">elements_per_thread=4)</span></code>, instead gives each thread four adjacent elements.
 This is logical register ownership, not a promise of specific hardware register
 numbers, vector memory instructions, occupancy or spill-free machine code.</p>
-<p>The compiler scalarizes ordinary pointwise operations into one SSA value per
-register slot, preserving each slot’s address, bounds mask, fill and dtype.
-An FP32 <code class="docutils literal notranslate"><span class="pre">sum</span></code> first combines local values in a balanced tree, then uses the
-SIMD/threadgroup reduction primitive. Every thread participates, including
-threads with masked
-device accesses. A one-SIMD-group reduction needs no shared storage; larger
-groups allocate one FP32 partial per SIMD group. The result is uniform and can
-broadcast into subsequent tile arithmetic. Other reduction operations and
-FP16 accumulation reject; cast to FP32 before summing.</p>
-<p>Lowering also makes the verified physical-thread range visible to Apple’s
-compiler. It masks the thread index to <code class="docutils literal notranslate"><span class="pre">thread_count</span> <span class="pre">-</span> <span class="pre">1</span></code> once before adding
-register offsets. This is an identity for every legal launched thread, but
-exposes known zero bits that simplify ownership permutations and eliminate
-redundant bounds checks. The launch geometry remains a checked contract, not
-an assumption about an arbitrary caller-supplied index.</p>
+<p>The compiler lowers ordinary pointwise operations to one SSA value per register
+slot, preserving each slot’s address, bounds mask, fill and dtype. An FP32
+<code class="docutils literal notranslate"><span class="pre">sum</span></code> combines local values in a balanced tree, then uses the SIMD/threadgroup
+reduction primitive. Every thread participates, including those with masked
+device accesses. One SIMD group needs no shared storage; larger groups allocate
+one FP32 partial per SIMD group. The uniform result can broadcast into later
+tile arithmetic. Other reductions and FP16 accumulation are rejected; cast to
+FP32 before summing.</p>
+<p>Lowering exposes the verified physical-thread range to Apple’s compiler by
+masking the thread index to <code class="docutils literal notranslate"><span class="pre">thread_count</span> <span class="pre">-</span> <span class="pre">1</span></code> before adding register offsets.
+This leaves every legal thread index unchanged while exposing zero bits that
+simplify ownership permutations and eliminate redundant bounds checks. The
+compiler checks the launch geometry; it does not assume these bounds for an
+arbitrary caller-supplied index.</p>
 <p>For private reduction scratch, every SIMD group reads the published partials
 and independently computes the final sum. This removes the second barrier and
 shared-result broadcast from the legacy reduction. The initial threadgroup
@@ -436,7 +435,7 @@ register/thread partition:</p>
 uses 64 threads and sixteen values per thread. With 32 values per thread,
 the same logical tile uses one SIMD group and no reduction scratch or
 threadgroup barrier. This trades parallelism for per-thread work and live
-values; fewer threads are not automatically faster. The compiler still owns
+values; fewer threads are not inherently faster. The compiler still owns
 scalarization, reduction trees, scratch allocation and barrier placement.</p>
 <p><code class="docutils literal notranslate"><span class="pre">N</span></code> and <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> are compile-time values; <code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">&lt;</span> <span class="pre">N</span> <span class="pre">&lt;=</span> <span class="pre">BLOCK</span></code> is required.
 The supplied buffers must contain <code class="docutils literal notranslate"><span class="pre">rows</span> <span class="pre">*</span> <span class="pre">N</span></code> input/output elements and <code class="docutils literal notranslate"><span class="pre">N</span></code>
@@ -484,10 +483,10 @@ compatible chains compose into a single conversion. An intermediate conversion
 with other users remains live. SSA references, including tensor metadata, are
 rewritten on a cloned IR; unchanged programs are returned without cloning.
 <code class="docutils literal notranslate"><span class="pre">execution_report.layout_optimizations</span></code> records the proofs and counts.</p>
-<p>This eliminates barriers only when the communication itself is proven redundant.
-It does not indiscriminately remove release barriers, move communication across
-memory effects, support nonidentity multi-register conversions or weaken the
-staging lifetime contract.</p>
+<p>The pass removes a barrier only when it proves the communication is redundant.
+It does not remove other release barriers, move communication across memory
+effects, support nonidentity multi-register conversions or relax staging
+lifetime checks.</p>
 </section>
 <section id="verified-two-stage-matrix-pipelines">
 <h2>Verified two-stage matrix pipelines<a class="headerlink" href="#verified-two-stage-matrix-pipelines" title="Link to this heading">¶</a></h2>
@@ -514,11 +513,11 @@ partially rewritten. Materialization is idempotent; only the operand allocations
 are duplicated, not unrelated scratch. The emitter consumes verified phases
 without mutating the original loop. <code class="docutils literal notranslate"><span class="pre">execution_report.pipelines</span></code> exposes this
 contract and the allocation report exposes its storage cost.</p>
-<p>This is synchronous software staging. It does not claim hardware-asynchronous
-copies or guaranteed load/compute overlap. Native MPP/device staging remains the
-automatic path where already selected; explicit shared-memory staging is not
-assumed to be faster. Specialized producer/consumer kernels retain a separate,
-restricted implementation rather than pretending to share this general proof.</p>
+<p>This is synchronous software staging, not hardware-asynchronous copying or a
+guarantee of load/compute overlap. Where automatic selection already chooses
+native MPP/device staging, it still does; shared-memory staging is not assumed
+faster. Specialized producer/consumer kernels retain their separate, restricted
+implementation and are not covered by this proof.</p>
 </section>
 <section id="research-and-remaining-work">
 <h2>Research and remaining work<a class="headerlink" href="#research-and-remaining-work" title="Link to this heading">¶</a></h2>
@@ -535,9 +534,9 @@ threadgroup storage and occupancy. This is why native tensor operations and
 explicit scalar communication remain separate choices rather than forcing every
 kernel through shared-memory templates. The research-only AIR and native AGX
 routes remain separate; see <a class="reference internal" href="compiler-bypasses.html"><span class="doc">Compiler Bypasses and Native Code</span></a>.</p>
-<p>Next steps include broader reduction/layout composition, multi-register
-redistribution, cost-based conversion selection, and native tensor chaining.
-Each needs correctness and performance evidence before changing defaults.</p>
+<p>Further work includes composing more reductions and layouts, redistributing
+multi-register tiles, choosing conversions by cost and chaining native tensors.
+Each needs correctness and performance evidence before it can change defaults.</p>
 </section>
 <section id="measurements-and-reproduction">
 <h2>Measurements and reproduction<a class="headerlink" href="#measurements-and-reproduction" title="Link to this heading">¶</a></h2>

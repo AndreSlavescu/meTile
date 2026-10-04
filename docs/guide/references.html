@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,14 +281,14 @@
         <article role="main" id="furo-main-content">
           <section id="research-references">
 <h1>Research references<a class="headerlink" href="#research-references" title="Link to this heading">¶</a></h1>
-<p>meTile borrows ideas from several compiler and GPU-programming projects. These
-references explain the ideas, but they aren’t evidence that meTile has the same
-feature coverage or performance.</p>
+<p>These sources explain the compiler and GPU-programming ideas that inform
+meTile. Citing a project does not imply that meTile matches its feature coverage
+or performance.</p>
 <section id="tiled-programming-and-layouts">
 <h2>Tiled programming and layouts<a class="headerlink" href="#tiled-programming-and-layouts" title="Link to this heading">¶</a></h2>
 <p><a class="reference external" href="https://doi.org/10.1145/3315508.3329973">Triton</a> introduced a compiler and
-intermediate language for tiled neural-network kernels. Its programming model
-informs meTile’s Python kernel language. <a class="reference external" href="https://arxiv.org/abs/2603.02298">CuTe’s layout algebra</a> informs the separation of logical coordinates
+intermediate language for tiled neural-network kernels. meTile’s Python kernel
+language takes its cue from Triton’s programming model. <a class="reference external" href="https://arxiv.org/abs/2603.02298">CuTe’s layout algebra</a> informs the separation of logical coordinates
 from memory and execution layouts.</p>
 <p>For distributed ownership, see Triton’s <a class="reference external" href="https://triton-lang.org/main/getting-started/tutorials/gluon/layouts.html">Gluon layout tutorial</a>
 and the <a class="reference external" href="https://arxiv.org/abs/2505.23819">Linear Layouts paper</a>. meTile’s
@@ -298,15 +298,15 @@ implementation of every Gluon or CuTe layout.</p>
 <section id="selecting-compiler-rewrites">
 <h2>Selecting compiler rewrites<a class="headerlink" href="#selecting-compiler-rewrites" title="Link to this heading">¶</a></h2>
 <p><a class="reference external" href="https://cs.uwaterloo.ca/~lapchi/cs341-2025/notes.html">Lap Chi Lau’s CS 341 notes</a> cover maximum flow,
-minimum cut and project selection. The project-selection reduction helped
-shape meTile’s rewrite selector. <a class="reference external" href="https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467">Horace He’s AOTAutograd discussion</a>
+minimum cut and project selection. The project author attended CS 341 with
+Lap Chi Lau in Spring 2025; the course’s treatment of project selection helped
+shape meTile’s rewrite selector.</p>
+<p><a class="reference external" href="https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467">Horace He’s AOTAutograd discussion</a>
 shows min-cut applied to a different compiler problem: choosing activations to
 save or recompute.</p>
-<p>The project author’s CS 341 course with Lap Chi Lau in Spring 2025 helped
-inspire this direction, particularly the treatment of project selection.</p>
-<p>In meTile, overlapping rewrite candidates form a conflict graph. An s-t min-cut
-selects a maximum-weight independent set when a conflict component is
-bipartite. Non-bipartite components use a deterministic greedy fallback.
+<p>meTile represents overlapping rewrite candidates as a conflict graph. For
+each bipartite component, an s-t min-cut selects a maximum-weight independent
+set. Non-bipartite components use a deterministic greedy fallback.
 The implementation does <strong>not</strong> solve arbitrary maximum-weight independent
 set problems with min-cut. See <a class="reference internal" href="graph-fusion.html"><span class="doc">Compute-Graph Fusion</span></a> and <a class="reference internal" href="architecture.html"><span class="doc">Compiler Architecture</span></a>.</p>
 </section>
@@ -316,9 +316,9 @@ set problems with min-cut. See <a class="reference internal" href="graph-fusion.
 defines shader types, address spaces and synchronization rules. Apple’s
 <a class="reference external" href="https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf">Metal Performance Primitives guide</a>
 describes the native tensor operations used by eligible backends.</p>
-<p>The <a class="reference internal" href="compiler-bypasses.html"><span class="doc">Compiler Bypasses and Native Code</span></a> guide separates supported Metal compilation from
-AIR and native-ISA research. Emitting a vector expression or changing AIR does
-not guarantee a particular final GPU instruction sequence.</p>
+<p><a class="reference internal" href="compiler-bypasses.html"><span class="doc">Compiler Bypasses and Native Code</span></a> explains the boundary between supported Metal
+compilation and AIR or native-ISA research. Neither a vector expression in MSL
+nor a change to AIR guarantees a particular final GPU instruction sequence.</p>
 </section>
 <section id="bibliography">
 <h2>Bibliography<a class="headerlink" href="#bibliography" title="Link to this heading">¶</a></h2>

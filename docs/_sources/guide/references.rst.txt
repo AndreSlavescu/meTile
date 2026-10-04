@@ -1,16 +1,16 @@
 Research references
 ===================
 
-meTile borrows ideas from several compiler and GPU-programming projects. These
-references explain the ideas, but they aren't evidence that meTile has the same
-feature coverage or performance.
+These sources explain the compiler and GPU-programming ideas that inform
+meTile. Citing a project does not imply that meTile matches its feature coverage
+or performance.
 
 Tiled programming and layouts
 -----------------------------
 
 `Triton <https://doi.org/10.1145/3315508.3329973>`_ introduced a compiler and
-intermediate language for tiled neural-network kernels. Its programming model
-informs meTile's Python kernel language. `CuTe's layout algebra
+intermediate language for tiled neural-network kernels. meTile's Python kernel
+language takes its cue from Triton's programming model. `CuTe's layout algebra
 <https://arxiv.org/abs/2603.02298>`_ informs the separation of logical coordinates
 from memory and execution layouts.
 
@@ -25,18 +25,18 @@ Selecting compiler rewrites
 
 `Lap Chi Lau's CS 341 notes
 <https://cs.uwaterloo.ca/~lapchi/cs341-2025/notes.html>`_ cover maximum flow,
-minimum cut and project selection. The project-selection reduction helped
-shape meTile's rewrite selector. `Horace He's AOTAutograd discussion
+minimum cut and project selection. The project author attended CS 341 with
+Lap Chi Lau in Spring 2025; the course's treatment of project selection helped
+shape meTile's rewrite selector.
+
+`Horace He's AOTAutograd discussion
 <https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467>`_
 shows min-cut applied to a different compiler problem: choosing activations to
 save or recompute.
 
-The project author's CS 341 course with Lap Chi Lau in Spring 2025 helped
-inspire this direction, particularly the treatment of project selection.
-
-In meTile, overlapping rewrite candidates form a conflict graph. An s-t min-cut
-selects a maximum-weight independent set when a conflict component is
-bipartite. Non-bipartite components use a deterministic greedy fallback.
+meTile represents overlapping rewrite candidates as a conflict graph. For
+each bipartite component, an s-t min-cut selects a maximum-weight independent
+set. Non-bipartite components use a deterministic greedy fallback.
 The implementation does **not** solve arbitrary maximum-weight independent
 set problems with min-cut. See :doc:`graph-fusion` and :doc:`architecture`.
 
@@ -50,9 +50,9 @@ defines shader types, address spaces and synchronization rules. Apple's
 <https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf>`_
 describes the native tensor operations used by eligible backends.
 
-The :doc:`compiler-bypasses` guide separates supported Metal compilation from
-AIR and native-ISA research. Emitting a vector expression or changing AIR does
-not guarantee a particular final GPU instruction sequence.
+:doc:`compiler-bypasses` explains the boundary between supported Metal
+compilation and AIR or native-ISA research. Neither a vector expression in MSL
+nor a change to AIR guarantees a particular final GPU instruction sequence.
 
 Bibliography
 ------------

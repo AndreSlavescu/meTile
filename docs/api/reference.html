@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,16 +281,16 @@
         <article role="main" id="furo-main-content">
           <section id="api-reference">
 <h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h1>
-<p>This page is a quick index of the public entry points. Kernel operations run
-during tracing inside <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code>; buffers, launchers, and tuning APIs
-are used by host Python code. See <a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> for tracing rules and
-<a class="reference internal" href="../guide/memory.html"><span class="doc">Memory Model</span></a> for storage, dtype, and synchronization details.</p>
-<p>The separately installed <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code> project provides ready-made
-operations under <code class="docutils literal notranslate"><span class="pre">metile_kernels</span></code>, such as <code class="docutils literal notranslate"><span class="pre">metile_kernels.gemm.matmul</span></code>
-and <code class="docutils literal notranslate"><span class="pre">metile_kernels.attention.attention_decode_kernel</span></code>. Their implementations live in
-<code class="docutils literal notranslate"><span class="pre">kernels/src/metile_kernels/</span></code>. They depend on the compiler; the compiler
-does not require the kernel library. See <a class="reference internal" href="../getting-started/install.html"><span class="doc">Installation</span></a>.</p>
-<p>Host-side decode attention orchestration lives in
+<p>Use kernel operations inside <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code>, where tracing records GPU
+work. Use buffers, launchers and tuning APIs from host Python code. This page
+indexes both; see <a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> for tracing rules and
+<a class="reference internal" href="../guide/memory.html"><span class="doc">Memory Model</span></a> for storage, dtypes and synchronization.</p>
+<p>Install <code class="docutils literal notranslate"><span class="pre">metile-kernels</span></code> for ready-made operations under <code class="docutils literal notranslate"><span class="pre">metile_kernels</span></code>,
+including <code class="docutils literal notranslate"><span class="pre">metile_kernels.gemm.matmul</span></code> and
+<code class="docutils literal notranslate"><span class="pre">metile_kernels.attention.attention_decode_kernel</span></code>. Their source lives in
+<code class="docutils literal notranslate"><span class="pre">kernels/src/metile_kernels/</span></code>. The library depends on the compiler, not the
+other way around. See <a class="reference internal" href="../getting-started/install.html"><span class="doc">Installation</span></a>.</p>
+<p>Host-side decode attention is provided by
 <code class="docutils literal notranslate"><span class="pre">metile.backends.attention_runtime.attention_decode</span></code>. This optional backend
 requires the kernel library, but not MLX. See <a class="reference internal" href="../examples/attention.html"><span class="doc">Decode Attention</span></a> for
 its launcher API and migration from the former kernel-package import.</p>
@@ -384,10 +384,10 @@ stays outside those kernel modules.</p>
 </tbody>
 </table>
 </div>
-<p>Preparation may modify outputs. Use explicit <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> objects when reusing
-a dispatcher: subsequent calls do not repeat implicit NumPy conversion or
-copy results into the original NumPy arrays. The ordinary launch cache also
-depends on input dtypes and relevant compilation settings, not just constexprs.</p>
+<p>Preparation can modify outputs. For a reusable dispatcher, pass explicit
+<code class="docutils literal notranslate"><span class="pre">Buffer</span></code> objects: later calls do not repeat implicit NumPy conversion or
+copy results back to the original arrays. The ordinary launch cache depends
+on input dtypes and relevant compilation settings as well as constexprs.</p>
 <p>Pass <code class="docutils literal notranslate"><span class="pre">STRICT_MATH=True</span></code> to disable Metal fast-math in both compilation paths.
 This boolean is part of compilation cache identity. It does not override an
 explicit fast intrinsic or change the selected matrix arithmetic precision.</p>
@@ -424,8 +424,8 @@ explicit fast intrinsic or change the selected matrix arithmetic precision.</p>
 </tbody>
 </table>
 </div>
-<p>Keep the buffer alive while using a NumPy view of it. Storage dtypes must be
-supported by the launcher and the selected operation; float64 arrays are not
+<p>Keep the buffer alive until its NumPy view is no longer needed. Storage dtypes
+must be supported by the launcher and the selected operation; float64 arrays are not
 supported kernel inputs. Declaring a tensor view does not convert storage.</p>
 </section>
 <section id="program-identity">
@@ -703,9 +703,9 @@ unmasked memory access safe. Mask the load itself or use a tensor view.</p>
 </tbody>
 </table>
 </div>
-<p>These reduce a supported logical tile. <code class="docutils literal notranslate"><span class="pre">simd_sum</span></code> and <code class="docutils literal notranslate"><span class="pre">simd_max</span></code> below
-operate only within the current SIMDgroup. Padding and reduction identities
-must match; see <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a>.</p>
+<p>These operations reduce a supported logical tile. By contrast, <code class="docutils literal notranslate"><span class="pre">simd_sum</span></code>
+and <code class="docutils literal notranslate"><span class="pre">simd_max</span></code> below reduce only within the current SIMDgroup. Choose padding
+that matches the reduction’s identity; see <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a>.</p>
 </section>
 <section id="simdgroup-operations">
 <h2>Simdgroup Operations<a class="headerlink" href="#simdgroup-operations" title="Link to this heading">¶</a></h2>
@@ -845,11 +845,11 @@ an appropriate reference and tolerance.</p>
 <section id="model-integration">
 <h2>Model Integration<a class="headerlink" href="#model-integration" title="Link to this heading">¶</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">metile.compile(model,</span> <span class="pre">*,</span> <span class="pre">verify=True,</span> <span class="pre">features=...,</span> <span class="pre">tolerance=...)</span></code> modifies
-a loaded MLX-LM model in place and returns a <code class="docutils literal notranslate"><span class="pre">CompileReport</span></code>. The report
-describes accepted and declined replacements; <code class="docutils literal notranslate"><span class="pre">report.restore()</span></code> restores
-the previous implementations. Verification uses a finite probe, not a proof
-over all possible model inputs. See <a class="reference internal" href="../guide/mlx-backend.html"><span class="doc">MLX-LM Backend</span></a> for setup,
-verification settings, and the limitations of that check.</p>
+a loaded MLX-LM model in place and returns a <code class="docutils literal notranslate"><span class="pre">CompileReport</span></code> listing accepted
+and declined replacements. Call <code class="docutils literal notranslate"><span class="pre">report.restore()</span></code> to restore the previous
+implementations. Verification checks a finite probe; it does not prove
+correctness for every model input. See <a class="reference internal" href="../guide/mlx-backend.html"><span class="doc">MLX-LM Backend</span></a> for setup,
+verification settings and the limits of that check.</p>
 </section>
 <section id="related-host-apis">
 <h2>Related Host APIs<a class="headerlink" href="#related-host-apis" title="Link to this heading">¶</a></h2>
@@ -857,9 +857,10 @@ verification settings, and the limitations of that check.</p>
 layouts on the host. They are distinct from <code class="docutils literal notranslate"><span class="pre">ThreadLayout</span></code>, which specifies
 physical thread/register ownership inside a kernel.</p>
 <p><code class="docutils literal notranslate"><span class="pre">GlobalAddressSpace</span></code>, <code class="docutils literal notranslate"><span class="pre">TensorView</span></code>, <code class="docutils literal notranslate"><span class="pre">TiledView</span></code>, and <code class="docutils literal notranslate"><span class="pre">KernelPipeline</span></code>
-provide host-side allocation, view, and composition utilities. They are also
-distinct from the traced <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> declaration. For graph construction
-and fusion planning, see <a class="reference internal" href="../guide/graph-fusion.html"><span class="doc">Compute-Graph Fusion</span></a>.</p>
+provide host-side helpers for allocating memory, constructing views and
+composing pipelines. These are separate from the traced <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code>
+declaration. For graph construction and fusion planning, see
+<a class="reference internal" href="../guide/graph-fusion.html"><span class="doc">Compute-Graph Fusion</span></a>.</p>
 </section>
 </section>
 

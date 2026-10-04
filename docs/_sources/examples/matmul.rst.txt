@@ -1,9 +1,9 @@
 Matrix Multiply (GEMM)
 ======================
 
-A matrix multiply reduces pairs of input tiles into an output tile. This
-example uses contiguous float32 matrices and deliberately uneven dimensions,
-so loads and stores must handle partial tiles.
+A matrix multiply accumulates products of input tiles into an output tile.
+This example uses contiguous float32 matrices with uneven dimensions to
+exercise partial loads and stores.
 
 .. code-block:: python
 
@@ -59,10 +59,11 @@ How the tiles fit together
 --------------------------
 
 .. image:: /_static/gemm-tiling.svg
+   :target: ../_static/gemm-tiling.svg
    :alt: Each program owns an output matrix tile and accumulates products along K
    :width: 100%
 
-``block_shape`` defines the matrix tile loaded or stored by a view. Here,
+``block_shape`` sets the matrix tile that a view loads or stores. Here,
 each program owns a 32-by-32 output tile. Every loop iteration loads a
 32-by-16 left tile and a 16-by-32 right tile, then accumulates their product
 with ``dot``. The logical tensor shapes supply bounds for all three axes:
@@ -75,15 +76,15 @@ to the output storage dtype. Use positive dimensions. Not every tile size,
 dtype, and schedule combination is legal. See :doc:`/guide/tensor-memory` and
 :doc:`/guide/tile-ops` before changing them.
 
-The compiler chooses a supported matrix backend using device and toolchain
-capabilities. A newer chip name alone does not establish Metal 4 tensor-ops
-support. The direct NAX path has additional tile and alignment requirements.
+The compiler chooses a matrix backend supported by the device and toolchain.
+A newer chip name alone does not establish Metal 4 tensor-ops support. The
+direct NAX path also has tile and alignment requirements.
 
 Fuse an activation
 ------------------
 
-The ``RELU`` argument is a compile-time boolean. With ``RELU=True``, the
-compiler incorporates the pointwise activation into the GEMM epilogue:
+The ``RELU`` argument is a compile-time boolean. Set ``RELU=True`` to include
+the pointwise activation in the GEMM epilogue:
 
 .. code-block:: python
 
@@ -127,8 +128,8 @@ recomputed for each candidate, so every candidate covers the full output.
    )
    np.testing.assert_allclose(output_buffer.numpy(), reference, rtol=1e-4, atol=1e-4)
 
-Tuning executes candidates and writes the output. Measure its cost separately
-from repeated execution of the selected kernel. Tile traversal is another
-schedule choice: ``tile_swizzle`` supports automatic selection or explicit
-patterns such as Morton and Hilbert. See :doc:`/guide/autotuning` and
-:doc:`/guide/tile-ops` for the search and grid constraints.
+Tuning runs candidates and writes the output; measure that cost separately
+from repeated execution of the winner. You can also tune tile traversal:
+``tile_swizzle`` supports automatic selection and explicit patterns such as
+Morton and Hilbert. See :doc:`/guide/autotuning` and :doc:`/guide/tile-ops`
+for the search and grid constraints.

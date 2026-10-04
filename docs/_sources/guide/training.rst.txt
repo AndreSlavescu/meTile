@@ -1,33 +1,34 @@
 Training kernels and gradients
 ==============================
 
-The kernel library is a separate package, ``metile-kernels``. Its modules
-contain DSL kernels; ``metile.backends`` handles allocation, saved tensors,
-and multi-kernel launches. Install both projects when working from source::
+The separate ``metile-kernels`` package contains the DSL kernels.
+``metile.backends`` allocates buffers, manages saved tensors, and coordinates
+multi-kernel launches. Install both projects when working from source::
 
    python -m pip install -e . -e ./kernels
 
 These APIs return explicit first-order gradients. They do **not** register
 MLX or PyTorch autograd rules, automatically patch models, or implement
-higher-order differentiation. Read :doc:`kernel-coverage` before treating an
-operation as training-ready. Liger parity is a tracked target, not a claim
-that every upstream operation or option is already supported.
+higher-order differentiation. :doc:`kernel-coverage` lists the contracts and
+remaining work for each operation. Liger parity is a tracked target, not a
+claim that every upstream operation or option is already supported.
 
 Most native entry points accept NumPy arrays or ``metile.Buffer`` objects.
 NumPy inputs are copied; saved Buffer inputs must not be mutated before
-backward. Returned buffers remain on the device until ``.numpy()`` is called.
-Floating gradients use FP32 storage even when inputs use FP16. Integer
+backward. Calling ``.numpy()`` synchronizes outstanding GPU work and returns a
+NumPy view of the buffer's shared memory. Floating gradients use FP32 storage
+even when inputs use FP16. Integer
 indices, boolean masks, geometry, and fixed scalar configuration have no
 gradient. Finite inputs and finite intermediate dot products are required.
 
 Normalization
 -------------
 
-``metile.backends.training_norms`` provides explicit RMSNorm, LayerNorm and
-residual-add RMSNorm forward/backward pairs. Inputs are two-dimensional rows,
+``metile.backends.training_norms`` provides RMSNorm, LayerNorm, and
+residual-add RMSNorm forward/backward pairs. Inputs are two-dimensional rows
 with widths 1--8192 and FP16 or FP32 storage. Statistics and all gradients use
 FP32. Weight and bias have one value per column; parameter gradients are
-reduced across rows in a fixed order without atomics.
+summed across rows in a fixed order without atomics.
 
 .. code-block:: python
 
@@ -69,12 +70,12 @@ Gated activations
    dgate, dup = activation_backward(saved, np.ones_like(gate))
    assert dgate.numpy().shape == gate.shape
 
-Supplying ``up`` produces a gated operation; omitting it produces a unary
-operation. Supported names are ``silu``, ``sigmoid``, ``gelu_tanh``,
+Specify ``up`` for a gated activation, or leave it out for a unary operation.
+Supported names are ``silu``, ``sigmoid``, ``gelu_tanh``,
 ``quick_gelu``, ``relu``, and ``tanh``. ``silu`` plus ``up`` is SwiGLU;
 ``gelu_tanh`` plus ``up`` is the tanh-GELU GeGLU variant. The legacy
-sigmoid-based GELU approximation is called ``quick_gelu`` here. They are not
-interchangeable. ReLU uses derivative zero at zero.
+sigmoid-based GELU approximation is called ``quick_gelu`` here; it is not
+interchangeable with tanh-GELU. ReLU uses derivative zero at zero.
 
 Rotary embeddings
 -----------------
@@ -86,9 +87,9 @@ Rotary embeddings
 components. The unrotated suffix is copied.
 
 ``rope_backward(saved, gradient)`` returns gradients for the values, cosine,
-and sine arrays. It uses the transpose of the supplied rotation, not an
-assumed inverse: coefficients need not have unit norm. When coefficient rows
-were broadcast by a model adapter, that adapter must sum their gradients.
+and sine arrays. It uses the transpose of the supplied rotation rather than
+assuming an inverse: coefficients need not have unit norm. If a model adapter
+broadcast coefficient rows, the adapter must also sum their gradients.
 Q and K with different head counts require separate calls. Position IDs,
 YaRN frequency construction, MRoPE axis selection, and cache layouts remain
 the adapter's responsibility. See the original `RoFormer paper
@@ -99,9 +100,10 @@ Softmax and cross entropy
 
 ``metile.backends.training_losses`` normalizes the final axis of contiguous
 FP32 arrays. ``softmax_forward`` and ``log_softmax_forward`` return device
-buffers; their backward functions take that saved output and an equally
-shaped cotangent. The log-softmax path subtracts the row maximum before the
-log denominator, so it does not compute ``log(softmax(x))`` after underflow.
+buffers; their backward functions take the saved output and a cotangent of
+the same shape. Log-softmax subtracts the row maximum before the log
+denominator, avoiding the underflow that can occur when computing
+``log(softmax(x))``.
 
 .. code-block:: python
 
@@ -150,9 +152,9 @@ returns ``dA = gradient @ B.T`` and ``dB = A.T @ gradient``. Optional
 ``activation="relu"``, ``"silu"``, ``"quick_gelu"``, or another supported
 activation saves the unrounded preactivation for its derivative.
 
-This baseline packs operands into FP32 and selects the SIMD-group matrix
-backend explicitly. It does not silently select a reduced-precision matrix
-backend. Transposes and both gradient products execute as DSL kernels. The
+This baseline packs operands into FP32 and explicitly selects the SIMD-group
+matrix backend; it does not silently switch to a reduced-precision backend.
+Transposes and both gradient products execute as DSL kernels. The
 default per-call workspace bound is 256 MiB, excluding caller inputs and
 NumPy input copies. This is not a fused-linear loss, batched product,
 quantized-weight gradient, or optimized throughput claim.
@@ -189,13 +191,17 @@ The implementation independently adopts the numerical lessons in
 * Keep accumulation and saved, unrounded output in FP32; apply dQ/dK scale
   after accumulation.
 
-The kernels use output ownership and deterministic reductions, not
-floating-point atomics. No quadratic attention matrix is saved. This is a
-bounded correctness-oriented Metal implementation, not a port of KohakuFA's
-CUDA schedule; its upstream GPU performance numbers do not apply here.
+The kernels assign ownership of each output and use deterministic reductions
+rather than floating-point atomics. They do not save a quadratic attention
+matrix. This bounded Metal implementation prioritizes correctness; it is not
+a port of KohakuFA's CUDA schedule, and upstream GPU performance numbers do
+not apply here.
 
 Different attention mechanisms stay different
 ---------------------------------------------
+
+Recurrent delta attention
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``metile.backends.gated_delta`` implements decay-before-correction delta
 recurrences with explicit initial and final states. Query/key use
@@ -214,24 +220,28 @@ For each token, the recurrence is::
 Call ``gated_delta_forward(..., save_states=True)`` when backward is needed.
 ``gated_delta_backward`` consumes those states and both output and final-state
 cotangents. It returns all six tensor-input gradients, including the initial
-state. This supports differentiated state chains rather than detaching the
-cache silently. The initial implementation is FP32 only, with documented
-shape and workspace bounds; saving every state and per-value gradient partials
-can be expensive.
+state, so gradients can flow through a chain of states rather than stopping
+silently at a detached cache. The initial implementation is FP32 only, with
+documented shape and workspace bounds. Retaining every state and the per-value
+gradient partials can consume substantial memory.
 
 The formula follows `Kimi Linear, equation (1)
 <https://arxiv.org/html/2510.26692v1>`_; the scalar-decay model context is
 `Qwen3-Next <https://qwen.ai/blog?id=qwen3-next>`_. Normalization, short
 convolution, gate transformations, grouped-head expansion, padding policy,
 and model-specific cache conversion are not part of this recurrence kernel.
-It is not a claim of complete Kimi or Qwen model compatibility.
+Supporting the recurrence does not establish complete Kimi or Qwen model
+compatibility.
 
-``metile.backends.dual_chunk_attention`` implements three **already rotated**
-query branches: intra-chunk, successive-chunk, and inter-chunk. Keys are
-partitioned by global chunk coordinates and causality. Branches merge under
-one global softmax denominator; summing three independently normalized outputs
-would be wrong. Backward returns three query gradients and combined K/V
-gradients. The positional helper follows pinned
+Dual Chunk Attention
+~~~~~~~~~~~~~~~~~~~~
+
+``metile.backends.dual_chunk_attention`` takes three **already rotated** query
+branches: intra-chunk, successive-chunk, and inter-chunk. It partitions keys
+by global chunk coordinates and causality, then merges the branches under one
+global softmax denominator. Summing three independently normalized outputs
+would give a different result. Backward returns three query gradients and
+combined K/V gradients. The positional helper follows pinned
 `ChunkLlama semantics
 <https://github.com/HKUNLP/ChunkLlama/tree/2add4d7c99d24dcc1ab03414cc602abb2e28cf2c>`_;
 see also the `Dual Chunk Attention paper <https://arxiv.org/abs/2402.17463>`_
@@ -241,6 +251,9 @@ This reference path materializes partition masks with a workspace guard. It
 is causal, not bidirectional Qwen attention, and is not a complete RoPE/YaRN
 or model-loading implementation.
 
+Explicit attention graphs
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 ``metile.ir.attention_graph`` exposes distinct typed builders for these
 mechanisms. ``compile_native_attention_graph`` in
 ``metile.backends.native_attention_graph`` dispatches those explicit nodes;
@@ -248,9 +261,9 @@ it rejects unrelated operators. Ordinary softmax graph patterns must not be
 rewritten into delta recurrences or Dual Chunk Attention: their semantics and
 state requirements differ.
 
-The native executable also supplies an explicit reverse pass for all four
-operators. ``forward_with_context`` records a tape; ``backward`` consumes
-output cotangents and returns input gradients in graph-input order:
+The native executable supplies a reverse pass for all four operators.
+``forward_with_context`` records a tape; ``backward`` takes output cotangents
+and returns input gradients in graph-input order:
 
 .. code-block:: python
 
@@ -279,10 +292,11 @@ nodes participate in the reverse pass. Shared inputs and repeated graph
 outputs accumulate every contribution in FP32 without atomics. Disconnected
 floating inputs receive zero buffers; masks receive ``None``.
 
-Recording snapshots NumPy inputs, but device inputs and saved buffers must
-remain unchanged until backward finishes. Graph structure and metadata changes
-invalidate the tape. Backward does not overwrite inputs or cotangents. Calling
-the executable normally does not retain a tape or recurrent state history.
+Tape recording copies NumPy inputs, but device inputs and saved buffers must
+remain unchanged until backward finishes. Changing graph structure or metadata
+invalidates the tape. Backward does not overwrite inputs or cotangents. A
+normal call to the executable retains neither a tape nor recurrent state
+history.
 Per-operator workspace limits do not bound the entire graph tape and its
 accumulated gradients. This API does not register framework autograd or
 differentiate operators outside the four explicit attention families.
@@ -290,8 +304,8 @@ differentiate operators outside the four explicit attention families.
 Expression VJPs inside the DSL
 ------------------------------
 
-``metile.vjp(output, inputs, cotangent)`` constructs a reverse expression
-during tracing. For example, inside a kernel::
+``metile.vjp(output, inputs, cotangent)`` builds a reverse expression during
+tracing. For example, inside a kernel::
 
    values = inputs.load((positions,))
    seed = seeds.load((positions,))
@@ -306,16 +320,17 @@ Scalar broadcast cotangents reduce back to the scalar; max/min ties split
 equally; abs uses derivative zero at zero. Floating casts use the usual
 real-arithmetic training convention, not a derivative of discrete rounding.
 
-Unsupported differentiated operations raise ``NotImplementedError``. This is
-not whole-kernel autodiff: matrix dot, loop reversal, memory scatter adjoints,
-layout/collective transposes and alias-aware accumulation still need dedicated
-rules. ``fast_exp`` uses the exponential derivative convention rather than a
-proof about the hardware approximation's derivative.
+Differentiating an unsupported operation raises ``NotImplementedError``. This
+is not whole-kernel autodiff: matrix dot, loop reversal, memory scatter
+adjoints, layout/collective transposes, and alias-aware accumulation still
+need dedicated rules. For ``fast_exp``, the VJP uses the exponential
+derivative convention; it does not prove the derivative of the hardware
+approximation.
 
 Explicit state and strict math
 ------------------------------
 
-Loaded loop state must not depend on inference from Python rebinding::
+Declare loop-carried state explicitly rather than relying on Python rebinding::
 
    state = metile.loop_state(initial.load((positions,)))
    for step in metile.tile_range(0, steps, 1):
@@ -324,14 +339,15 @@ Loaded loop state must not depend on inference from Python rebinding::
    output.store((positions,), state.value)
 
 ``.value`` creates a snapshot at that program point; ``.update`` assigns
-same-dtype, same-shape state. A zero-trip loop keeps its initial value.
+same-dtype, same-shape state. A loop that never iterates leaves the initial state
+unchanged.
 State is per-thread scalar/one-dimensional tile storage, not shared memory.
 Explicit ``ThreadLayout`` state is not supported yet. A state declaration
 must dominate its uses. This API enables recurrences, not their automatic
 reverse-mode differentiation.
 
-Training backends pass ``STRICT_MATH=True``. That setting disables Metal
-fast-math in both offline and runtime compilation and is included in cache
-identity. It does not turn explicit ``fast_exp`` into an accurate intrinsic,
-prove every compiler rewrite IEEE-exact, or change a selected matrix backend's
-precision. Geometry and bounds contracts still apply.
+Training backends pass ``STRICT_MATH=True`` to disable Metal fast-math in both
+offline and runtime compilation. The setting is part of the cache identity.
+It does not turn explicit ``fast_exp`` into an accurate intrinsic, prove every
+compiler rewrite IEEE-exact, or change a selected matrix backend's precision.
+Geometry and bounds contracts still apply.

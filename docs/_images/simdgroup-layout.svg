@@ -1,105 +1,83 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" role="img" aria-labelledby="title description">
-  <title id="title">Simdgroup layout for a 128 by 128 output tile</title>
-  <desc id="description">A four by four grid maps sixteen simdgroups onto a 128 by 128 output tile. Each simdgroup contains thirty-two threads and computes one independent 32 by 32 subtile.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" role="img" aria-labelledby="title description" font-family="Inter, DejaVu Sans, Arial, sans-serif">
+  <title id="title">Sixteen SIMD-groups share one output tile</title>
+  <desc id="description">A four by four SIMD-group grid partitions a 128 by 128 output tile into sixteen 32 by 32 subtiles. Each SIMD-group has 32 threads. The row and column indices are sgid divided by WN and sgid modulo WN. Hardware and pipeline limits still apply.</desc>
   <defs>
-    <style>
-      text { font-family: Arial, Helvetica, sans-serif; fill: #20242b; }
-      .heading { font-size: 27px; font-weight: 700; }
-      .subtitle { font-size: 13px; fill: #505866; }
-      .axis { font-size: 11px; font-weight: 700; letter-spacing: 0.7px; fill: #505866; }
-      .cell-title { font-size: 14px; font-weight: 700; }
-      .cell-body { font-size: 11px; fill: #4b5563; }
-      .label { font-size: 13px; font-weight: 700; }
-      .body { font-size: 12px; fill: #4b5563; }
-      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; }
-      .outline { stroke: #282d35; stroke-width: 1.4; }
-      .grid-line { stroke: #657080; stroke-width: 1; }
-    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1L8 5L1 9" fill="none" stroke="#536677" stroke-width="1.5" stroke-linejoin="round" />
+    </marker>
   </defs>
-
-  <rect width="1000" height="620" fill="#ffffff"/>
-  <text x="40" y="48" class="heading">Simdgroup layout</text>
-  <text x="40" y="70" class="subtitle">WM = 4 · WN = 4 · one 128 × 128 output tile · sixteen independent 32 × 32 subtiles</text>
-  <line x1="40" y1="88" x2="960" y2="88" stroke="#b4bcc7" stroke-width="1"/>
-
-  <text x="140" y="119" class="axis">OUTPUT COLUMNS</text>
-  <text x="215" y="145" text-anchor="middle" class="body">0–31</text>
-  <text x="395" y="145" text-anchor="middle" class="body">32–63</text>
-  <text x="575" y="145" text-anchor="middle" class="body">64–95</text>
-  <text x="755" y="145" text-anchor="middle" class="body">96–127</text>
-
-  <text x="53" y="176" class="axis">OUTPUT</text>
-  <text x="53" y="192" class="axis">ROWS</text>
-  <text x="118" y="211" text-anchor="end" class="body">0–31</text>
-  <text x="118" y="291" text-anchor="end" class="body">32–63</text>
-  <text x="118" y="371" text-anchor="end" class="body">64–95</text>
-  <text x="118" y="451" text-anchor="end" class="body">96–127</text>
-
-  <rect x="140" y="160" width="720" height="320" fill="#f8fafc" class="outline"/>
-
-  <g id="simdgroup-row-0">
-    <rect x="140" y="160" width="180" height="80" fill="#dcecf8" class="grid-line"/>
-    <rect x="320" y="160" width="180" height="80" fill="#e7e0f2" class="grid-line"/>
-    <rect x="500" y="160" width="180" height="80" fill="#dcecf8" class="grid-line"/>
-    <rect x="680" y="160" width="180" height="80" fill="#e7e0f2" class="grid-line"/>
-    <text x="230" y="194" text-anchor="middle" class="cell-title">sg(0,0)</text>
-    <text x="230" y="216" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="410" y="194" text-anchor="middle" class="cell-title">sg(0,1)</text>
-    <text x="410" y="216" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="590" y="194" text-anchor="middle" class="cell-title">sg(0,2)</text>
-    <text x="590" y="216" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="770" y="194" text-anchor="middle" class="cell-title">sg(0,3)</text>
-    <text x="770" y="216" text-anchor="middle" class="cell-body">32 × 32</text>
-  </g>
-
-  <g id="simdgroup-row-1">
-    <rect x="140" y="240" width="180" height="80" fill="#e1f0df" class="grid-line"/>
-    <rect x="320" y="240" width="180" height="80" fill="#f7ebbd" class="grid-line"/>
-    <rect x="500" y="240" width="180" height="80" fill="#e1f0df" class="grid-line"/>
-    <rect x="680" y="240" width="180" height="80" fill="#f7ebbd" class="grid-line"/>
-    <text x="230" y="274" text-anchor="middle" class="cell-title">sg(1,0)</text>
-    <text x="230" y="296" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="410" y="274" text-anchor="middle" class="cell-title">sg(1,1)</text>
-    <text x="410" y="296" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="590" y="274" text-anchor="middle" class="cell-title">sg(1,2)</text>
-    <text x="590" y="296" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="770" y="274" text-anchor="middle" class="cell-title">sg(1,3)</text>
-    <text x="770" y="296" text-anchor="middle" class="cell-body">32 × 32</text>
-  </g>
-
-  <g id="simdgroup-row-2">
-    <rect x="140" y="320" width="180" height="80" fill="#dcecf8" class="grid-line"/>
-    <rect x="320" y="320" width="180" height="80" fill="#e7e0f2" class="grid-line"/>
-    <rect x="500" y="320" width="180" height="80" fill="#dcecf8" class="grid-line"/>
-    <rect x="680" y="320" width="180" height="80" fill="#e7e0f2" class="grid-line"/>
-    <text x="230" y="354" text-anchor="middle" class="cell-title">sg(2,0)</text>
-    <text x="230" y="376" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="410" y="354" text-anchor="middle" class="cell-title">sg(2,1)</text>
-    <text x="410" y="376" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="590" y="354" text-anchor="middle" class="cell-title">sg(2,2)</text>
-    <text x="590" y="376" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="770" y="354" text-anchor="middle" class="cell-title">sg(2,3)</text>
-    <text x="770" y="376" text-anchor="middle" class="cell-body">32 × 32</text>
-  </g>
-
-  <g id="simdgroup-row-3">
-    <rect x="140" y="400" width="180" height="80" fill="#e1f0df" class="grid-line"/>
-    <rect x="320" y="400" width="180" height="80" fill="#f7ebbd" class="grid-line"/>
-    <rect x="500" y="400" width="180" height="80" fill="#e1f0df" class="grid-line"/>
-    <rect x="680" y="400" width="180" height="80" fill="#f7ebbd" class="grid-line"/>
-    <text x="230" y="434" text-anchor="middle" class="cell-title">sg(3,0)</text>
-    <text x="230" y="456" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="410" y="434" text-anchor="middle" class="cell-title">sg(3,1)</text>
-    <text x="410" y="456" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="590" y="434" text-anchor="middle" class="cell-title">sg(3,2)</text>
-    <text x="590" y="456" text-anchor="middle" class="cell-body">32 × 32</text>
-    <text x="770" y="434" text-anchor="middle" class="cell-title">sg(3,3)</text>
-    <text x="770" y="456" text-anchor="middle" class="cell-body">32 × 32</text>
-  </g>
-
-  <rect x="140" y="512" width="720" height="70" rx="4" fill="#f4f5f7" class="outline"/>
-  <text x="158" y="539" class="label">Hardware mapping</text>
-  <text x="158" y="562" class="body">Each simdgroup has 32 threads and owns one subtile independently.</text>
-  <text x="842" y="550" text-anchor="end" class="mono">sg_row = sgid / WN</text>
-  <text x="842" y="570" text-anchor="end" class="mono">sg_col = sgid % WN</text>
+  <rect x="0" y="0" width="960" height="680" rx="0" fill="#ffffff" stroke="none" stroke-width="1" />
+  <text x="32" y="46" font-size="27" font-weight="650" fill="#172b3a" text-anchor="start">Sixteen SIMD-groups share one output tile</text>
+  <text x="32" y="76" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Example tensor-ops geometry: WM = 4, WN = 4, and a 128 × 128 program-owned tile.</text>
+  <line x1="32" y1="100" x2="928" y2="100" stroke="#d8e3e9" stroke-width="1.5" />
+  <text x="335" y="143" font-size="14" font-weight="650" fill="#536677" text-anchor="middle">OUTPUT COLUMNS</text>
+  <text x="144" y="176" font-size="14" font-weight="400" fill="#536677" text-anchor="middle">0–31</text>
+  <text x="270" y="176" font-size="14" font-weight="400" fill="#536677" text-anchor="middle">32–63</text>
+  <text x="396" y="176" font-size="14" font-weight="400" fill="#536677" text-anchor="middle">64–95</text>
+  <text x="522" y="176" font-size="14" font-weight="400" fill="#536677" text-anchor="middle">96–127</text>
+  <text x="73" y="235" font-size="14" font-weight="400" fill="#536677" text-anchor="end">0–31</text>
+  <rect x="88" y="197" width="116" height="68" rx="7" fill="#087f8c" stroke="none" stroke-width="1" />
+  <text x="146" y="226" font-size="15" font-weight="650" fill="#ffffff" text-anchor="middle">sg(0,0)</text>
+  <text x="146" y="249" font-size="14" font-weight="400" fill="#ffffff" text-anchor="middle">32 × 32</text>
+  <rect x="214" y="197" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="272" y="226" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(0,1)</text>
+  <text x="272" y="249" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="340" y="197" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="398" y="226" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(0,2)</text>
+  <text x="398" y="249" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="466" y="197" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="524" y="226" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(0,3)</text>
+  <text x="524" y="249" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <text x="73" y="313" font-size="14" font-weight="400" fill="#536677" text-anchor="end">32–63</text>
+  <rect x="88" y="275" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="146" y="304" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(1,0)</text>
+  <text x="146" y="327" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="214" y="275" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="272" y="304" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(1,1)</text>
+  <text x="272" y="327" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="340" y="275" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="398" y="304" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(1,2)</text>
+  <text x="398" y="327" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="466" y="275" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="524" y="304" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(1,3)</text>
+  <text x="524" y="327" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <text x="73" y="391" font-size="14" font-weight="400" fill="#536677" text-anchor="end">64–95</text>
+  <rect x="88" y="353" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="146" y="382" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(2,0)</text>
+  <text x="146" y="405" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="214" y="353" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="272" y="382" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(2,1)</text>
+  <text x="272" y="405" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="340" y="353" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="398" y="382" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(2,2)</text>
+  <text x="398" y="405" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="466" y="353" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="524" y="382" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(2,3)</text>
+  <text x="524" y="405" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <text x="73" y="469" font-size="14" font-weight="400" fill="#536677" text-anchor="end">96–127</text>
+  <rect x="88" y="431" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="146" y="460" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(3,0)</text>
+  <text x="146" y="483" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="214" y="431" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="272" y="460" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(3,1)</text>
+  <text x="272" y="483" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="340" y="431" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="398" y="460" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(3,2)</text>
+  <text x="398" y="483" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="466" y="431" width="116" height="68" rx="7" fill="#e8f5f4" stroke="none" stroke-width="1" />
+  <text x="524" y="460" font-size="15" font-weight="650" fill="#087f8c" text-anchor="middle">sg(3,3)</text>
+  <text x="524" y="483" font-size="14" font-weight="400" fill="#087f8c" text-anchor="middle">32 × 32</text>
+  <rect x="638" y="148" width="290" height="364" rx="12" fill="#f3eff9" stroke="#d8e3e9" stroke-width="1" />
+  <text x="658" y="177" font-size="14" font-weight="650" fill="#7357aa" text-anchor="start">HARDWARE MAPPING</text>
+  <text x="658" y="208" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">32 threads per group</text>
+  <text x="658" y="237" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Each SIMD-group owns one</text>
+  <text x="658" y="259" font-size="14" font-weight="400" fill="#536677" text-anchor="start">32 × 32 output subtile.</text>
+  <text x="658" y="281" font-size="14" font-weight="400" fill="#536677" text-anchor="start">sg_row = sgid // WN</text>
+  <text x="658" y="303" font-size="14" font-weight="400" fill="#536677" text-anchor="start">sg_col = sgid % WN</text>
+  <text x="658" y="325" font-size="14" font-weight="400" fill="#536677" text-anchor="start">16 groups × 32 threads</text>
+  <text x="658" y="347" font-size="14" font-weight="400" fill="#536677" text-anchor="start">= 512 threads in this example.</text>
+  <text x="88" y="548" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Output rows are shown at left. The highlighted subtile belongs to sg(0,0).</text>
+  <line x1="32" y1="612" x2="928" y2="612" stroke="#d8e3e9" stroke-width="1.5" />
+  <text x="32" y="639" font-size="14" font-weight="400" fill="#536677" text-anchor="start">This is one supported geometry, not a universal launch configuration.</text>
+  <text x="32" y="661" font-size="14" font-weight="400" fill="#536677" text-anchor="start">The planner and runtime must check device capabilities, fragment shapes, and pipeline thread limits.</text>
 </svg>

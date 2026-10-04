@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,8 +281,8 @@
         <article role="main" id="furo-main-content">
           <section id="fused-activations-and-simdgroup-roles">
 <h1>Fused Activations and SIMDgroup Roles<a class="headerlink" href="#fused-activations-and-simdgroup-roles" title="Link to this heading">¶</a></h1>
-<p>Pointwise fusion keeps related arithmetic in one kernel. This example computes
-a gated activation from two float32 arrays:</p>
+<p>Pointwise fusion computes related expressions in one kernel. Here, two
+float32 arrays produce a gated activation:</p>
 <p><code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">=</span> <span class="pre">gelu_approx(gate)</span> <span class="pre">*</span> <span class="pre">up</span></code>, with
 <code class="docutils literal notranslate"><span class="pre">gelu_approx(value)</span> <span class="pre">=</span> <span class="pre">value</span> <span class="pre">/</span> <span class="pre">(1</span> <span class="pre">+</span> <span class="pre">exp(-1.702</span> <span class="pre">*</span> <span class="pre">value))</span></code>.</p>
 <p>This sigmoid approximation is sometimes called QuickGELU. It differs from
@@ -325,10 +325,9 @@ needs to read another program’s partially computed output. For SiLU, use
 into its epilogue. The <a class="reference internal" href="matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> example includes a complete GEMM-plus-ReLU
 kernel; the same mechanism supports expressions such as this QuickGELU
 approximation when they satisfy the compiler’s epilogue constraints.</p>
-<p>Fusion avoids an intermediate device-memory round trip. It does not make the
-activation free: exponentials, divides, and extra live values still affect
-execution time. Use <code class="docutils literal notranslate"><span class="pre">dispatch.explain()</span></code> and the generated MSL to inspect
-the selected implementation.</p>
+<p>Fusion avoids an intermediate device-memory round trip, but exponentials,
+divisions and extra live values still take time and resources. Inspect
+<code class="docutils literal notranslate"><span class="pre">dispatch.explain()</span></code> and the generated MSL to see the selected implementation.</p>
 </section>
 <section id="when-to-use-simdgroup-roles">
 <h2>When to use SIMDgroup roles<a class="headerlink" href="#when-to-use-simdgroup-roles" title="Link to this heading">¶</a></h2>
@@ -336,14 +335,13 @@ the selected implementation.</p>
 assigned to a subset of the threadgroup’s 32-thread SIMDgroups. This is a
 lower-level tool for specialized kernels, not a dependency or synchronization
 mechanism.</p>
-<p>Role regions appear in Python source order, but that does not make one role
-finish before another starts. A producer writing values that a consumer reads
-needs an appropriate memory and synchronization design. Threadgroup barriers
-must be reached by every participating thread; placing a barrier inside only
-one role can deadlock.</p>
+<p>Python source order does not make one role finish before another starts.
+If one role reads another’s writes, you must arrange the storage and
+synchronization. Every participating thread must reach a threadgroup barrier;
+placing a barrier inside only one role can deadlock.</p>
 <p>For this gated activation, all dependent operations belong to the same lane,
 so ordinary pointwise fusion is sufficient. Independent outputs are a better
-starting point for role specialization. Study
+starting point for role specialization. See
 <code class="docutils literal notranslate"><span class="pre">kernels/src/metile_kernels/simdgroup_specialized_elementwise.py</span></code> and verify the
 generated indexing before introducing communication between roles.</p>
 </section>

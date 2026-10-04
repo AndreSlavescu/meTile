@@ -1,13 +1,13 @@
 Compiler Bypasses and Native Code
-========================================
+=================================
 
 Research and local checks: October 2, 2026, Apple M5, macOS 26.2,
 MLX 0.32.0, Apple Metal compiler 32023.864.
 
-meTile has two experiments below its normal MSL compilation path: modifying
-AIR before Apple's backend runs, and rewriting selected AGX instructions after
-it runs. The probes demonstrate that modified code can execute. Neither has
-established a new speedup over MLX, and neither is enabled in ordinary kernel
+Two meTile experiments work below the normal MSL compilation path. One modifies
+AIR before Apple's backend runs; the other rewrites selected AGX instructions
+afterward. Both probes show that modified code can execute, but neither has
+established a new speedup over MLX. Neither is enabled in ordinary kernel
 compilation.
 
 What each route controls
@@ -33,10 +33,10 @@ What each route controls
      - Instruction selection, register allocation and scheduling
      - Requires far more ISA and executable-format coverage than exists here
 
-Apple documents the source-to-AIR-to-device-code split and binary archives as
-pipeline compilation caches. ``failOnBinaryArchiveMiss`` prevents a missing
-archive entry from silently falling back to compilation. It does not make
-editing archive contents a supported API. See Apple's
+Apple documents the source-to-AIR-to-device-code pipeline and the use of binary
+archives as compilation caches. ``failOnBinaryArchiveMiss`` prevents a missing
+archive entry from silently falling back to compilation; it does not make
+archive editing a supported API. See Apple's
 `binary archive presentation <https://developer.apple.com/videos/play/wwdc2020/10615/>`_.
 
 The existing source-order experiment was rerun on this machine:
@@ -73,29 +73,31 @@ The recorded toolchain accepted this sequence:
 To inspect binary AIR, ``metal -x ir -S -emit-llvm`` worked; a separate
 ``metal-dis`` executable was not installed.
 
-``benchmarks/hardware/agx_air_probe.py`` makes this reproducible: compile a small MSL
-seed, change one FMA multiplier in textual AIR, assemble both versions, and
-dispatch both through meTile's Metal runtime. It checks each against an
-independent numerical expectation. A changed AIR format causes an explicit
-failure instead of an unchecked string replacement. This demonstrates executing
-modified IR, not a standalone AIR backend or a faster kernel.
-On the setup above, both ``fma(input, 2, 1)`` and the rewritten
+``benchmarks/hardware/agx_air_probe.py`` reproduces the experiment. It compiles a
+small MSL seed, changes one FMA multiplier in textual AIR, assembles both
+versions, and dispatches both through meTile's Metal runtime. Each version is
+checked against an independent numerical expectation. If the AIR format
+changes, the probe fails explicitly rather than making an unchecked string
+replacement.
+
+This demonstrates execution of modified IR, not a standalone AIR backend or a
+faster kernel. On the setup above, both ``fma(input, 2, 1)`` and the rewritten
 ``fma(input, 3, 1)`` matched all 257 quarter-step test inputs exactly.
 
-For the general compiler, a candidate implementation would lower a restricted
-subset of Metal IR directly into AIR: loads/stores, integer address arithmetic,
-floating-point operations, then SIMD reductions. Preserve the versioned kernel
-metadata and address spaces from a toolchain-generated seed initially. Do not
-assume arbitrary system LLVM bitcode has the dialect and metadata Metal needs.
+An initial direct-AIR backend could lower a restricted subset of Metal IR:
+loads/stores, integer address arithmetic, floating-point operations, then SIMD
+reductions. It would need to preserve the versioned kernel metadata and address
+spaces from a toolchain-generated seed. Arbitrary system LLVM bitcode cannot be
+assumed to use the dialect and metadata Metal requires.
 `Metal.jl's compiler <https://github.com/JuliaGPU/Metal.jl/blob/main/src/compiler/compilation.jl>`_
 is a useful primary implementation to study for this boundary.
 
-The experiments worth trying there are precise contraction/reassociation
-permissions, proven alignment/range information, and vector unpack/conversion
-forms that MSL obscures. Compare each candidate's final code and execution
-against equivalent MSL before growing the backend. AIR instruction order still
-does not specify the final schedule. Handwriting ``air.*`` declarations is
-toolchain-dependent: a local MSL declaration using ``__asm("air.fma.f32")``
+Useful experiments include precise contraction/reassociation permissions,
+proven alignment/range information, and vector unpack/conversion forms that
+MSL obscures. Each candidate needs a comparison with equivalent MSL, both in
+final code and execution, before the backend expands. AIR instruction order
+still does not specify the final schedule. Handwritten ``air.*`` declarations
+are toolchain-dependent: a local MSL declaration using ``__asm("air.fma.f32")``
 was rejected, so that syntax is not a working inline-assembly escape hatch here.
 
 Native instruction rewriting
@@ -106,17 +108,16 @@ form and executes modified binary archives. ``metile/compiler/agx_schedule.py``
 operates on caller-supplied instruction offsets. The execution tests verify
 that synthesised arithmetic really reaches the GPU.
 
-The scheduler retains original encodings, observes register read/write
+The scheduler preserves original encodings, tracks register read/write
 dependencies including FMA addends, and treats unknown controls and disabled
 instructions as barriers. Archive rewriting extracts code from the archive
-it will patch, avoiding a second compilation that might produce different code.
+it will patch, rather than recompiling and risking different output.
 
 Recognizing eight plausible bytes does not establish an instruction boundary
-or operand mode. A confirmed boundary
-also does not decode surrounding loads, waits, stores, branches or matrix
-instructions. The low-nibble length heuristic already failed the repository's
-other kernels. Consequently these passes are not wired into ordinary kernel
-compilation or MLX dispatch.
+or operand mode. Even a confirmed boundary leaves the surrounding loads,
+waits, stores, branches, and matrix instructions undecoded. The low-nibble
+length heuristic already failed on other kernels in the repository. These
+passes therefore remain outside ordinary kernel compilation and MLX dispatch.
 
 The next native experiment should target one demonstrated missed peephole in
 a real generated kernel. Keep instruction length, register allocation, memory
@@ -166,11 +167,13 @@ The following are research priorities, not new benchmark results:
 MLX's `NAX implementation
 <https://github.com/ml-explore/mlx/blob/main/mlx/backend/metal/kernels/steel/gemm/nax.h>`_
 already uses ``mpp::tensor_ops::matmul2d`` and SIMD-group execution. Emitting
-the same primitive is therefore not itself a differentiator. The opportunity
-is the surrounding workload, representation-preserving reuse and fusion.
+that primitive alone does not distinguish a meTile kernel. The useful questions
+concern the surrounding workload: where weights can be reused without changing
+their representation, and where operations can be fused.
 
-The results in :doc:`benchmarks` motivate small-batch reuse and fusion
-experiments. They do not establish a hardware-wide performance ceiling.
+The results in :doc:`benchmarks` motivate experiments with small-batch weight
+reuse and projection fusion. They do not establish a hardware-wide performance
+ceiling.
 
 Reproduce and evaluate a candidate
 ----------------------------------
@@ -188,9 +191,10 @@ dispatch overhead and must not be presented as GPU kernel latency.
 
 Before a new backend becomes a runtime candidate, compile both arms once,
 check outputs on random values and edge cases, and measure interleaved GPU
-dispatches with a byte-identical control. Separate compilation time from steady
-state. Reassociation requires an explicit numerical policy: collapsing FMA
-chains is not bit-exact and can change overflow or underflow as well as rounding.
+dispatches with a byte-identical control. Report compilation time separately
+from steady-state execution. Reassociation needs an explicit numerical policy:
+collapsing FMA chains is not bit-exact and can change overflow or underflow as
+well as rounding.
 The native identity-removal pass also lacks a general signed-zero and NaN-payload
 guarantee; its current ordinary-value probes do not establish those edge cases.
 
@@ -198,5 +202,5 @@ Use the existing tuning tournament and native fallback for promotion. Persist
 any edited archive only with its GPU architecture, OS build, compiler identity,
 source/options, launch layout and rewrite version. Record correctness failures
 and inconclusive timings as rejected candidates. The current probes establish
-that these compilation routes work; an MLX performance claim requires that
-additional comparison.
+that these compilation routes work. Claiming an improvement over MLX requires
+the additional comparison described here.

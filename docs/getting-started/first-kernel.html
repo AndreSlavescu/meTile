@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -282,8 +282,8 @@
           <section id="your-first-kernel">
 <h1>Your First Kernel<a class="headerlink" href="#your-first-kernel" title="Link to this heading">¶</a></h1>
 <p>This example adds two float32 arrays on the GPU and checks the result with
-NumPy. Save both Python blocks in one file and run it after following
-<a class="reference internal" href="install.html"><span class="doc">Installation</span></a>.</p>
+NumPy. After following <a class="reference internal" href="install.html"><span class="doc">Installation</span></a>, save both Python blocks in one file
+and run it.</p>
 <section id="write-the-kernel">
 <h2>Write the kernel<a class="headerlink" href="#write-the-kernel" title="Link to this heading">¶</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
@@ -298,13 +298,12 @@ NumPy. Save both Python blocks in one file and run it after following
     <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">positions</span><span class="p">,),</span> <span class="n">left</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,))</span> <span class="o">+</span> <span class="n">right</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">positions</span><span class="p">,)))</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> traces the function with symbolic values when a new
-specialization is needed. The compiler turns that trace into a Metal shader.
-The function body describes GPU work; it does not run on the input arrays as
-ordinary Python.</p>
-<p>The three <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> declarations describe existing buffers. Their
-shapes are logical bounds, and their access modes tell the compiler which
-loads and stores are allowed. They do not allocate memory.</p>
+<p>When a new specialization is needed, <code class="docutils literal notranslate"><span class="pre">&#64;metile.kernel</span></code> traces the function
+with symbolic values and compiles the trace to a Metal shader. The function
+describes GPU work; ordinary Python does not execute it on the input arrays.</p>
+<p>The three <code class="docutils literal notranslate"><span class="pre">metile.tensor</span></code> declarations describe existing buffers; they do
+not allocate memory. Their shapes set logical bounds, and their access modes
+tell the compiler which loads and stores are allowed.</p>
 <p>Each program instance is a threadgroup. <code class="docutils literal notranslate"><span class="pre">program_id(0)</span></code> identifies its
 position in the launch grid, while <code class="docutils literal notranslate"><span class="pre">arange(0,</span> <span class="pre">BLOCK)</span></code> creates the indices
 inside its tile. With <code class="docutils literal notranslate"><span class="pre">BLOCK=256</span></code>, the first program handles elements 0–255,
@@ -332,16 +331,16 @@ with zero and skip out-of-bounds stores, so the final tile may be partial.</p>
 <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[:</span><span class="mi">5</span><span class="p">])</span>
 </pre></div>
 </div>
-<p>The grid has four program instances because <code class="docutils literal notranslate"><span class="pre">cdiv</span></code> rounds the division up.
-The uneven input length exercises the last tile’s bounds checks.</p>
+<p><code class="docutils literal notranslate"><span class="pre">cdiv</span></code> rounds up, giving a grid of four program instances. The uneven input
+length checks that the last tile handles its bounds correctly.</p>
 <p><code class="docutils literal notranslate"><span class="pre">Buffer(data=...)</span></code> allocates shared Metal storage and <strong>copies</strong> the NumPy
 data into it. CPU and GPU then access that allocation. <code class="docutils literal notranslate"><span class="pre">numpy()</span></code> waits for
 pending GPU work and returns a NumPy view of the buffer; it does not copy the
 result back to the original array. Keep the buffer alive while using its view.
 See <a class="reference internal" href="../guide/memory.html"><span class="doc">Memory Model</span></a> for ownership and synchronization details.</p>
-<p>The first launch includes tracing and compilation. Later launches reuse a
-cached specialization when its input types, constants, and other compilation
-settings match.</p>
+<p>The first launch includes tracing and compilation overhead. Later launches
+reuse the compiled specialization when input types, constants and other
+compilation settings match.</p>
 </section>
 <section id="inspect-the-compilation">
 <h2>Inspect the compilation<a class="headerlink" href="#inspect-the-compilation" title="Link to this heading">¶</a></h2>
@@ -357,10 +356,9 @@ full path.</p>
 <span class="nv">METILE_DEBUG</span><span class="o">=</span>all<span class="w"> </span>python<span class="w"> </span>my_script.py
 </pre></div>
 </div>
-<p>Debug output appears on standard error and is saved under <code class="docutils literal notranslate"><span class="pre">debug_output/</span></code>.
-<code class="docutils literal notranslate"><span class="pre">METILE_DEBUG_DIR</span></code> changes that directory. Output is generated when a
-specialization is compiled, so an in-process cache hit does not produce a new
-dump.</p>
+<p>Debug output goes to standard error and files under <code class="docutils literal notranslate"><span class="pre">debug_output/</span></code>. Set
+<code class="docutils literal notranslate"><span class="pre">METILE_DEBUG_DIR</span></code> to choose another directory. Dumps are written when a
+specialization is compiled; an in-process cache hit produces no new dump.</p>
 <p>Continue with <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> for reductions,
 <a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a> for matrix tiles, or <a class="reference internal" href="../guide/language.html"><span class="doc">Language Reference</span></a> for the
 kernel language.</p>

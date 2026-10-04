@@ -1,130 +1,51 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 600" role="img" aria-labelledby="title description" font-family="Arial, Helvetica, sans-serif">
-  <title id="title">How GEMM tiling works in meTile</title>
-  <desc id="description">The output matrix is divided into BLOCK_M by BLOCK_N tiles. One program instance owns one output tile, initializes an accumulator, iterates over K in BLOCK_K steps, loads matching A and B tiles, accumulates their dot products, and stores the completed output tile. The same tile program lowers to either simdgroup matrix operations or Metal 4 tensor operations.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 688" role="img" aria-labelledby="title description" font-family="Inter, DejaVu Sans, Arial, sans-serif">
+  <title id="title">Partition the output. Reuse the tile program.</title>
+  <desc id="description">A two-dimensional launch grid assigns one output tile to each program. The program initializes an accumulator, loads paired A and B tiles along K, accumulates dot products, and stores once. The compiler selects a supported matrix backend.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-      <path d="M 0 1 L 8 5 L 0 9 z" fill="#202020"/>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M1 1L8 5L1 9" fill="none" stroke="#536677" stroke-width="1.5" stroke-linejoin="round" />
     </marker>
-    <style>
-      .panel { stroke: #202020; stroke-width: 1.35; }
-      .box { fill: #ffffff; stroke: #202020; stroke-width: 1.15; }
-      .blue { fill: #dceefb; }
-      .violet { fill: #eadff5; }
-      .amber { fill: #f8e9bd; }
-      .green { fill: #dcefdc; }
-      .gray { fill: #f2f2f2; }
-      .ink { fill: #202020; }
-      .muted { fill: #555555; }
-      .line { fill: none; stroke: #202020; stroke-width: 1.25; }
-      .grid { fill: none; stroke: #59636e; stroke-width: 0.8; }
-      .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
-    </style>
   </defs>
-
-  <rect width="1080" height="600" fill="#ffffff"/>
-  <text x="540" y="31" text-anchor="middle" class="ink" font-size="20" font-weight="700">How GEMM tiling works</text>
-  <text x="540" y="52" text-anchor="middle" class="muted" font-size="11">one program instance owns one output block and reduces across K</text>
-
-  <!-- Output grid -->
-  <rect x="28" y="78" width="294" height="446" class="panel blue"/>
-  <text x="47" y="103" class="ink" font-size="13" font-weight="700">1. Partition output C</text>
-  <text x="47" y="120" class="muted" font-size="10">grid = (ceil(M / BM), ceil(N / BN))</text>
-
-  <rect x="64" y="155" width="222" height="222" class="box"/>
-  <rect x="64" y="155" width="74" height="74" class="blue" stroke="#202020" stroke-width="1.5"/>
-  <line x1="138" y1="155" x2="138" y2="377" class="grid"/>
-  <line x1="212" y1="155" x2="212" y2="377" class="grid"/>
-  <line x1="64" y1="229" x2="286" y2="229" class="grid"/>
-  <line x1="64" y1="303" x2="286" y2="303" class="grid"/>
-  <text x="101" y="184" text-anchor="middle" class="ink" font-size="10" font-weight="700">pid (0, 0)</text>
-  <text x="101" y="201" text-anchor="middle" class="muted" font-size="9">BM × BN</text>
-  <text x="175" y="194" text-anchor="middle" class="muted" font-size="9.5">pid (0, 1)</text>
-  <text x="249" y="194" text-anchor="middle" class="muted" font-size="9.5">…</text>
-  <text x="101" y="268" text-anchor="middle" class="muted" font-size="9.5">pid (1, 0)</text>
-  <text x="175" y="268" text-anchor="middle" class="muted" font-size="9.5">pid (1, 1)</text>
-  <text x="249" y="268" text-anchor="middle" class="muted" font-size="9.5">…</text>
-  <text x="101" y="342" text-anchor="middle" class="muted" font-size="9.5">…</text>
-  <text x="175" y="342" text-anchor="middle" class="muted" font-size="9.5">…</text>
-  <text x="249" y="342" text-anchor="middle" class="muted" font-size="9.5">…</text>
-
-  <line x1="64" y1="392" x2="286" y2="392" class="line"/>
-  <line x1="64" y1="387" x2="64" y2="397" class="line"/>
-  <line x1="286" y1="387" x2="286" y2="397" class="line"/>
-  <text x="175" y="410" text-anchor="middle" class="muted" font-size="10">N columns</text>
-  <line x1="48" y1="155" x2="48" y2="377" class="line"/>
-  <line x1="43" y1="155" x2="53" y2="155" class="line"/>
-  <line x1="43" y1="377" x2="53" y2="377" class="line"/>
-  <text x="42" y="266" text-anchor="middle" class="muted" font-size="10" transform="rotate(-90 42 266)">M rows</text>
-
-  <rect x="47" y="437" width="256" height="63" class="box gray"/>
-  <text x="62" y="458" class="ink" font-size="10" font-weight="700">Program ownership</text>
-  <text x="62" y="477" class="muted" font-size="9.5">one program_id pair → one C tile</text>
-  <text x="62" y="491" class="muted" font-size="9.5">edge tiles use masked loads and stores</text>
-
-  <!-- Program-instance K reduction -->
-  <path d="M 322 272 H 353 V 178 H 376" class="line" marker-end="url(#arrow)"/>
-  <text x="337" y="260" class="muted" font-size="9">select tile</text>
-
-  <rect x="379" y="78" width="673" height="446" class="panel violet"/>
-  <text x="398" y="103" class="ink" font-size="13" font-weight="700">2. Execute one program instance</text>
-  <text x="398" y="120" class="muted" font-size="10">output offsets come from program_id(0), program_id(1)</text>
-
-  <rect x="398" y="139" width="635" height="50" class="box gray"/>
-  <text x="414" y="160" class="ink" font-size="10" font-weight="700">Initialize</text>
-  <text x="414" y="178" class="ink mono" font-size="10">acc = zeros((BM, BN))</text>
-
-  <rect x="398" y="205" width="635" height="222" class="box"/>
-  <text x="414" y="227" class="ink mono" font-size="10" font-weight="700">for k in tile_range(0, K, BK)</text>
-  <text x="414" y="255" class="muted" font-size="9.5">k = 0</text>
-
-  <rect x="467" y="240" width="112" height="48" class="panel green"/>
-  <text x="523" y="260" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">tile_load(A)</text>
-  <text x="523" y="277" text-anchor="middle" class="muted" font-size="9">BM × BK</text>
-  <text x="596" y="269" text-anchor="middle" class="ink" font-size="14" font-weight="700">×</text>
-  <rect x="613" y="240" width="112" height="48" class="panel blue"/>
-  <text x="669" y="260" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">tile_load(B)</text>
-  <text x="669" y="277" text-anchor="middle" class="muted" font-size="9">BK × BN</text>
-  <line x1="725" y1="264" x2="750" y2="264" class="line" marker-end="url(#arrow)"/>
-  <rect x="753" y="240" width="82" height="48" class="panel violet"/>
-  <text x="794" y="260" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">dot</text>
-  <text x="794" y="277" text-anchor="middle" class="muted" font-size="9">A₀ @ B₀</text>
-  <line x1="835" y1="264" x2="860" y2="264" class="line" marker-end="url(#arrow)"/>
-  <rect x="863" y="240" width="138" height="48" class="panel amber"/>
-  <text x="932" y="260" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">acc ← dot(a, b, acc)</text>
-  <text x="932" y="277" text-anchor="middle" class="muted" font-size="9">BM × BN</text>
-
-  <line x1="414" y1="305" x2="1017" y2="305" class="line" stroke-width="0.75"/>
-  <text x="414" y="333" class="muted" font-size="9.5">k = BK</text>
-
-  <rect x="467" y="318" width="112" height="48" class="panel green"/>
-  <text x="523" y="338" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">tile_load(A)</text>
-  <text x="523" y="355" text-anchor="middle" class="muted" font-size="9">next BM × BK</text>
-  <text x="596" y="347" text-anchor="middle" class="ink" font-size="14" font-weight="700">×</text>
-  <rect x="613" y="318" width="112" height="48" class="panel blue"/>
-  <text x="669" y="338" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">tile_load(B)</text>
-  <text x="669" y="355" text-anchor="middle" class="muted" font-size="9">next BK × BN</text>
-  <line x1="725" y1="342" x2="750" y2="342" class="line" marker-end="url(#arrow)"/>
-  <rect x="753" y="318" width="82" height="48" class="panel violet"/>
-  <text x="794" y="338" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">dot</text>
-  <text x="794" y="355" text-anchor="middle" class="muted" font-size="9">A₁ @ B₁</text>
-  <line x1="835" y1="342" x2="860" y2="342" class="line" marker-end="url(#arrow)"/>
-  <rect x="863" y="318" width="138" height="48" class="panel amber"/>
-  <text x="932" y="338" text-anchor="middle" class="ink" font-size="9.5" font-weight="700">acc ← dot(a, b, acc)</text>
-  <text x="932" y="355" text-anchor="middle" class="muted" font-size="9">accumulated</text>
-
-  <text x="716" y="391" text-anchor="middle" class="muted" font-size="10">⋮  repeat for K / BK steps  ⋮</text>
-  <path d="M 932 366 V 402 H 716 V 424" class="line" marker-end="url(#arrow)"/>
-
-  <rect x="398" y="444" width="635" height="56" class="panel green"/>
-  <text x="414" y="466" class="ink" font-size="10" font-weight="700">Store completed output tile</text>
-  <text x="414" y="486" class="ink mono" font-size="10">tile_store(C, row_offsets, col_offsets, acc)</text>
-
-  <!-- Backend-independent semantics -->
-  <text x="28" y="558" class="ink" font-size="11" font-weight="700">Same tile program, selected hardware lowering</text>
-  <rect x="291" y="541" width="285" height="31" class="panel blue"/>
-  <rect x="604" y="541" width="448" height="31" class="panel amber"/>
-  <text x="433.5" y="561" text-anchor="middle" class="ink" font-size="9.5">simdgroup_matrix · 8 × 8 collaborative tiles</text>
-  <text x="828" y="561" text-anchor="middle" class="ink" font-size="9.5">Metal 4 cooperative_tensor · matmul2d · NAX fragments</text>
-  <line x1="576" y1="556.5" x2="598" y2="556.5" class="line" marker-end="url(#arrow)"/>
-  <text x="540" y="590" text-anchor="middle" class="muted" font-size="9">lower() chooses the supported path; BM × BN ownership and the K-reduction remain unchanged</text>
+  <rect x="0" y="0" width="960" height="688" rx="0" fill="#ffffff" stroke="none" stroke-width="1" />
+  <text x="32" y="46" font-size="27" font-weight="650" fill="#172b3a" text-anchor="start">Partition the output. Reuse the tile program.</text>
+  <text x="32" y="76" font-size="14" font-weight="400" fill="#536677" text-anchor="start">program_id chooses an output block; the reduction over K stays inside that program.</text>
+  <line x1="32" y1="100" x2="928" y2="100" stroke="#d8e3e9" stroke-width="1.5" />
+  <rect x="32" y="126" width="368" height="378" rx="12" fill="#f5f8fb" stroke="#d8e3e9" stroke-width="1" />
+  <text x="52" y="155" font-size="14" font-weight="650" fill="#3267a8" text-anchor="start">01 / PARTITION C</text>
+  <text x="52" y="186" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">One program per output tile</text>
+  <rect x="56" y="218" width="100" height="62" rx="6" fill="#3267a8" stroke="none" stroke-width="1" />
+  <text x="106" y="255" font-size="14" font-weight="400" fill="#ffffff" text-anchor="middle">pid (0, 0)</text>
+  <rect x="164" y="218" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="214" y="255" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">pid (0, 1)</text>
+  <rect x="272" y="218" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="322" y="255" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">…</text>
+  <rect x="56" y="288" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="106" y="325" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">pid (1, 0)</text>
+  <rect x="164" y="288" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="214" y="325" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">pid (1, 1)</text>
+  <rect x="272" y="288" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="322" y="325" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">…</text>
+  <rect x="56" y="358" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="106" y="395" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">…</text>
+  <rect x="164" y="358" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="214" y="395" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">…</text>
+  <rect x="272" y="358" width="100" height="62" rx="6" fill="#eef3fb" stroke="none" stroke-width="1" />
+  <text x="322" y="395" font-size="14" font-weight="400" fill="#3267a8" text-anchor="middle">…</text>
+  <text x="56" y="465" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">Tile shape: BM × BN</text>
+  <text x="56" y="488" font-size="14" font-weight="400" fill="#536677" text-anchor="start">Mask partial tiles at the edges.</text>
+  <rect x="448" y="126" width="480" height="378" rx="12" fill="#e8f5f4" stroke="#d8e3e9" stroke-width="1" />
+  <text x="468" y="155" font-size="14" font-weight="650" fill="#087f8c" text-anchor="start">02 / EXECUTE</text>
+  <text x="468" y="186" font-size="19" font-weight="650" fill="#172b3a" text-anchor="start">The same reduction for every tile</text>
+  <text x="470" y="232" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">acc = zeros((BM, BN), dtype='f32')</text>
+  <text x="470" y="267" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">for offset in tile_range(0, K, BK):</text>
+  <text x="470" y="302" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">    left = A.load((row, offset))</text>
+  <text x="470" y="337" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">    right = B.load((offset, column))</text>
+  <text x="470" y="372" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">    acc = dot(left, right, acc)</text>
+  <text x="470" y="407" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start" font-family="DejaVu Sans Mono, SFMono-Regular, Consolas, monospace" xml:space="preserve">C.store((row, column), acc)</text>
+  <line x1="406" y1="317" x2="440" y2="317" stroke="#536677" stroke-width="1.5" marker-end="url(#arrow)" />
+  <rect x="32" y="540" width="896" height="68" rx="12" fill="#f3eff9" stroke="#d8e3e9" stroke-width="1" />
+  <text x="52" y="566" font-size="14" font-weight="650" fill="#7357aa" text-anchor="start">THE COMPILER SELECTS A SUPPORTED HARDWARE LOWERING</text>
+  <text x="52" y="591" font-size="14" font-weight="400" fill="#172b3a" text-anchor="start">SIMD-group matrix fragments · Metal 4 cooperative tensors · eligible NAX fragment schedules</text>
+  <line x1="32" y1="640" x2="928" y2="640" stroke="#d8e3e9" stroke-width="1.5" />
+  <text x="32" y="667" font-size="14" font-weight="400" fill="#536677" text-anchor="start">The logical ownership and K reduction stay the same; precision and layout limits still apply.</text>
 </svg>

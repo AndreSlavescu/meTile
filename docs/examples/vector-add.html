@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,8 +281,8 @@
         <article role="main" id="furo-main-content">
           <section id="vector-addition">
 <h1>Vector Addition<a class="headerlink" href="#vector-addition" title="Link to this heading">¶</a></h1>
-<p>Each program adds one tile of two contiguous float32 arrays. Tensor views
-provide the bounds checks, including the partial tile at the end.</p>
+<p>Each program adds one tile from two contiguous float32 arrays. Tensor views
+check the bounds, including the partial tile at the end.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">metile</span>
 
@@ -311,13 +311,13 @@ provide the bounds checks, including the partial tile at the end.</p>
 <span class="p">)</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">Buffer(data=...)</span></code> copies each input into shared Metal storage. Reading
+<p><code class="docutils literal notranslate"><span class="pre">Buffer(data=...)</span></code> copies each input into shared Metal storage. Calling
 <code class="docutils literal notranslate"><span class="pre">output_buffer.numpy()</span></code> waits for the GPU and returns a view of the output
-allocation. An extra <code class="docutils literal notranslate"><span class="pre">sync()</span></code> is unnecessary here.</p>
-<p>The grid counts program instances, not elements. <code class="docutils literal notranslate"><span class="pre">cdiv(count,</span> <span class="pre">block)</span></code> makes
-room for every element; the declared tensor shape prevents the last program
-from storing beyond <code class="docutils literal notranslate"><span class="pre">count</span></code>. See <a class="reference internal" href="../getting-started/first-kernel.html"><span class="doc">Your First Kernel</span></a> for a
-step-by-step explanation and <a class="reference internal" href="../guide/memory.html"><span class="doc">Memory Model</span></a> for raw pointer access.</p>
+allocation. No additional <code class="docutils literal notranslate"><span class="pre">sync()</span></code> call is needed here.</p>
+<p>The grid counts programs, not elements. <code class="docutils literal notranslate"><span class="pre">cdiv(count,</span> <span class="pre">block)</span></code> covers the whole
+array, while the tensor shape prevents the last program from storing beyond
+<code class="docutils literal notranslate"><span class="pre">count</span></code>. See <a class="reference internal" href="../getting-started/first-kernel.html"><span class="doc">Your First Kernel</span></a> for the walkthrough and
+<a class="reference internal" href="../guide/memory.html"><span class="doc">Memory Model</span></a> for raw pointer access.</p>
 </section>
 
         </article>

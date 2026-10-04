@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,34 +281,34 @@
         <article role="main" id="furo-main-content">
           <section id="kernel-coverage-and-training-scope">
 <h1>Kernel coverage and training scope<a class="headerlink" href="#kernel-coverage-and-training-scope" title="Link to this heading">¶</a></h1>
-<p>meTile does not yet cover the full Liger-Kernel training library. This page
-separates native forward/backward pairs from forward-only kernels and work that
-remains. A matching operator name is not enough: formulas, gradient inputs,
-dtypes, layouts and framework integration must also match.</p>
+<p>meTile does not yet cover the full Liger-Kernel training library. This inventory
+distinguishes native forward/backward pairs, forward-only kernels, and missing
+work. An operator name alone does not establish parity: its formula, gradient
+inputs, dtypes, layouts, and framework integration must also match.</p>
 <p>The comparison was checked on 2026-10-04 against Liger-Kernel
 <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/releases/tag/v0.8.4">v0.8.4</a>
 and commit <code class="docutils literal notranslate"><span class="pre">b297821787949e6102c162f24bf89a0cf3625d09</span></code> on its main branch.
 The pinned main snapshot includes partial RoPE support beyond that release.
-The <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/__init__.py">operator exports</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/transformers/functional.py">functional wrappers</a> and <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/chunked_loss/__init__.py">chunked-loss exports</a>
-define the inventory here; open pull requests are not counted as released or
+The inventory follows the <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/__init__.py">operator exports</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/transformers/functional.py">functional wrappers</a>, and
+<a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/chunked_loss/__init__.py">chunked-loss exports</a>. Open pull requests are not counted as released or
 merged features.</p>
 <section id="status-key">
 <h2>Status key<a class="headerlink" href="#status-key" title="Link to this heading">¶</a></h2>
-<p><strong>Paired, bounded</strong> means native forward and explicit backward entry points
-exist for the stated subset, with numerical tests. It does not mean every
-upstream option is supported, that existing inference entry points gained
-backward support, or that a framework automatically calls those kernels.</p>
+<p><strong>Paired, bounded</strong> means the stated subset has native forward and explicit
+backward entry points with numerical tests. It does not imply support for
+every upstream option, add backward support to existing inference entry
+points, or make a framework call the kernels automatically.</p>
 <p><strong>Forward only</strong> means the existing path has no corresponding native backward
 entry point. <strong>Planned</strong> identifies work in progress, not a usable contract.
-<strong>Missing</strong> means no corresponding implementation is provided. Priorities below
-describe implementation order, not a delivery schedule or performance claim.</p>
+<strong>Missing</strong> means no corresponding implementation is provided. The priorities
+below give the intended implementation order, not a delivery schedule or
+performance guarantee.</p>
 </section>
 <section id="normalization">
 <h2>Normalization<a class="headerlink" href="#normalization" title="Link to this heading">¶</a></h2>
-<p>The first three pairs live in <code class="docutils literal notranslate"><span class="pre">metile_kernels.training_norms</span></code>. The explicit
-allocation and dispatch API lives separately in
-<code class="docutils literal notranslate"><span class="pre">metile.backends.training_norms</span></code>. The older inference normalization modules
-remain separate entry points.</p>
+<p>The first three pairs are defined in <code class="docutils literal notranslate"><span class="pre">metile_kernels.training_norms</span></code>;
+<code class="docutils literal notranslate"><span class="pre">metile.backends.training_norms</span></code> provides allocation and dispatch. The older
+inference normalization modules remain separate entry points.</p>
 <div class="table-wrapper colwidths-given docutils container" id="id1">
 <table class="docutils align-default" id="id1">
 <caption><span class="caption-text">Normalization parity checklist</span><a class="headerlink" href="#id1" title="Link to this table">¶</a></caption>
@@ -359,9 +359,9 @@ semantics are explicit, not assumed identical to every upstream mode.</p></td>
 </table>
 </div>
 <p>Upstream contracts: <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/rms_norm.py">RMSNorm</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/layer_norm.py">LayerNorm</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/fused_add_rms_norm.py">fused add RMSNorm</a> and the
-normalization entries in <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/transformers/functional.py">functional wrappers</a>. In particular, fused add
-RMSNorm has two outputs; omitting the residual-output cotangent loses part of
-its backward contract.</p>
+normalization entries in <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/transformers/functional.py">functional wrappers</a>. Fused add RMSNorm has two
+outputs, so omitting the residual-output cotangent loses part of its backward
+contract.</p>
 </section>
 <section id="activations-projections-and-positions">
 <h2>Activations, projections and positions<a class="headerlink" href="#activations-projections-and-positions" title="Link to this heading">¶</a></h2>
@@ -432,10 +432,11 @@ wrapper and its shape contract remain missing. Priority 1.</p></td>
 </div>
 <p>See upstream <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/swiglu.py">SwiGLU</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/geglu.py">GeGLU</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/mlp.py">MLP</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/tiled_mlp.py">tiled MLP</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/fused_moe.py">MoE</a> and <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/rope.py">RoPE</a>.
 The older <code class="docutils literal notranslate"><span class="pre">metile_kernels.mlp</span></code> GELU/GeGLU helpers use the logistic
-<code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">*</span> <span class="pre">sigmoid(1.702</span> <span class="pre">*</span> <span class="pre">x)</span></code> approximation: they are not the tanh-GELU variant.
-The new activation module keeps these formulas distinct. Native RoPE can also
-return per-row cosine/sine gradients; upstream standard RoPE treats those
-tables as fixed. Shared-table gradients still need an explicit reduction.</p>
+<code class="docutils literal notranslate"><span class="pre">x</span> <span class="pre">*</span> <span class="pre">sigmoid(1.702</span> <span class="pre">*</span> <span class="pre">x)</span></code> approximation, not tanh-GELU. The new activation
+module keeps the two formulas distinct.</p>
+<p>Native RoPE can also return per-row cosine/sine gradients, whereas upstream
+standard RoPE treats those tables as fixed. Shared-table gradients still
+require an explicit reduction.</p>
 </section>
 <section id="reductions-and-attention-like-operators">
 <h2>Reductions and attention-like operators<a class="headerlink" href="#reductions-and-attention-like-operators" title="Link to this heading">¶</a></h2>
@@ -562,30 +563,30 @@ Priority 1.</p></td>
 <p>The pinned <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/cross_entropy.py">cross-entropy</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/fused_linear_cross_entropy.py">fused linear cross-entropy</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/fused_linear_scaled_cross_entropy.py">scaled loss</a>,
 <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/vocab_parallel_cross_entropy.py">vocabulary-parallel loss</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/kl_div.py">KL divergence</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/jsd.py">JSD</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/tvd.py">TVD</a>,
 <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/fused_linear_jsd.py">fused linear JSD</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/fused_linear_kl_div.py">fused linear KL</a>, <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/fused_ce_tvd.py">fused CE TVD</a> and <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/grpo_loss.py">GRPO loss</a>
-sources define these variants. Distributed loss support cannot be inferred
-from a single-device reduction kernel.</p>
-<p>The native <code class="docutils literal notranslate"><span class="pre">metile.backends.training_losses</span></code> API uses integer class targets,
-valid-row-count mean reduction and zero loss/gradient for entirely ignored
-targets. Its softmax and CE paths share the width/row bounds above and a
-256 MiB per-call output/workspace limit, excluding NumPy input copies. CE
-backward returns only the logit gradient; targets and loss configuration are
-fixed. Separate saved maxima and log-denominators avoid recombining large
-offsets before the backward normalization.</p>
+sources define these variants. A single-device reduction kernel does not
+establish distributed loss support.</p>
+<p>The native <code class="docutils literal notranslate"><span class="pre">metile.backends.training_losses</span></code> API takes integer class targets.
+Mean reduction divides by the number of valid rows; if all targets are ignored,
+both loss and gradient are zero. Softmax and CE share the width/row bounds
+above and a 256 MiB per-call output/workspace limit, excluding NumPy input
+copies. CE backward returns only the logit gradient: targets and loss
+configuration are fixed. Saving maxima and log-denominators separately avoids
+recombining large offsets before backward normalization.</p>
 <p>All eight public <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/chunked_loss/__init__.py">chunked-loss exports</a> are still missing: fused linear
 cosine-similarity loss, CPO, DPO, GRPO, JSD, KTO, ORPO and SimPO. These require
-their own chunking/recompute and backward contracts; the chunked JSD class is
+their own chunking/recompute and backward contracts. The chunked JSD class is
 listed separately from the operator-level fused linear JSD above. Preference,
-unpaired-preference, distillation and PPO base implementations are supporting
-infrastructure rather than additional public operator checkboxes. Priority 1.</p>
+unpaired-preference, distillation, and PPO base implementations are supporting
+infrastructure, not additional public operators. This work is Priority 1.</p>
 </section>
 <section id="experimental-operators-and-metile-extras">
 <h2>Experimental operators and meTile extras<a class="headerlink" href="#experimental-operators-and-metile-extras" title="Link to this heading">¶</a></h2>
-<p>Upstream experimental <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/experimental/embedding.py">embedding</a> has an embedding-table backward, which is
-missing here. Repeated indices require correct accumulation into the shared
-table; simply gathering or adding a scatter store is insufficient. Priority 1.
-The experimental <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/experimental/mm_int8int2.py">integer matrix product</a> and its packing helpers do not
-define an autograd pair. Integer indices, packed bit patterns and rounding are
-not silently treated as differentiable floating operations.</p>
+<p>Upstream experimental <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/experimental/embedding.py">embedding</a> includes an embedding-table backward that
+meTile lacks. Repeated indices must accumulate correctly into the shared table;
+a gather or scatter store alone is not enough. This is Priority 1.</p>
+<p>The experimental <a class="reference external" href="https://github.com/linkedin/Liger-Kernel/blob/b297821787949e6102c162f24bf89a0cf3625d09/src/liger_kernel/ops/experimental/mm_int8int2.py">integer matrix product</a> and its packing helpers do not
+define an autograd pair. Integer indices, packed bit patterns, and rounding
+are not silently treated as differentiable floating operations.</p>
 <p>meTile also includes operators outside this Liger inventory:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">stable_attention</span></code> and <code class="docutils literal notranslate"><span class="pre">metile.backends.attention</span></code> provide bounded dense
@@ -605,9 +606,9 @@ paths. Their existing names do not imply paired training gradients.</p></li>
 <li><p>Native sigmoid, tanh, ordinary ReLU and quick-GELU have elementwise paired
 kernels in <code class="docutils literal notranslate"><span class="pre">training_activations</span></code>.</p></li>
 </ul>
-<p>No CUDA-versus-Metal performance equivalence is claimed. Each supported Apple
-GPU, shape, dtype and resource limit needs its own correctness and performance
-measurement.</p>
+<p>None of this establishes CUDA-versus-Metal performance equivalence. Correctness
+and performance need to be measured for each supported Apple GPU, shape,
+dtype, and resource limit.</p>
 </section>
 <section id="exact-native-normalization-contract">
 <h2>Exact native normalization contract<a class="headerlink" href="#exact-native-normalization-contract" title="Link to this heading">¶</a></h2>
@@ -674,25 +675,26 @@ reduction repeatability and finite-difference derivatives in
 </section>
 <section id="what-remains-before-claiming-parity">
 <h2>What remains before claiming parity<a class="headerlink" href="#what-remains-before-claiming-parity" title="Link to this heading">¶</a></h2>
-<p>Priority 0 is a dependable training core: bounded norm, activation and RoPE
+<p>Priority 0 is a dependable training core: bounded norm, activation, and RoPE
 pairs; softmax and CE; then chunked linear CE and broader GEMM adjoint coverage.
-Priority 1 extends formulas and wrappers, additional norms and losses,
-embedding and training MLPs. Priority 2 adds distributed and specialized
-attention/MoE contracts. All priorities still need framework integration,
-dtype coverage and end-to-end training checks.</p>
-<p>For each entry, completion requires the exact forward formula and gradient
-set, a declared policy for frozen/discrete inputs, dtype and accumulation
-rules, masking and empty-input behavior, shape/layout bounds, deterministic
-or explicitly nondeterministic accumulation, and validated framework wiring.
-Finite differences and independent analytical references precede performance
-claims; training-step and convergence checks are separate evidence.</p>
-<p><code class="docutils literal notranslate"><span class="pre">metile.vjp</span></code> is only a bounded expression-DAG adjoint facility. It can
-differentiate supported arithmetic, selected floating unary functions,
-selection and row reductions between explicitly requested floating values.
-It does not synthesize whole-kernel backward memory traffic, loop adjoints,
-matrix-product adjoints, scatter/atomic accumulation or framework hooks.
-Hand-written library backwards therefore remain necessary even where a
-forward expression uses the DSL.</p>
+Priority 1 extends the formulas and wrappers to additional norms and losses,
+embedding, and training MLPs. Priority 2 adds distributed and specialized
+attention/MoE contracts. Framework integration, dtype coverage, and end-to-end
+training checks remain necessary at every priority.</p>
+<p>An entry is complete only when its forward formula and full gradient set are
+defined and tested. Its contract must also state how frozen or discrete inputs,
+dtypes, accumulation, masking, empty inputs, and shape/layout bounds are
+handled. Accumulation must be deterministic or explicitly documented as
+nondeterministic, and framework wiring must be validated. Finite differences
+and independent analytical references come before performance claims;
+training-step and convergence checks provide separate evidence.</p>
+<p><code class="docutils literal notranslate"><span class="pre">metile.vjp</span></code> differentiates a bounded expression DAG between explicitly
+requested floating values. It supports arithmetic, selected floating unary
+functions, selection, and row reductions. It does not generate whole-kernel
+backward memory traffic, loop or matrix-product adjoints, scatter/atomic
+accumulation, or framework hooks. Library kernels therefore still need
+hand-written backward implementations, even when their forward expressions
+use the DSL.</p>
 </section>
 </section>
 

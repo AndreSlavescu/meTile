@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,11 +281,11 @@
         <article role="main" id="furo-main-content">
           <section id="memory-model">
 <h1>Memory Model<a class="headerlink" href="#memory-model" title="Link to this heading">¶</a></h1>
-<p>Apple Silicon lets the CPU and GPU access shared physical memory. In meTile,
-<code class="docutils literal notranslate"><span class="pre">Buffer</span></code> owns a Metal allocation in shared storage. This removes the need
-for a separate GPU-to-CPU transfer when reading that allocation, but it does
-not mean every buffer conversion is zero-copy.</p>
-<a class="reference internal image-reference" href="../_images/unified-memory.svg"><img alt="CPU and GPU access a shared Metal buffer; constructing it from NumPy copies the input" src="../_images/unified-memory.svg" style="width: 100%;" />
+<p>On Apple Silicon, the CPU and GPU can access the same physical memory.
+meTile’s <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> owns a shared Metal allocation, so reading it does not
+require a separate GPU-to-CPU transfer. Creating a buffer from other storage
+can still involve a copy.</p>
+<a class="reference external image-reference" href="../_static/unified-memory.svg"><img alt="CPU and GPU access a shared Metal buffer; constructing it from NumPy copies the input" src="../_images/unified-memory.svg" style="width: 100%;" />
 </a>
 <section id="allocation-and-ownership">
 <h2>Allocation and ownership<a class="headerlink" href="#allocation-and-ownership" title="Link to this heading">¶</a></h2>
@@ -301,14 +301,13 @@ not mean every buffer conversion is zero-copy.</p>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">Buffer(data=source)</span></code> and <code class="docutils literal notranslate"><span class="pre">Buffer.from_numpy(source)</span></code> copy the source
-into a new Metal allocation. Changing the original array afterward does not
-change an explicit buffer. <code class="docutils literal notranslate"><span class="pre">Buffer.zeros</span></code> initializes storage to zero;
+into a new Metal allocation. Modifying the original array afterward does not
+affect an explicit buffer. <code class="docutils literal notranslate"><span class="pre">Buffer.zeros</span></code> initializes storage to zero;
 <code class="docutils literal notranslate"><span class="pre">Buffer.empty</span></code> leaves its initial contents unspecified.</p>
-<p><code class="docutils literal notranslate"><span class="pre">buffer.numpy()</span></code> waits for pending GPU work and returns a writable NumPy
-view of the Metal allocation. It is not a copy. Keep the <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> alive
-for as long as that view is in use, and synchronize before accessing a retained
-view after another dispatch. Calling <code class="docutils literal notranslate"><span class="pre">numpy()</span></code> again performs that wait;
-reading a view returned earlier does not.</p>
+<p><code class="docutils literal notranslate"><span class="pre">buffer.numpy()</span></code> waits for pending GPU work, then returns a writable view
+of the Metal allocation, not a copy. Keep the <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> alive while using
+that view. After another dispatch, synchronize before reading a retained
+view: calling <code class="docutils literal notranslate"><span class="pre">numpy()</span></code> again waits, but reading an earlier view does not.</p>
 <p>All examples use an explicit storage dtype. NumPy commonly creates float64
 arrays by default, but the kernel launcher does not support arbitrary NumPy
 dtypes. Its current dtype mapping covers float32, float16, int32, uint32, and
@@ -317,13 +316,12 @@ inputs to a dtype supported by the chosen kernel.</p>
 </section>
 <section id="passing-numpy-arrays-directly">
 <h2>Passing NumPy arrays directly<a class="headerlink" href="#passing-numpy-arrays-directly" title="Link to this heading">¶</a></h2>
-<p>A normal kernel launch can accept contiguous NumPy arrays. The launcher
-copies their current contents into cached Metal buffers, dispatches, waits,
-and copies the results back. That convenience includes transfer and
-synchronization costs on each launch.</p>
+<p>A normal launch accepts contiguous NumPy arrays. It copies their current
+contents into cached Metal buffers, dispatches the kernel, waits and copies
+the results back. Each launch pays those copy and synchronization costs.</p>
 <p>Use explicit buffers for repeated GPU work. In particular,
 <code class="docutils literal notranslate"><span class="pre">kernel[grid].prepare(...)</span></code> binds resources and returns a dispatcher that
-reuses them; repeated calls do not rerun the NumPy conversion/copy-back path.
+reuses them. Repeated calls don’t rerun NumPy conversion or copy-back.
 Read results through an explicit output buffer’s <code class="docutils literal notranslate"><span class="pre">numpy()</span></code> method.</p>
 <p>Use contiguous arrays for implicit outputs. A noncontiguous array can be
 converted to a temporary contiguous array, and that temporary does not provide
@@ -341,11 +339,11 @@ and access mode. For example, this fragment loads one tile and doubles it:</p>
 </pre></div>
 </div>
 <p>A tensor load checks each coordinate against its declared dimension. Invalid
-coordinates use the scalar <code class="docutils literal notranslate"><span class="pre">other</span></code> value, which defaults to zero; invalid
-stores are skipped. Bounds are logical contracts, not a check against the
-allocation size: the caller must provide enough storage for every valid
-shape/stride address. Index and offset arithmetic must fit signed 32-bit
-indexing. See <a class="reference internal" href="tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for the complete contract.</p>
+coordinates return the scalar <code class="docutils literal notranslate"><span class="pre">other</span></code> value, which defaults to zero;
+invalid stores are skipped. These checks enforce the logical shape, not the
+allocation size. The caller must provide storage for every valid shape/stride
+address and keep index and offset arithmetic within signed 32-bit range.
+See <a class="reference internal" href="tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for the complete contract.</p>
 <p>The lower-level <code class="docutils literal notranslate"><span class="pre">load</span></code> and <code class="docutils literal notranslate"><span class="pre">store</span></code> operations take pointer expressions
 and optional masks. They do not know the allocation’s bounds:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">positions</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="n">BLOCK</span> <span class="o">+</span> <span class="n">metile</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">)</span>
@@ -358,8 +356,8 @@ and optional masks. They do not know the allocation’s bounds:</p>
 <code class="docutils literal notranslate"><span class="pre">[8,</span> <span class="pre">9,</span> <span class="pre">10,</span> <span class="pre">11]</span></code> and the mask is <code class="docutils literal notranslate"><span class="pre">[True,</span> <span class="pre">True,</span> <span class="pre">False,</span> <span class="pre">False]</span></code>.
 The last two loads produce zero and their stores are skipped. A computation
 that can produce negative positions also needs a lower-bound check.</p>
-<p>A masked load’s fill value must suit the reduction that follows. Zero works
-for sums, negative infinity for maxima, and positive infinity for minima.
+<p>For a masked load, choose a fill value that suits the reduction that follows:
+zero for sums, negative infinity for maxima, and positive infinity for minima.
 After operations such as subtraction or exponentiation, padding may need
 another mask. The <a class="reference internal" href="../examples/softmax.html"><span class="doc">Softmax</span></a> and <a class="reference internal" href="../examples/layernorm.html"><span class="doc">Layer Normalization</span></a>
 examples show why.</p>

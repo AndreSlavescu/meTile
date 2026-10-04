@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,16 +281,16 @@
         <article role="main" id="furo-main-content">
           <section id="benchmarks">
 <h1>Benchmarks<a class="headerlink" href="#benchmarks" title="Link to this heading">¶</a></h1>
-<p>The recorded results show useful gains on some Apple M5 workloads and near
-parity or losses on others. Read each ratio with its baseline, arithmetic
-policy and timing boundary. A faster GPU kernel does not necessarily reduce
-synchronized application latency, and compressing BF16 weights to INT8 changes
-the comparison.</p>
-<p>The charts below are rendered from the repository’s JSON artifacts. Rendering
-does not execute a GPU workload or replace the recorded measurements. The MLX
-model and shape studies date from July 2026; the compiler studies date from
-October 2, 2026. They are separate experiments, not a single cumulative score.
-Open any chart for its full-size SVG; raw JSON downloads follow each study.</p>
+<p>The recorded results include gains, near-parity cases, and losses on Apple M5.
+Each ratio needs its baseline, arithmetic policy, and timing boundary to be
+meaningful. A faster GPU kernel does not necessarily reduce synchronized
+application latency, and compressing BF16 weights to INT8 changes what is
+being compared.</p>
+<p>All charts are rendered from the repository’s JSON artifacts; rendering runs
+no GPU workload and produces no new measurements. The MLX model and shape
+studies date from July 2026, and the compiler studies from October 2, 2026.
+These are separate experiments, not a single cumulative score. Open a chart
+for its full-size SVG, or use the raw JSON downloads that follow each study.</p>
 <section id="find-the-benchmark-code">
 <h2>Find the benchmark code<a class="headerlink" href="#find-the-benchmark-code" title="Link to this heading">¶</a></h2>
 <p>Run benchmark modules from the repository root. They are grouped by purpose:</p>
@@ -345,13 +345,13 @@ divided by baseline throughput. <code class="docutils literal notranslate"><span
 baseline. Plotted dots preserve the recorded summary ratios. Displayed labels
 are rounded; the linked JSON retains the full values and, where recorded,
 individual rounds.</p>
-<p>The compiler reports distinguish Metal command-buffer GPU timestamps from
-synchronized wall latency. Wall measurements include dispatch and synchronization;
-MLX comparisons also include operation construction or compiled-call evaluation
-and framework-managed output allocation. meTile generally uses prepared
-dispatches with preallocated outputs. Compilation and input setup are excluded.
-These are useful operation-boundary measurements, but the wall ratios do not
-isolate device execution time.</p>
+<p>The compiler reports separate Metal command-buffer GPU timestamps from
+synchronized wall latency. Wall measurements include dispatch and
+synchronization. MLX comparisons also include operation construction or
+compiled-call evaluation and framework-managed output allocation; meTile
+generally uses prepared dispatches with preallocated outputs. Compilation and
+input setup are excluded. These measurements describe the operation boundary,
+not isolated device execution time.</p>
 <p>Same storage precision means the input and output dtypes match. It does not
 promise identical intermediate rounding or bitwise output equality. Each
 artifact records its numerical policy, tolerance checks and comparison class.
@@ -360,11 +360,11 @@ the arithmetic studies generally check tolerances.</p>
 </section>
 <section id="register-tiling-rmsnorm">
 <h2>Register-tiling RMSNorm<a class="headerlink" href="#register-tiling-rmsnorm" title="Link to this heading">¶</a></h2>
-<p>The latest experiment keeps one selected policy across all 12 cases: FP16 and
+<p>The latest experiment uses one selected policy for all 12 cases: FP16 and
 FP32 storage, widths 1009 and 1024, and batches 1, 32 and 256. A finite tuning
-search selected <code class="docutils literal notranslate"><span class="pre">register4_striped</span></code> using seed 1741. The selection was frozen
-before validation with seed 9473 in two fresh processes. Each validation uses
-three rounds, 100 ms warmup and 250 ms measurement budgets.</p>
+search selected <code class="docutils literal notranslate"><span class="pre">register4_striped</span></code> using seed 1741. That selection was then
+frozen and validated with seed 9473 in two fresh processes. Each validation
+uses three rounds, 100 ms warmup and 250 ms measurement budgets.</p>
 <p>The baseline is the <strong>prior static-width, four-register striped kernel</strong>.
 Both sides specialize <code class="docutils literal notranslate"><span class="pre">N</span></code> and use <code class="docutils literal notranslate"><span class="pre">BLOCK=1024</span></code>. This is different from
 the earlier register-RMSNorm experiment, whose loop-based baseline also differs
@@ -405,9 +405,10 @@ aligned throughput cases miss the speedup target in both processes:</p>
 </tbody>
 </table>
 </div>
-<p>Both runs pass the wall and ragged regression guards. The promotion gate still
-fails, so the experimental policy remains opt-in and the default is unpromoted.
-The two runs are repeated point estimates, not confidence intervals.</p>
+<p>Both runs pass the wall and ragged regression guards, but both fail the
+promotion gate. The experimental policy therefore remains opt-in; the default
+is unchanged. These two runs are repeated point estimates, not confidence
+intervals.</p>
 <p>The primary MLX comparator is an explicitly compiled graph using FP32 reduction,
 normalization and weight multiplication, followed by the final storage cast.
 Its measured wall speedups span <code class="docutils literal notranslate"><span class="pre">0.992x–1.144x</span></code> across both runs. The separate
@@ -425,8 +426,8 @@ describes compiler output; it is not a substitute for timing evidence.</p>
 </section>
 <section id="other-compiler-experiments">
 <h2>Other compiler experiments<a class="headerlink" href="#other-compiler-experiments" title="Link to this heading">¶</a></h2>
-<p>These studies measure different changes and baselines. Their speedups should
-not be multiplied together.</p>
+<p>Each experiment evaluates one change against its own baseline. Their speedups
+cannot be multiplied into a cumulative improvement.</p>
 <div class="table-wrapper colwidths-given docutils container" id="id2">
 <table class="docutils align-default" id="id2">
 <caption><span class="caption-text">Results and limits</span><a class="headerlink" href="#id2" title="Link to this table">¶</a></caption>
@@ -488,16 +489,17 @@ include correctness, timing boundaries and execution reports. The older
 <a class="reference download internal" download="" href="../_downloads/085e817d605efd4df86c2661db35d346/m5-register-rmsnorm-final.json"><code class="xref download docutils literal notranslate"><span class="pre">register-RMSNorm</span> <span class="pre">final</span> <span class="pre">report</span></code></a>
 is the authoritative matched-toolchain result for that experiment. Earlier
 <code class="docutils literal notranslate"><span class="pre">m5-register-rmsnorm.json</span></code> and <code class="docutils literal notranslate"><span class="pre">m5-register-rmsnorm-broadcast.json</span></code> files
-remain historical artifacts with toolchain caveats. See <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a>
-for ownership, reduction and staging semantics.</p>
+mixed runtime JIT and offline compilation; they remain historical artifacts,
+not valid compiler-performance comparisons. See <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a> for
+ownership, reduction and staging semantics.</p>
 </section>
 <section id="mlx-model-and-shape-studies">
 <h2>MLX model and shape studies<a class="headerlink" href="#mlx-model-and-shape-studies" title="Link to this heading">¶</a></h2>
-<p>The same-representation model suite compares generation using the same weight
-formats on an Apple M5 with 32 GB memory and MLX 0.32.0. A model’s selected plan
-may retain native MLX. Such native fallbacks are labeled and remain in the charts.
-The saved suites below contain five same-representation model results; the
-larger model-shape study is a separate synthetic workload.</p>
+<p>The same-representation model suite compares generation with the same weight
+formats on an Apple M5 with 32 GB memory and MLX 0.32.0. A selected model plan
+may keep native MLX; those fallbacks are labeled and remain in the charts. The
+saved suites below contain five same-representation model results. The larger
+model-shape study uses a separate synthetic workload.</p>
 <a class="reference external image-reference" href="../_static/mlx-model-speedup.svg"><img alt="Decode and prefill speedups for all five same-representation model results, including the native fallback" src="../_images/mlx-model-speedup.svg" style="width: 100%;" />
 </a>
 <a class="reference external image-reference" href="../_static/mlx-model-latency-speedup.svg"><img alt="Time-to-first-token and end-to-end ratios for the same five model results" src="../_images/mlx-model-latency-speedup.svg" style="width: 100%;" />
@@ -511,10 +513,10 @@ its category; a suite name alone does not establish matched precision.</p>
 <h3>Compression-assisted results<a class="headerlink" href="#compression-assisted-results" title="Link to this heading">¶</a></h3>
 <p>The <a class="reference download internal" download="" href="../_downloads/8f3849ce38e9239078762192aec84e76/m5-mlx-lm-bf16-models.json"><code class="xref download docutils literal notranslate"><span class="pre">BF16</span> <span class="pre">capacity</span> <span class="pre">suite</span></code></a>
 uses selected affine-INT8 decode projections against native BF16 weights.
-It retains native weights and uses the original representation for multi-row
-prefill, but its decode speedups include a representation change. Fidelity
-guards are tolerance based. These results belong in their own labeled category,
-as shown alongside the same-representation results here:</p>
+It keeps native weights and uses the original representation for multi-row
+prefill. Decode speedups, however, include the change in representation, and
+fidelity guards are tolerance based. The chart therefore places these results
+in a separate labeled category alongside the same-representation results:</p>
 <a class="reference external image-reference" href="../_static/mlx-model-all-speedup.svg"><img alt="Model speedups separated into same-representation and affine-INT8 compression-assisted decode categories" src="../_images/mlx-model-all-speedup.svg" style="width: 100%;" />
 </a>
 <p>See <a class="reference internal" href="mlx-backend.html"><span class="doc">MLX-LM Backend</span></a> for the selection policy, fallback behavior and fidelity
@@ -524,8 +526,9 @@ general accuracy guarantee for other prompts or tasks.</p>
 <section id="layer-shapes-and-batching">
 <h3>Layer shapes and batching<a class="headerlink" href="#layer-shapes-and-batching" title="Link to this heading">¶</a></h3>
 <p>The <a class="reference download internal" download="" href="../_downloads/b27711fe237f3594c9c9aefaf597dd1b/m5-matched-representation-matrix.json"><code class="xref download docutils literal notranslate"><span class="pre">matched-representation</span> <span class="pre">matrix</span></code></a>
-measures a fixed MLP shape across row counts and weight formats. Gains depend on
-both. All recorded measurements, including near-parity INT8 results, are shown.</p>
+measures a fixed MLP shape across row counts and weight formats. Gains depend
+on both. The chart includes every recorded measurement, including near-parity
+INT8 results.</p>
 <a class="reference external image-reference" href="../_static/mlx-matched-speedup.svg"><img alt="BF16, INT4 and INT8 speedups at matched representation across all measured row counts" src="../_images/mlx-matched-speedup.svg" style="width: 100%;" />
 </a>
 <p>The <a class="reference download internal" download="" href="../_downloads/8482ad2d33ce195c555767fc8692a973/m5-model-shape-matrix.json"><code class="xref download docutils literal notranslate"><span class="pre">model-shape</span> <span class="pre">matrix</span></code></a>
@@ -542,10 +545,11 @@ threshold across devices, precisions and MLX versions.</p>
 <a class="reference external image-reference" href="../_static/mlx-width-cliff.svg"><img alt="Recorded INT4 prefill speedup at each measured output width" src="../_images/mlx-width-cliff.svg" style="width: 100%;" />
 </a>
 <p>Effective weight bandwidth divides a model’s weight bytes by measured latency.
-It is a normalization of those timings, not measured DRAM traffic or a physical
-bandwidth ceiling. Both backend series are retained even where they nearly
-overlap. Cache reuse, arithmetic cost and dispatch overhead can all affect it;
-this chart alone cannot identify how many times hardware fetched each weight.</p>
+It normalizes the timings; it does not measure DRAM traffic or establish a
+physical bandwidth ceiling. Both backend series remain visible even where
+they nearly overlap. Cache reuse, arithmetic cost, and dispatch overhead can
+all affect this metric, so the chart cannot tell us how many times hardware
+fetched each weight.</p>
 <a class="reference external image-reference" href="../_static/mlx-batch-efficiency.svg"><img alt="Effective weight bandwidth by row count, with separate native MLX and meTile series for BF16, INT4 and INT8" src="../_images/mlx-batch-efficiency.svg" style="width: 100%;" />
 </a>
 </section>
@@ -566,29 +570,34 @@ python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render
 python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_shape_sensitivity
 </pre></div>
 </div>
+<p>The explanatory diagrams use a separate renderer. They show compiler and
+runtime structure, not measurements from benchmark JSON:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_diagrams
+</pre></div>
+</div>
 </section>
 <section id="reproduce-the-experiments">
 <h2>Reproduce the experiments<a class="headerlink" href="#reproduce-the-experiments" title="Link to this heading">¶</a></h2>
 <p>Fresh measurements require a compatible Apple GPU, the recorded dependencies,
-the matching source snapshots and, for offline compiler experiments, the Metal
-toolchain. A baseline path must identify the intended pre-change source tree;
-the current checkout’s Git HEAD is not necessarily that baseline when the
-experiment began with uncommitted work. Write new results to new paths so the
-original evidence remains available.</p>
+matching source snapshots, and, for offline compiler experiments, the Metal
+toolchain. Point the baseline path at the intended pre-change source tree.
+The current checkout’s Git HEAD is not necessarily that baseline if the
+experiment began with uncommitted work. Write new results to new paths to
+preserve the original evidence.</p>
 <p>Install the compiler and kernel library before measuring kernels:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s1">'.[dev,benchmarks]'</span><span class="w"> </span>-e<span class="w"> </span>./kernels
 </pre></div>
 </div>
-<p>MLX model studies additionally need the <code class="docutils literal notranslate"><span class="pre">mlx-lm</span></code> extra. Moving source files
-changes the implementation and driver fingerprints even if their computation
-is unchanged. Historical manifests therefore need a fresh baseline export and
-tuning run before validation against the reorganized source tree. Preserve
-the original manifests and JSON artifacts as records of the original runs.</p>
+<p>MLX model studies also need the <code class="docutils literal notranslate"><span class="pre">mlx-lm</span></code> extra. Moving source files changes
+the implementation and driver fingerprints even when the computation stays
+the same. Validation against the reorganized source tree therefore requires
+a fresh baseline export and tuning run, not a historical manifest. Keep the
+original manifests and JSON artifacts as records of the original runs.</p>
 <p>To repeat register tiling, export the old static-register4 shader from the
 pre-tiling tree, tune against that frozen export, then validate twice. The
 validation driver starts a fresh process and refuses changed compiler or
 benchmark fingerprints. Keep the exported baseline, tuning report and selection
-manifest together; the saved manifest binds its original tuning-report path.</p>
+manifest together. The saved manifest binds its original tuning-report path.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--root<span class="w"> </span>/path/to/pre-tiling-tree<span class="w"> </span>--output<span class="w"> </span>/tmp/prior-register4.json
 python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span>tune<span class="w"> </span><span class="se">\</span>

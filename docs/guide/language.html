@@ -12,7 +12,7 @@
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
-    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=8d0a8c30" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
     
     
 
@@ -281,13 +281,12 @@
         <article role="main" id="furo-main-content">
           <section id="language-reference">
 <h1>Language Reference<a class="headerlink" href="#language-reference" title="Link to this heading">¶</a></h1>
-<p>meTile’s kernel language is embedded in Python. A decorated function executes
-with symbolic arguments during tracing; its operations become a GPU program.
-Python still controls tracing, so a Python <code class="docutils literal notranslate"><span class="pre">if</span></code> or <code class="docutils literal notranslate"><span class="pre">range</span></code> must depend
-on values known at compile time. Use <code class="docutils literal notranslate"><span class="pre">where</span></code> for a per-element selection
-and <code class="docutils literal notranslate"><span class="pre">tile_range</span></code> for a traced loop.</p>
-<p>The snippets on this page illustrate individual operations inside a kernel.
-For complete programs with launch code and numerical checks, start with
+<p>meTile traces a decorated Python function with symbolic arguments, then
+compiles the recorded operations into a GPU program. Because Python controls
+the trace, a Python <code class="docutils literal notranslate"><span class="pre">if</span></code> or <code class="docutils literal notranslate"><span class="pre">range</span></code> must depend on compile-time values.
+Use <code class="docutils literal notranslate"><span class="pre">where</span></code> for per-element selection and <code class="docutils literal notranslate"><span class="pre">tile_range</span></code> for a traced loop.</p>
+<p>The snippets below go inside a kernel. For a complete program with launch
+code and numerical checks, start with
 <a class="reference internal" href="../getting-started/first-kernel.html"><span class="doc">Your First Kernel</span></a> or <a class="reference internal" href="../examples/matmul.html"><span class="doc">Matrix Multiply (GEMM)</span></a>.</p>
 <section id="define-and-launch-a-kernel">
 <h2>Define and launch a kernel<a class="headerlink" href="#define-and-launch-a-kernel" title="Link to this heading">¶</a></h2>
@@ -309,14 +308,14 @@ float scalar arguments. Pass runtime arguments in signature order and
 Avoid postponed/string annotations on kernel parameters: a file containing
 <code class="docutils literal notranslate"><span class="pre">from</span> <span class="pre">__future__</span> <span class="pre">import</span> <span class="pre">annotations</span></code> does not currently preserve this
 identity check.</p>
-<p>A launch grid is a tuple of program counts. Elementwise kernels support one,
-two, or three axes; the standard GEMM path uses a two-dimensional output grid.
-Each program is a Metal threadgroup. A grid is not the number of elements or
-the number of threads inside each group.</p>
-<p><code class="docutils literal notranslate"><span class="pre">kernel[grid].prepare(...)</span></code> performs a launch, synchronizes, and returns
+<p>A launch grid is a tuple of program counts, not element counts or threads per
+group. Each program runs as a Metal threadgroup. Elementwise kernels support
+one, two or three grid axes; the standard GEMM path uses a two-dimensional
+output grid.</p>
+<p><code class="docutils literal notranslate"><span class="pre">kernel[grid].prepare(...)</span></code> launches, synchronizes, and returns
 a dispatcher bound to those resources and scalar values. Preparation is not
-a compile-only operation. Prefer explicit <code class="docutils literal notranslate"><span class="pre">Buffer</span></code> arguments when reusing
-a dispatcher; see <a class="reference internal" href="memory.html"><span class="doc">Memory Model</span></a>.</p>
+a compile-only operation. If you plan to reuse a dispatcher, prefer explicit
+<code class="docutils literal notranslate"><span class="pre">Buffer</span></code> arguments; see <a class="reference internal" href="memory.html"><span class="doc">Memory Model</span></a>.</p>
 </section>
 <section id="program-identity-and-indices">
 <h2>Program identity and indices<a class="headerlink" href="#program-identity-and-indices" title="Link to this heading">¶</a></h2>
@@ -362,9 +361,9 @@ strides are measured in elements and default to contiguous row-major
 storage. Access is <code class="docutils literal notranslate"><span class="pre">&quot;read&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;write&quot;</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code>.
 An explicit address space must match the pointer’s allocation.</p>
 <p>Declare views near the start of the kernel, then use <code class="docutils literal notranslate"><span class="pre">view.load(indices,</span>
-<span class="pre">other=0)</span></code> and <code class="docutils literal notranslate"><span class="pre">view.store(indices,</span> <span class="pre">value)</span></code>. Loads and stores check
-logical coordinate bounds. The caller remains responsible for allocation
-capacity and signed 32-bit index/offset arithmetic.</p>
+<span class="pre">other=0)</span></code> and <code class="docutils literal notranslate"><span class="pre">view.store(indices,</span> <span class="pre">value)</span></code>. These check logical coordinate
+bounds. The caller must still provide enough storage and keep index/offset
+arithmetic within signed 32-bit range.</p>
 <p><code class="docutils literal notranslate"><span class="pre">block_shape</span></code> selects supported two-dimensional matrix-tile access.
 It does not allocate memory or set thread/register ownership.
 See <a class="reference internal" href="tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for the full bounds, dtype, and layout contract.</p>
@@ -444,8 +443,8 @@ direct NAX path has additional restrictions. See <a class="reference internal" h
 <dd><p>Record a GPU loop with an exclusive end. Its body runs once during tracing,
 producing the operations repeated at execution time. A positive
 compile-time integer step is the usual tiling pattern.</p>
-<p><code class="docutils literal notranslate"><span class="pre">num_stages</span></code> records a staging request; support depends on the chosen
-lowering path. It is not a guarantee of overlapped memory and compute.</p>
+<p><code class="docutils literal notranslate"><span class="pre">num_stages</span></code> requests staging on a supported lowering path. It does not
+guarantee that memory access and computation overlap.</p>
 </dd></dl>
 
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">partial_sum</span> <span class="o">=</span> <span class="mf">0.0</span>
@@ -512,9 +511,9 @@ not describe elementwise operations.</p>
 </tbody>
 </table>
 </div>
-<p>A <code class="docutils literal notranslate"><span class="pre">where</span></code> around an unmasked load does not make that load safe: its inputs
-are computed before selection. Put the bounds in the load’s mask or use a
-tensor view.</p>
+<p><code class="docutils literal notranslate"><span class="pre">where</span></code> evaluates its inputs before choosing one. Wrapping an unmasked load
+in <code class="docutils literal notranslate"><span class="pre">where</span></code> therefore does not make the load safe. Mask the load directly or
+use a tensor view.</p>
 </section>
 <section id="reductions">
 <h2>Reductions<a class="headerlink" href="#reductions" title="Link to this heading">¶</a></h2>
@@ -543,8 +542,8 @@ order may differ from a CPU reference.</p>
 </section>
 <section id="thread-and-simdgroup-operations">
 <h2>Thread and SIMDgroup operations<a class="headerlink" href="#thread-and-simdgroup-operations" title="Link to this heading">¶</a></h2>
-<p>These operations expose physical execution details. A SIMDgroup has 32
-threads on the supported Apple GPU paths.</p>
+<p>These operations expose physical execution details. On the supported Apple
+GPU paths, a SIMDgroup contains 32 threads.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="metile.thread_id">
 <span class="sig-prename descclassname"><span class="pre">metile.</span></span><span class="sig-name descname"><span class="pre">thread_id</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#metile.thread_id" title="Link to this definition">¶</a></dt>
@@ -620,12 +619,12 @@ grouped traversals. Unsupported panel geometries fall back to a valid
 traversal. See <a class="reference internal" href="tile-ops.html"><span class="doc">Tile Operations and Hardware Mapping</span></a> for the panel-size constraints.</p>
 </dd></dl>
 
-<p>Pass <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> at launch to request a backend,
-SIMDgroup geometry, staging, or supported vector width. The compiler checks
-these requirements. A prepared dispatch’s <code class="docutils literal notranslate"><span class="pre">explain()</span></code> report records the
-selected schedule and materialized decisions; see <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> at launch to require a backend,
+SIMDgroup geometry, staging or supported vector width. The compiler checks
+those requirements. Use the prepared dispatch’s <code class="docutils literal notranslate"><span class="pre">explain()</span></code> report to see
+the selected schedule and what lowering produced; see <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
 <p>Host APIs and specialized integrations are listed in <a class="reference internal" href="../api/reference.html"><span class="doc">API Reference</span></a>.
-They are separate from the traced kernel operations described here.</p>
+They are not part of the traced kernel operations described here.</p>
 </section>
 </section>
 

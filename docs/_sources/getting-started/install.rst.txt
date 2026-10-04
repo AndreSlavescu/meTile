@@ -1,9 +1,9 @@
 Installation
 ============
 
-meTile runs GPU kernels on Apple Silicon Macs through Metal. Use Python 3.10
-or later. NumPy is the only required Python runtime dependency; the runtime
-also loads the macOS Metal and Objective-C frameworks.
+meTile runs GPU kernels through Metal on Apple Silicon Macs. It requires Python
+3.10 or later and NumPy. At runtime, it also loads the macOS Metal and
+Objective-C frameworks.
 
 Install from the repository
 ---------------------------
@@ -21,9 +21,9 @@ compiler, and runtime; ``metile-kernels`` provides ready-made kernels under
 the ``metile_kernels`` namespace. The ``dev`` extra adds pytest, Ruff, and
 Vulture.
 
-To write your own kernels without the ready-made library, install only the
-compiler project with ``python -m pip install -e .``. It has no dependency on
-``metile-kernels``. You can add the library later with
+If you only want to write your own kernels, install the compiler with
+``python -m pip install -e .``. It does not depend on ``metile-kernels``.
+Add the library later with
 ``python -m pip install -e ./kernels``. Its source lives in
 ``kernels/src/metile_kernels/`` and it depends on ``metile``.
 
@@ -35,11 +35,11 @@ Optional extras have separate dependencies:
    python -m pip install -e ".[benchmarks]"
    python -m pip install -e ".[mlx-lm]" -e ./kernels
 
-The ``docs`` extra installs Sphinx and the documentation theme;
-``benchmarks`` adds plotting support; ``mlx-lm`` adds the MLX model
-dependencies. The MLX integration also needs ``metile-kernels``, so install
-both projects with the combined command above. Plotting saved results and
-building documentation do not require the kernel library.
+The ``docs`` extra installs Sphinx and the documentation theme.
+``benchmarks`` adds plotting support, and ``mlx-lm`` adds MLX model
+dependencies. MLX integration also needs ``metile-kernels``; the combined
+command installs both projects. You do not need the kernel library to plot
+saved results or build the docs.
 
 Metal compiler and feature support
 ----------------------------------
@@ -67,10 +67,9 @@ probes this combination before choosing that backend. The direct NAX path
 adds its own target and shape requirements. Do not infer these capabilities
 from an M-series chip name or a Python package installation alone.
 
-The project does not enforce a single minimum macOS version in its package
-metadata. Available backends depend on the installed OS, device, and
-toolchain; passing the checks below is more useful than assuming that every
-feature works on an older macOS release.
+The package metadata does not enforce a single minimum macOS version.
+Backend support depends on the installed OS, device and toolchain. Run the
+checks below rather than assuming every feature works on an older macOS release.
 
 Check the installation
 ----------------------
@@ -82,9 +81,9 @@ Start with the IR tests, then run a small GPU example:
    python -m pytest tests/ir/test_ir.py -q
    python -m pytest tests/docs/test_documentation_examples.py -q
 
-The first command checks compiler data structures. The second executes the
-complete tutorial examples and compares GPU output with NumPy. GPU execution
-requires the Apple Silicon/Metal environment described above.
+The first command checks compiler data structures without running kernels.
+The second runs the complete tutorial examples and compares GPU output with
+NumPy, so it requires the Apple Silicon/Metal setup described above.
 
 The tutorial's attention example uses ``metile.backends.attention_runtime``,
 whose GPU kernels come from the companion library; it does not need MLX.
