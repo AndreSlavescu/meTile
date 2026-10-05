@@ -426,6 +426,18 @@ class KernelLauncher:
         else:
             compiled = _kernel_cache[cache_key]
 
+        output_buffers = []
+        for index in compiled.output_indices:
+            argument_index = (
+                compiled.argument_indices[index] if compiled.argument_indices is not None else index
+            )
+            argument = converted_args[argument_index]
+            if isinstance(argument, MtileBuffer):
+                source = argument._source_array
+                if source is not None and not source.flags.writeable:
+                    raise ValueError("kernel output NumPy arrays must be writable")
+                output_buffers.append(argument)
+
         # Dispatch
         metal_buffers = self._dispatch(compiled, converted_args)
 
@@ -440,9 +452,8 @@ class KernelLauncher:
         )
         if needs_sync:
             MetalDevice.get().sync()
-            for a in converted_args:
-                if isinstance(a, MtileBuffer) and a._source_array is not None:
-                    a.sync_to_source()
+            for output in output_buffers:
+                output.sync_to_source()
 
     def prepare(self, *args, **kwargs):
         """Compile and return a zero-overhead callable for repeated dispatch.
@@ -786,13 +797,14 @@ def _mark_outputs(func: tir.Function):
 
 
 def _collect_store_ptrs(ops: list, store_ptrs: set):
-    """Find all pointer names that appear as store destinations, recursing into loops."""
+    """Find mutated pointer bases, including stores and work-queue counters."""
     for op in ops:
-        if isinstance(op, tir.Store):
+        if isinstance(op, (tir.Store, tir.TileStore)):
             _collect_ptr_names(op.ptr, store_ptrs)
-        elif isinstance(op, tir.TileStore):
-            store_ptrs.add(op.ptr.name)
-        elif isinstance(op, (tir.ForRange, tir.PersistentRange, tir.SimdgroupRole)):
+        elif isinstance(op, tir.PersistentRange):
+            _collect_ptr_names(op.counter, store_ptrs)
+            _collect_store_ptrs(op.body, store_ptrs)
+        elif isinstance(op, (tir.ForRange, tir.SimdgroupRole)):
             _collect_store_ptrs(op.body, store_ptrs)
 
 

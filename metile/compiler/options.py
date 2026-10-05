@@ -18,9 +18,16 @@ class Schedule:
     double_buffer: bool | None = None
 
     def __post_init__(self):
-        if self.backend not in {"auto", "simdgroup", "tensor_ops", "nax", "elementwise"}:
+        if self.backend not in {
+            "auto",
+            "simdgroup",
+            "simdgroup_inline",
+            "tensor_ops",
+            "nax",
+            "elementwise",
+        }:
             raise ValueError(
-                "schedule backend must be auto, simdgroup, tensor_ops, nax or elementwise"
+                "schedule backend must be auto, simdgroup, simdgroup_inline, tensor_ops, nax or elementwise"
             )
         if self.staging not in {"auto", "device", "threadgroup"}:
             raise ValueError("schedule staging must be auto, device or threadgroup")

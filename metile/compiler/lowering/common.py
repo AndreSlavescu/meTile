@@ -662,7 +662,21 @@ def _detect_epilogue(ops: list, *, func: tir.Function | None = None) -> list:
         elif isinstance(op, tir.Unary):
             if strict and (
                 op.operand.name != chain_name
-                or op.op not in {"exp", "fast_exp", "log", "sqrt", "abs", "neg", "tanh"}
+                or op.op
+                not in {
+                    "exp",
+                    "exp2",
+                    "fast_cos",
+                    "fast_exp",
+                    "fast_exp2",
+                    "fast_sin",
+                    "log",
+                    "sqrt",
+                    "rsqrt",
+                    "abs",
+                    "neg",
+                    "tanh",
+                }
             ):
                 return unsupported()
             epilogue.append(("unary", op.op))

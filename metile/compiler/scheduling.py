@@ -59,7 +59,9 @@ from metile.target import agx
 _REGISTER_ONLY = (
     mir.MConstant,
     mir.MBinOp,
+    mir.MFma,
     mir.MCast,
+    mir.MBitcast,
     mir.MUnary,
     mir.MSelect,
     mir.MCompare,

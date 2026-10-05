@@ -224,9 +224,16 @@ class _ElementwiseLoweringContext:
                 )
             ]
 
-        elif isinstance(op, tir.Cast):
+        elif isinstance(op, (tir.Cast, tir.Bitcast)):
             value = self._resolve(op.value)
-            m_op = mir.MCast(value=value, target_dtype=op.dtype)
+            if isinstance(op, tir.Bitcast):
+                op.result_type()
+                if value.type.dtype == op.dtype:
+                    self.value_map[op.result.name] = value
+                    return []
+                m_op = mir.MBitcast(value=value, target_dtype=op.dtype)
+            else:
+                m_op = mir.MCast(value=value, target_dtype=op.dtype)
             mv = mir.MValue(op.result.name, m_op.result_type(), m_op)
             m_op.result = mv
             self.value_map[op.result.name] = mv
@@ -264,6 +271,17 @@ class _ElementwiseLoweringContext:
 
         elif isinstance(op, tir.BinOp):
             return self._lower_binop(op)
+
+        elif isinstance(op, tir.Fma):
+            op.result_type()
+            operation = mir.MFma(
+                left=self._resolve(op.left),
+                right=self._resolve(op.right),
+                addend=self._resolve(op.addend),
+            )
+            operation.result = mir.MValue(op.result.name, operation.result_type(), operation)
+            self.value_map[op.result.name] = operation.result
+            return [operation]
 
         elif isinstance(op, tir.Compare):
             return self._lower_compare(op)

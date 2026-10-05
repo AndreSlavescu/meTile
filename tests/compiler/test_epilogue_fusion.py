@@ -86,9 +86,14 @@ def _evaluate(program, accumulator, parameters):
     values = {}
     unary = {
         "exp": np.exp,
+        "exp2": np.exp2,
+        "fast_cos": np.cos,
         "fast_exp": np.exp,
+        "fast_exp2": np.exp2,
+        "fast_sin": np.sin,
         "log": np.log,
         "sqrt": np.sqrt,
+        "rsqrt": lambda values: 1 / np.sqrt(values),
         "abs": np.abs,
         "neg": np.negative,
         "tanh": np.tanh,
@@ -191,6 +196,56 @@ def test_reused_subexpression_is_emitted_once_and_dead_branches_are_omitted():
     source = "\n".join(lines)
     assert source.count(" = exp(") == 1
     assert source.count(f" {squared.operands[0]} = ") == 1
+
+
+def test_reciprocal_square_root_epilogue_uses_precise_intrinsic():
+    function = _trace(lambda accumulator, parameters: metile.rsqrt(accumulator))
+    program = build_epilogue(function)
+    assert _detect_epilogue(function.ops) == [("unary", "rsqrt")]
+    samples = np.array([0.25, 0.5, 1.0, 2.0, 4.0], dtype=np.float32)
+    np.testing.assert_allclose(_evaluate(program, samples, {}), 1 / np.sqrt(samples))
+    assert any(instruction.operation == "rsqrt" for instruction in program.instructions)
+    lines = []
+    _emit_epilogue_chain([program], "accumulator_element", lines, "")
+    source = "\n".join(lines)
+    assert "precise::rsqrt(" in source
+
+
+@pytest.mark.parametrize(
+    "operation,reference,intrinsic",
+    [
+        (metile.exp2, np.exp2, "exp2"),
+        (metile.fast_exp2, np.exp2, "fast::exp2"),
+        (metile.fast_cos, np.cos, "fast::cos"),
+        (metile.fast_sin, np.sin, "fast::sin"),
+    ],
+)
+def test_exp2_and_fast_trigonometric_epilogues_use_explicit_intrinsics(
+    operation, reference, intrinsic
+):
+    function = _trace(lambda accumulator, parameters: operation(accumulator))
+    program = build_epilogue(function)
+    assert _detect_epilogue(function.ops) == [("unary", operation.__name__)]
+    values = np.array([-2.0, -0.3, 0.0, 0.7, 2.0], dtype=np.float32)
+    np.testing.assert_allclose(_evaluate(program, values, {}), reference(values))
+    lines = []
+    _emit_epilogue_chain([program], "accumulator_element", lines, "")
+    assert intrinsic + "(" in "\n".join(lines)
+
+
+def test_fma_epilogue_preserves_explicit_fused_operation():
+    function = _trace(
+        lambda accumulator, parameters: metile.fma(
+            accumulator, parameters["alpha"], parameters["beta"]
+        )
+    )
+    program = build_epilogue(function)
+    instruction = next(item for item in program.instructions if item.kind == "fma")
+    assert len(instruction.operands) == 3
+    lines = []
+    _emit_epilogue_chain([program], "accumulator_element", lines, "")
+    source = "\n".join(lines)
+    assert source.count(" = fma(") == 1
 
 
 @pytest.mark.parametrize("kind", ["silu", "gelu", "relu", "reverse_where"])

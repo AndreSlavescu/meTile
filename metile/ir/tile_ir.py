@@ -126,6 +126,25 @@ class Cast(Op):
 
 
 @dataclass
+class Bitcast(Op):
+    """Reinterpret each 32-bit scalar element without changing its bits."""
+
+    value: Value = None
+    dtype: str = "u32"
+
+    def result_type(self):
+        if (
+            not isinstance(self.value.type, (ScalarType, TileType))
+            or self.value.type.dtype not in {"f32", "i32", "u32"}
+            or self.dtype not in {"f32", "i32", "u32"}
+        ):
+            raise TypeError("bitcast requires f32, i32 or u32 scalar or tile types")
+        if isinstance(self.value.type, TileType):
+            return TileType(self.value.type.shape, self.dtype, self.value.type.layout)
+        return ScalarType(self.dtype)
+
+
+@dataclass
 class Arange(Op):
     """Create a 1D tile of sequential integers [start, start+size)."""
 
@@ -168,6 +187,32 @@ class BinOp(Op):
         if isinstance(self.rhs.type, TileType):
             return TileType(self.rhs.type.shape, self.rhs.type.dtype, layout)
         return self.lhs.type
+
+
+@dataclass
+class Fma(Op):
+    """Elementwise fused multiply-add with explicit single-rounding semantics."""
+
+    left: Value = None
+    right: Value = None
+    addend: Value = None
+
+    def result_type(self):
+        types = tuple(operand.type for operand in (self.left, self.right, self.addend))
+        if any(
+            not isinstance(datatype, (ScalarType, TileType)) or datatype.dtype not in {"f16", "f32"}
+            for datatype in types
+        ):
+            raise TypeError("fma requires f16 or f32 scalar or tile operands")
+        if len({datatype.dtype for datatype in types}) != 1:
+            raise TypeError("fma operands require matching floating dtypes; cast explicitly")
+        shapes = {datatype.shape for datatype in types if isinstance(datatype, TileType)}
+        if len(shapes) > 1:
+            raise ValueError("fma operands require matching tile shapes or scalar broadcasting")
+        layout = merge_tile_layouts(*types)
+        if shapes:
+            return TileType(shapes.pop(), types[0].dtype, layout)
+        return types[0]
 
 
 @dataclass
@@ -393,6 +438,7 @@ class TileLoad(Op):
     stride: Value = None  # leading dimension
     tile_shape: tuple[int, int] = (32, 32)
     tensor: TensorMemory | None = None
+    scratch: TensorMemory | None = None
 
     def result_type(self) -> TileType:
         assert isinstance(self.ptr.type, PtrType)
@@ -410,6 +456,7 @@ class TileStore(Op):
     value: Value = None
     tile_shape: tuple[int, int] = (32, 32)
     tensor: TensorMemory | None = None
+    scratch: TensorMemory | None = None
 
     def result_type(self):
         return None

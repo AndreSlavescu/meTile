@@ -1,378 +1,215 @@
 Benchmarks
 ==========
 
-The recorded results include gains, near-parity cases, and losses on Apple M5.
-Each ratio needs its baseline, arithmetic policy, and timing boundary to be
-meaningful. A faster GPU kernel does not necessarily reduce synchronized
-application latency, and compressing BF16 weights to INT8 changes what is
-being compared.
+These results compare meTile with native MLX on an **Apple M5 with 32 GB
+memory and MLX 0.32.0**. Start with the workload you care about: model
+generation, a layer at a particular shape, or an individual compiler change.
 
-All charts are rendered from the repository's JSON artifacts; rendering runs
-no GPU workload and produces no new measurements. The MLX model and shape
-studies date from July 2026, and the compiler studies from October 2, 2026.
-These are separate experiments, not a single cumulative score. Open a chart
-for its full-size SVG, or use the raw JSON downloads that follow each study.
+**Reading the charts:** higher speedup is better; ``1.00x`` means parity.
+Speedup is baseline latency divided by meTile latency, or meTile throughput
+divided by baseline throughput. Weight formats match unless a comparison is
+explicitly labeled compression-assisted or lossless packed storage. Click any
+figure for the full-size SVG.
 
-Find the benchmark code
-------------------------
+Model inference
+---------------
 
-Run benchmark modules from the repository root. They are grouped by purpose:
+The four 4-bit models use **128 prompt tokens and request 256 output tokens**.
+The dense BF16 Qwen 2.5 1.5B result uses **128 prompt tokens and requests 64
+output tokens**. Each active comparison has nine alternating trials per backend;
+the native fallback reuses a single nine-trial series. Reported speedups are
+medians of paired trials.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 35 65
-
-   * - Directory
-     - Contents
-   * - ``benchmarks/compiler/``
-     - Compiler passes, layouts, schedules, and staging experiments
-   * - ``benchmarks/hardware/``
-     - Apple GPU and ISA probes
-   * - ``benchmarks/kernels/``
-     - Individual numerical-kernel benchmarks
-   * - ``benchmarks/mlx/``
-     - MLX integration, model, and layer studies
-   * - ``benchmarks/regression/``
-     - Numerical regression suites and paired checkout comparisons
-   * - ``benchmarks/plots/``
-     - Chart rendering from recorded results
-   * - ``benchmarks/common/``
-     - Shared benchmark helpers
-   * - ``benchmarks/results/``
-     - Historical JSON reports and manifests
-
-``make bench`` runs only the numerical regression suite. To select other
-modules explicitly, use a command such as
-``make bench BENCH_MODULES="benchmarks.kernels.gemm benchmarks.kernels.softmax"``.
-Model studies and hardware probes have separate entry points and prerequisites.
-
-Reading the measurements
-------------------------
-
-Speedup is baseline time divided by candidate time, or candidate throughput
-divided by baseline throughput. ``1.00x`` is parity; values below one favor the
-baseline. Plotted dots preserve the recorded summary ratios. Displayed labels
-are rounded; the linked JSON retains the full values and, where recorded,
-individual rounds.
-
-The compiler reports separate Metal command-buffer GPU timestamps from
-synchronized wall latency. Wall measurements include dispatch and
-synchronization. MLX comparisons also include operation construction or
-compiled-call evaluation and framework-managed output allocation; meTile
-generally uses prepared dispatches with preallocated outputs. Compilation and
-input setup are excluded. These measurements describe the operation boundary,
-not isolated device execution time.
-
-Same storage precision means the input and output dtypes match. It does not
-promise identical intermediate rounding or bitwise output equality. Each
-artifact records its numerical policy, tolerance checks and comparison class.
-The ownership-transpose study is a pure reorder and checks bitwise equality;
-the arithmetic studies generally check tolerances.
-
-Register-tiling RMSNorm
---------------------------------
-
-The latest experiment uses one selected policy for all 12 cases: FP16 and
-FP32 storage, widths 1009 and 1024, and batches 1, 32 and 256. A finite tuning
-search selected ``register4_striped`` using seed 1741. That selection was then
-frozen and validated with seed 9473 in two fresh processes. Each validation
-uses three rounds, 100 ms warmup and 250 ms measurement budgets.
-
-The baseline is the **prior static-width, four-register striped kernel**.
-Both sides specialize ``N`` and use ``BLOCK=1024``. This is different from
-the earlier register-RMSNorm experiment, whose loop-based baseline also differs
-in width specialization. The heldout reports embed the frozen shader and bind
-the baseline, selected policy, benchmark driver and compiler to fingerprints.
-
-.. image:: /_static/compiler-rmsnorm-heldout.svg
-   :target: ../_static/compiler-rmsnorm-heldout.svg
-   :alt: All twelve RMSNorm cases in two heldout runs, with separate GPU and wall comparisons; the aligned GPU cases miss the 1.10x target
-   :width: 100%
-
-The promotion rule requires at least ``1.10x`` GPU speedup on each aligned
-32-row and 256-row case, at most three percent wall regression on every case,
-and at most three percent GPU regression on every ragged-width case. The four
-aligned throughput cases miss the speedup target in both processes:
-
-.. list-table:: GPU speedup over prior static-width register4
-   :header-rows: 1
-
-   * - Case
-     - Heldout run 1
-     - Heldout run 2
-   * - FP16, 32 x 1024
-     - 1.070x
-     - 1.078x
-   * - FP16, 256 x 1024
-     - 1.079x
-     - 1.076x
-   * - FP32, 32 x 1024
-     - 1.000x
-     - 1.018x
-   * - FP32, 256 x 1024
-     - 1.002x
-     - 1.024x
-
-Both runs pass the wall and ragged regression guards, but both fail the
-promotion gate. The experimental policy therefore remains opt-in; the default
-is unchanged. These two runs are repeated point estimates, not confidence
-intervals.
-
-The primary MLX comparator is an explicitly compiled graph using FP32 reduction,
-normalization and weight multiplication, followed by the final storage cast.
-Its measured wall speedups span ``0.992x–1.144x`` across both runs. The separate
-``mx.fast.rms_norm`` comparison spans ``0.980x–1.021x`` and has a geometric mean
-below one in each run. It does not demonstrate a broad fast-MLX win. For FP16,
-that fast kernel rounds the normalized value to storage precision before the
-weight multiplication; the harness checks it against its own rounding reference.
-The primary policy is tolerance checked, not bitwise exact.
-
-Download the :download:`heldout report <../../benchmarks/results/m5-rmsnorm-tiling-heldout.json>`,
-:download:`repeat <../../benchmarks/results/m5-rmsnorm-tiling-heldout-repeat.json>`,
-:download:`frozen selection <../../benchmarks/results/m5-rmsnorm-tiling-selection.json>`
-and :download:`tuning matrix <../../benchmarks/results/m5-rmsnorm-tiling-tuning.json>`.
-The :download:`AIR inspection <../../benchmarks/results/m5-rmsnorm-tiling-air.json>`
-describes compiler output; it is not a substitute for timing evidence.
-
-Other compiler experiments
---------------------------
-
-Each experiment evaluates one change against its own baseline. Their speedups
-cannot be multiplied into a cumulative improvement.
-
-.. list-table:: Results and limits
-   :header-rows: 1
-   :widths: 25 43 32
-
-   * - Experiment
-     - Recorded result
-     - Scope
-   * - FP16 MPP GEMM
-     - 6.61x and 5.17x GPU speedup over the prior compiler at square sizes 256 and 1024. Final fixed-suite MLX wall ratios are about 1.08x and 0.95x.
-     - Same FP16 storage, FP32 accumulation, tolerance checked. Compiler-baseline GPU gains are not MLX speedups.
-   * - Strict-FP32 epilogue fusion
-     - About 1.02x–1.07x wall speedup over two meTile launches, and 1.03x–1.08x over compiled MLX, across sizes 64, 256 and 1024 in two runs.
-     - ``MLX_ENABLE_TF32=0``; resident inputs and separately interleaved comparison pairs.
-   * - Ownership transpose
-     - Geometric mean 0.992x against scalar scatter and 0.985x against MLX across 16 cases.
-     - Materialized contiguous outputs; bitwise checked. No demonstrated speed win; opt-in.
-   * - Verified software staging
-     - GPU ratios 0.960x–1.017x and wall ratios 0.974x–1.002x against the preceding software pipeline.
-     - Eight FP16/FP32 cases including ragged dimensions. Checked lifetimes and correctness, with measurable overhead in some cases.
-   * - Earlier register RMSNorm
-     - The matched-toolchain final report fails its promotion gate; matched-MLX wall ratios span 0.995x–1.110x.
-     - Loop-based baseline and static-width candidate; distinct from the static-register4 tiling experiment above.
-
-The tensor-memory evidence is in the
-:download:`fixed suite <../../benchmarks/results/m5-tensor-memory.json>`,
-:download:`compiler baseline <../../benchmarks/results/m5-tensor-memory-baseline.json>`
-and :download:`FP16 MPP probe <../../benchmarks/results/m5-fp16-tensor-ops.json>`.
-See :doc:`tensor-memory` for dispatch, precision and tensor-contract details.
-
-The fusion :download:`first run <../../benchmarks/results/m5-schedule-fusion.json>`
-and :download:`repeat <../../benchmarks/results/m5-schedule-fusion-repeat.json>`
-retain their separate fused/two-launch and fused/MLX timing pairs. Do not divide
-absolute times from different pairs: latency regimes shifted within the study.
-The :download:`scheduling regression report <../../benchmarks/results/m5-schedule-regression.json>`
-also retains two initially failed broad comparisons. The expanded five-round
-ABBA comparison passes the unchanged 15-percent gate across all ten cases,
-with changes from 9.4 percent faster to 5.0 percent slower. An isolated probe
-found byte-identical GEMM shaders and essentially equal GPU times; that evidence
-does not establish the cause of the observed wall-time variation.
-See :doc:`execution-schedules` for the execution contracts.
-
-The :download:`ownership report <../../benchmarks/results/m5-thread-layouts.json>`,
-:download:`scatter baseline <../../benchmarks/results/m5-thread-layouts-baseline.json>`
-and :download:`staging comparison <../../benchmarks/results/m5-verified-staging.json>`
-include correctness, timing boundaries and execution reports. The older
-:download:`register-RMSNorm final report <../../benchmarks/results/m5-register-rmsnorm-final.json>`
-is the authoritative matched-toolchain result for that experiment. Earlier
-``m5-register-rmsnorm.json`` and ``m5-register-rmsnorm-broadcast.json`` files
-mixed runtime JIT and offline compilation; they remain historical artifacts,
-not valid compiler-performance comparisons. See :doc:`thread-layouts` for
-ownership, reduction and staging semantics.
-
-MLX model and shape studies
---------------------------------
-
-The same-representation model suite compares generation with the same weight
-formats on an Apple M5 with 32 GB memory and MLX 0.32.0. A selected model plan
-may keep native MLX; those fallbacks are labeled and remain in the charts. The
-saved suites below contain five same-representation model results. The larger
-model-shape study uses a separate synthetic workload.
+Matched-weight decode is close to parity; several models have faster prefill.
+A result marked **native fallback** uses native MLX, not a generated kernel.
 
 .. image:: /_static/mlx-model-speedup.svg
    :target: ../_static/mlx-model-speedup.svg
-   :alt: Decode and prefill speedups for all five same-representation model results, including the native fallback
+   :alt: Decode and prefill speedups for five same-weight model comparisons, including the native fallback
    :width: 100%
 
-.. image:: /_static/mlx-model-latency-speedup.svg
-   :target: ../_static/mlx-model-latency-speedup.svg
-   :alt: Time-to-first-token and end-to-end ratios for the same five model results
+Trial-to-trial latency
+~~~~~~~~~~~~~~~~~~~~~~
+
+The violin plots show **time to first token**, in milliseconds, for the four
+4-bit models above. Each dot is one recorded trial; the median summarizes the
+nine samples. The outline shows a smoothed distribution, not a confidence
+interval. Each panel is a separate model, with one fixed synthetic prompt.
+The shared native fallback is drawn once rather than presented as two
+independent measurements.
+
+.. image:: /_static/mlx-model-ttft-distribution.svg
+   :target: ../_static/mlx-model-ttft-distribution.svg
+   :alt: Measured time-to-first-token distributions with nine raw trial points per backend for four 4-bit models; the shared native fallback appears once
    :width: 100%
 
-The source suites are :download:`4-bit models <../../benchmarks/results/m5-mlx-lm-models.json>`
-and :download:`dense Qwen 2.5 1.5B BF16 <../../benchmarks/results/m5-mlx-lm-bf16-dense-qwen15.json>`.
-Their workload, software, selected plans, fidelity checks and trial summaries
-are recorded per model. The chart uses each model's precision metadata to decide
-its category; a suite name alone does not establish matched precision.
+The `latency summary <../_static/mlx-model-latency-speedup.svg>`_ also shows
+time-to-first-token and end-to-end speedup for all five matched-weight results.
+See :doc:`benchmark-methodology` for the source reports and timing definitions.
 
-Compression-assisted results
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Compression-assisted inference
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The :download:`BF16 capacity suite <../../benchmarks/results/m5-mlx-lm-bf16-models.json>`
-uses selected affine-INT8 decode projections against native BF16 weights.
-It keeps native weights and uses the original representation for multi-row
-prefill. Decode speedups, however, include the change in representation, and
-fidelity guards are tolerance based. The chart therefore places these results
-in a separate labeled category alongside the same-representation results:
+The separate BF16 capacity suite uses affine-INT8 decode projections against
+native BF16 weights: **128 prompt tokens, 128 requested output tokens, seven trials
+per backend**. These gains include compression, so they are not same-precision
+kernel speedups. Multi-row prefill keeps the original weight representation.
 
-.. image:: /_static/mlx-model-all-speedup.svg
-   :target: ../_static/mlx-model-all-speedup.svg
-   :alt: Model speedups separated into same-representation and affine-INT8 compression-assisted decode categories
+View the `separate comparison groups <../_static/mlx-model-all-speedup.svg>`_.
+Fidelity checks apply to the measured calibration workload, not every prompt
+or downstream task; :doc:`mlx-backend` explains selection and fallback behavior.
+
+Megakernels
+-----------
+
+The :doc:`Qwen3-0.6B experiment <megakernels>` measures **4,096 prompt tokens
+and exactly 1,024 output tokens** with matrix-tiled attention and projections
+written in the DSL. Request batch size is one; chunks batch token rows, not
+independent requests. Chunk size **512** is selected on a separate 2,048-token
+document with eight outputs. All four tuning sizes and the complete generation
+pass the logit, K/V-cache and greedy-token checks. Native MLX uses FP32 weights
+with TF32 off. meTile reconstructs the same FP32 weight values from lossless
+packed storage in decode projections and the vocabulary head; this is **not
+the same physical weight representation**. Prefill matrix weights, activations,
+KV cache and accumulation remain FP32. Original FP32 buffers are retained,
+so the packed copy does not establish a total-memory saving.
+
+**Complete generation is faster in this run; there is no prefill win.**
+meTile's median time to first token is **6.95 s versus MLX's 2.36 s**.
+Complete generation is **32.90 s versus 44.13 s**; post-first-token decode is
+**39.43 versus 24.49 tokens/s**. Median paired speedups are **0.971x for TTFT,
+1.655x for decode and 1.494x overall**. These are medians of paired ratios,
+not ratios of the displayed medians.
+
+.. image:: /_static/qwen3-direct-packed-prefill.svg
+   :target: ../_static/qwen3-direct-packed-prefill.svg
+   :alt: Direct-memory DSL attention and lossless-packed decode weights, with separate tuning and generation panels; all five complete-generation pairs favor meTile, but time to first token varies widely and is not a win
    :width: 100%
 
-See :doc:`mlx-backend` for the selection policy, fallback behavior and fidelity
-requirements. A plan that passes one model and calibration workload is not a
-general accuracy guarantee for other prompts or tasks.
+The chart retains every trial without outlier exclusion. meTile wins all five
+complete-generation pairs, but only two TTFT pairs. Total latency spans
+**35.94–61.97 s for MLX** and **27.34–41.47 s for meTile**. TTFT ranges from
+**1.95–9.47 s** and **2.24–9.76 s**, respectively. The paired ``0.971x``
+does not establish prefill parity: the five observations vary widely and the
+candidate's median TTFT is higher. This is one noisy session and one document,
+not a general model-speed guarantee. The document was held out from
+chunk selection only, not implementation diagnostics. The baseline is an
+unmodified MLX model in a synchronous greedy loop, not pipelined
+``mlx_lm.stream_generate``. See the :download:`raw report
+<../../benchmarks/results/m5-qwen3-direct-packed-end-to-end.json>`,
+:download:`benchmark source <../../benchmarks/megakernels/qwen3_chunked_prefill.py>`
+and :ref:`methodology <qwen3-chunked-methodology>` for the exact comparison.
 
-Layer shapes and batching
-~~~~~~~~~~~~~~~~~~~~~~~~~
+The earlier :download:`shared-storage, unpacked-weight report
+<../../benchmarks/results/m5-qwen3-prefill-shared-reuse-end-to-end.json>` and
+`chart <../_static/qwen3-shared-prefill.svg>`_ remain unchanged. They recorded
+**1.108x** median paired complete-generation speedup in a different session.
+That is not a paired ablation of direct memory or weight packing.
 
-The :download:`matched-representation matrix <../../benchmarks/results/m5-matched-representation-matrix.json>`
-measures a fixed MLP shape across row counts and weight formats. Gains depend
-on both. The chart includes every recorded measurement, including near-parity
-INT8 results.
+The earlier scalar-attention backend recorded **5.78 s** median TTFT against
+**1.99 s** for MLX. Its `chart <../_static/qwen3-chunked-prefill.svg>`_ remains
+available. That was a separate session and compiler configuration, not a paired
+ablation of the new attention kernel.
+
+Other results remain in :doc:`megakernels`. The original single-threadgroup
+design takes **419–438 ms** per forward versus **22–26 ms** for native MLX.
+The earlier GPU-wide design uses sequential prefill with **8 or 32 prompt
+tokens and 8 or 16 output tokens**, including GPU greedy selection. Its FP32
+decode is near parity at **38.6–41.4 tokens/s**, versus native MLX's
+**38.5–40.7 tokens/s**, but total generation is slower. Those FP32 logits,
+valid cache entries and generated IDs pass validation; FP16 fails cache checks
+and has no published timings. These are Qwen3-0.6B results, not the hybrid
+Qwen3.6 architecture.
+
+Layer shapes
+------------
+
+Batch size
+~~~~~~~~~~
+
+This sweep measures a **SwiGLU MLP with a residual add**, not a complete model:
+
+.. code-block:: text
+
+   X, residual: [B, 1536]
+   gate, up:    [8960, 1536]
+   down:        [1536, 8960]
+
+   Y = (silu(X @ gate.T) * (X @ up.T)) @ down.T + residual
+
+``B`` sweeps powers of two from **1 to 2048**. The BF16 series uses BF16
+weights and activations. INT4 and INT8 use affine weights with **group size
+64** and FP16 activations. Each point is the median speedup from **25 paired
+rounds**, with identical weights and formats on both sides of that comparison.
 
 .. image:: /_static/mlx-matched-speedup.svg
    :target: ../_static/mlx-matched-speedup.svg
-   :alt: BF16, INT4 and INT8 speedups at matched representation across all measured row counts
+   :alt: Median paired speedup of the 1536 to 8960 to 1536 residual SwiGLU MLP across batch sizes 1 to 2048, separated by weight format
    :width: 100%
 
-The :download:`model-shape matrix <../../benchmarks/results/m5-model-shape-matrix.json>`
-uses synthetic projection and MLP-block workloads at nine model dimension sets.
-It is not full-model inference; vision models contribute language-tower shapes
-only. The chart distinguishes single-row blocks, 16-row blocks and the prefill
-down projection.
+Projection width
+~~~~~~~~~~~~~~~~
 
-.. image:: /_static/mlx-model-shape-speedup.svg
-   :target: ../_static/mlx-model-shape-speedup.svg
-   :alt: Separate projection and block speedups at nine model-shaped dimensions
-   :width: 100%
-
-The :download:`shape-sensitivity sweep <../../benchmarks/results/m5-shape-sensitivity.json>`
-records a marked change between output widths 2048 and 2560 in this INT4 prefill
-workload. The data supports a shape-dependent result, not a universal width
-threshold across devices, precisions and MLX versions.
+This is an **INT4 affine matrix multiply**, with group size 64 and FP16
+activations: ``[127, 8192] @ [N, 8192].T -> [127, N]``. The eight plotted
+widths span **1024 to 8192**. Each ratio divides the two backend median
+latencies from **15 paired rounds**.
 
 .. image:: /_static/mlx-width-cliff.svg
    :target: ../_static/mlx-width-cliff.svg
-   :alt: Recorded INT4 prefill speedup at each measured output width
+   :alt: Speedup of a 127-row INT4 projection with reduction width 8192 at eight measured output widths from 1024 to 8192
    :width: 100%
 
-Effective weight bandwidth divides a model's weight bytes by measured latency.
-It normalizes the timings; it does not measure DRAM traffic or establish a
-physical bandwidth ceiling. Both backend series remain visible even where
-they nearly overlap. Cache reuse, arithmetic cost, and dispatch overhead can
-all affect this metric, so the chart cannot tell us how many times hardware
-fetched each weight.
+The speedup drops between widths 2048 and 2560 for this workload; it is not a
+universal hardware threshold. These two sweeps save only summary timings,
+so they use line charts: there are no saved trial distributions to plot as
+violins.
 
-.. image:: /_static/mlx-batch-efficiency.svg
-   :target: ../_static/mlx-batch-efficiency.svg
-   :alt: Effective weight bandwidth by row count, with separate native MLX and meTile series for BF16, INT4 and INT8
-   :width: 100%
+For other views, see the `nine model-shaped layer workloads
+<../_static/mlx-model-shape-speedup.svg>`_ and the `effective weight-bandwidth
+sweep <../_static/mlx-batch-efficiency.svg>`_. Neither is a full-model benchmark;
+effective bandwidth is weight bytes divided by latency, not measured DRAM traffic.
 
-Reproduce the figures
----------------------
+Compiler results
+----------------
 
-From the repository root, install the plotting extra and render the recorded
-JSON. Each command writes both SVG and PNG. These commands need no Metal device,
-MLX installation or model download:
+These microbenchmarks compare separate compiler changes. The baseline and
+timing boundary matter as much as the ratio; the gains cannot be multiplied.
 
-.. code-block:: bash
+.. list-table:: Recorded comparisons
+   :header-rows: 1
+   :widths: 25 35 40
 
-   python3 -m pip install -e '.[benchmarks]'
-   python3 -m benchmarks.plots.render_compiler_results
-   python3 -m benchmarks.plots.render_model_speedups
-   python3 -m benchmarks.plots.render_model_speedups --include-mixed \
-     --throughput-output docs/_static/mlx-model-all-speedup.png \
-     --latency-output docs/_static/mlx-model-all-latency-speedup.png
-   python3 -m benchmarks.plots.render_matched_matrix
-   python3 -m benchmarks.plots.render_model_shapes
-   python3 -m benchmarks.plots.render_shape_sensitivity
+   * - Workload
+     - Baseline and metric
+     - Result
+   * - FP16 GEMM, square sizes 256 and 1024
+     - Native MLX, synchronized wall time
+     - About 1.08x and 0.95x. The separate prior-compiler GPU comparison gives 6.61x and 5.17x.
+   * - Strict-FP32 epilogue fusion, sizes 64, 256 and 1024
+     - Compiled MLX, synchronized wall time
+     - About 1.03x–1.08x across two runs, with ``MLX_ENABLE_TF32=0``.
+   * - Ownership transpose, 16 cases
+     - MLX, synchronized wall time
+     - Geometric mean 0.985x; no demonstrated speed win. Outputs are bitwise checked.
+   * - Verified software staging, eight FP16/FP32 cases
+     - Previous software pipeline, GPU and wall time
+     - GPU 0.960x–1.017x; wall 0.974x–1.002x. Includes ragged shapes.
 
-The explanatory diagrams use a separate renderer. They show compiler and
-runtime structure, not measurements from benchmark JSON:
+**RMSNorm register tiling remains opt-in.** The FP16/FP32 test covers widths
+1009 and 1024 with batches 1, 32 and 256. Against the prior static-width
+register4 kernel, both heldout runs miss the required **1.10x GPU speedup**
+on the aligned 32-row and 256-row cases; the default is unchanged.
 
-.. code-block:: bash
+The matched FP32-compute MLX graph comparison spans **0.992x–1.144x** in wall
+time. Against ``mx.fast.rms_norm``, the range is **0.980x–1.021x**, with a
+geometric mean below one in both runs. This is not a broad fast-MLX win.
+The `full RMSNorm chart <../_static/compiler-rmsnorm-heldout.svg>`_ keeps
+all cases, including losses and both heldout runs.
 
-   python3 -m benchmarks.plots.render_diagrams
+Methodology and reproduction
+----------------------------
 
-Reproduce the experiments
---------------------------------
-
-Fresh measurements require a compatible Apple GPU, the recorded dependencies,
-matching source snapshots, and, for offline compiler experiments, the Metal
-toolchain. Point the baseline path at the intended pre-change source tree.
-The current checkout's Git HEAD is not necessarily that baseline if the
-experiment began with uncommitted work. Write new results to new paths to
-preserve the original evidence.
-
-Install the compiler and kernel library before measuring kernels:
-
-.. code-block:: bash
-
-   python3 -m pip install -e '.[dev,benchmarks]' -e ./kernels
-
-MLX model studies also need the ``mlx-lm`` extra. Moving source files changes
-the implementation and driver fingerprints even when the computation stays
-the same. Validation against the reorganized source tree therefore requires
-a fresh baseline export and tuning run, not a historical manifest. Keep the
-original manifests and JSON artifacts as records of the original runs.
-
-To repeat register tiling, export the old static-register4 shader from the
-pre-tiling tree, tune against that frozen export, then validate twice. The
-validation driver starts a fresh process and refuses changed compiler or
-benchmark fingerprints. Keep the exported baseline, tuning report and selection
-manifest together. The saved manifest binds its original tuning-report path.
-
-.. code-block:: bash
-
-   python3 -m benchmarks.compiler.rmsnorm_tiling export \
-     --root /path/to/pre-tiling-tree --output /tmp/prior-register4.json
-   python3 -m benchmarks.compiler.rmsnorm_tiling tune \
-     --baseline-json /tmp/prior-register4.json \
-     --manifest /tmp/tiling-selection.json --output /tmp/tiling-tuning.json
-   python3 -m benchmarks.compiler.rmsnorm_tiling validate \
-     --baseline-json /tmp/prior-register4.json \
-     --manifest /tmp/tiling-selection.json --output /tmp/tiling-heldout.json
-   python3 -m benchmarks.compiler.rmsnorm_tiling validate \
-     --baseline-json /tmp/prior-register4.json \
-     --manifest /tmp/tiling-selection.json --output /tmp/tiling-heldout-repeat.json
-
-The other compiler harnesses expose their workload and timing controls through
-``--help``. These commands select the recorded experiment families:
-
-.. code-block:: bash
-
-   python3 -m benchmarks.compiler.tensor_memory --warmup-ms 100 --rep-ms 500 \
-     --output-json /tmp/tensor-memory.json
-   MLX_ENABLE_TF32=0 python3 -m benchmarks.compiler.schedule_fusion \
-     --sizes 64 256 1024 --warmup-ms 100 --rep-ms 500 --output /tmp/fusion.json
-   python3 -m benchmarks.regression.paired_regression \
-     --baseline-root /path/to/pre-scheduling-tree --rounds-per-sample 5
-   python3 -m benchmarks.compiler.thread_layouts \
-     --shapes 4x8 8x8 8x16 16x16 --dtypes float16 float32 \
-     --output-json /tmp/thread-layouts.json
-   python3 -m benchmarks.compiler.staged_gemm \
-     --baseline-root /path/to/pre-staging-tree --output /tmp/staging.json
-   python3 -m benchmarks.compiler.register_rmsnorm \
-     --baseline-root /path/to/pre-register-tree --output /tmp/register-rmsnorm.json
-
-For model studies, ``benchmarks/mlx/mlx_lm_suite.py`` runs the whole-model suites;
-``benchmarks/mlx/matched_representation_matrix.py``, ``benchmarks/mlx/model_shape_matrix.py``
-and ``benchmarks/mlx/shape_sensitivity.py`` run the layer studies. Match their
-arguments to the saved artifact's workload and configuration, including selected
-compression features and confirmation-trial counts. New measurements with a
-different plan, cache state, compiler or MLX version are new evidence and should
-be labeled accordingly.
+:doc:`benchmark-methodology` describes the timing boundaries, numerical policies,
+source artifacts, and commands for reproducing the figures or running new
+measurements. Rendering a chart does not run a benchmark or create new evidence.

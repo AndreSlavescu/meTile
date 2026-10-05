@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 
+import numpy as np
+
 from metile.ir import metal_ir as mir
 
 
@@ -1061,6 +1063,17 @@ _FOLDABLE_BINOPS = {
     "shr": lambda a, b: a >> b,
 }
 
+_FLOAT_DTYPES = {"f16": np.float16, "f32": np.float32}
+_FLOAT_BINOPS = {"add": np.add, "sub": np.subtract, "mul": np.multiply, "div": np.divide}
+
+
+def _rounded_float(value, dtype):
+    with np.errstate(all="raise"):
+        result = _FLOAT_DTYPES[dtype](value)
+    if not np.isfinite(result) or 0 < np.abs(result) < np.finfo(result.dtype).tiny:
+        raise ValueError("nonfinite and subnormal constants retain device arithmetic")
+    return result
+
 
 def _is_constant_val(val: mir.MValue, target: int | float) -> bool:
     """Check if a value is a constant with the given numeric value."""
@@ -1076,7 +1089,7 @@ def fold_constants(func: mir.MFunction) -> mir.MFunction:
     1. Fold MBinOp(MConstant(a), MConstant(b)) -> MConstant(result)
     2. Fold MCast(MConstant(v, src), target) -> MConstant(v, target)
     3. Eliminate identity ops: x + 0, x * 1, x - 0, x | 0, x ^ 0
-    4. CSE: deduplicate identical MBinOp and MCast ops
+    4. CSE: deduplicate identical arithmetic, casts, comparisons, and selects
     5. DCE: remove ops whose results are never referenced
     """
     _fold_constants_recursive(func.ops)
@@ -1110,14 +1123,35 @@ def _try_fold(op: mir.MOp):
             fold_fn = _FOLDABLE_BINOPS.get(op.op)
             if fold_fn is not None:
                 try:
-                    result_val = fold_fn(lhs_op.value, rhs_op.value)
+                    if any(
+                        dtype in {"f16", "f32", "bf16"}
+                        for dtype in (lhs_op.dtype, rhs_op.dtype, op.result.type.dtype)
+                    ):
+                        dtype = op.result.type.dtype
+                        if (
+                            dtype not in _FLOAT_DTYPES
+                            or lhs_op.dtype != dtype
+                            or rhs_op.dtype != dtype
+                            or op.op not in _FLOAT_BINOPS
+                        ):
+                            return
+                        left = _rounded_float(lhs_op.value, lhs_op.dtype)
+                        right = _rounded_float(rhs_op.value, rhs_op.dtype)
+                        with np.errstate(all="raise"):
+                            result = _FLOAT_BINOPS[op.op](left, right, dtype=_FLOAT_DTYPES[dtype])
+                        result_val = float(_rounded_float(result, dtype))
+                    else:
+                        result_val = fold_fn(lhs_op.value, rhs_op.value)
                     # Forward: make this value look like a constant
                     folded = mir.MConstant(value=result_val, dtype=lhs_op.dtype)
                     folded.result = op.result
                     op.result.defining_op = folded
                     return
                 except (ArithmeticError, OverflowError, ValueError):
-                    pass
+                    if any(
+                        dtype in {"f16", "f32", "bf16"} for dtype in (lhs_op.dtype, rhs_op.dtype)
+                    ):
+                        return
 
         # Case 3: Identity elimination
         # x + 0 -> x, x - 0 -> x
@@ -1161,35 +1195,94 @@ def _try_fold(op: mir.MOp):
         # Case 2: Cast of constant -> constant in target type
         inner = op.value
         if inner.defining_op and isinstance(inner.defining_op, mir.MConstant):
+            value = inner.defining_op.value
+            source_dtype = inner.defining_op.dtype
+            if source_dtype in {"f16", "f32", "bf16"} or op.target_dtype in {
+                "f16",
+                "f32",
+                "bf16",
+            }:
+                if op.target_dtype not in _FLOAT_DTYPES or source_dtype not in {
+                    "f16",
+                    "f32",
+                    "i32",
+                    "u32",
+                }:
+                    return
+                try:
+                    if source_dtype in _FLOAT_DTYPES:
+                        value = _rounded_float(value, source_dtype)
+                    else:
+                        value = int(value)
+                        minimum, maximum = (
+                            (0, 2**32 - 1) if source_dtype == "u32" else (-(2**31), 2**31 - 1)
+                        )
+                        if not minimum <= value <= maximum:
+                            return
+                    value = float(_rounded_float(value, op.target_dtype))
+                except (ArithmeticError, OverflowError, ValueError):
+                    return
             folded = mir.MConstant(
-                value=inner.defining_op.value,
+                value=value,
                 dtype=op.target_dtype,
             )
             folded.result = op.result
             op.result.defining_op = folded
 
 
-def _stable_val_key(val: mir.MValue | None) -> str | None:
-    """Return a stable identity key for an MValue, suitable for CSE hashing.
-
-    Uses the value's name rather than id() to avoid false matches from
-    address reuse after garbage collection and to correctly deduplicate
-    values that were forwarded by constant folding.
-    """
+def _stable_val_key(val: mir.MValue | None):
+    """Key emitted values by typed identity, or finite constants by exact storage bits."""
     if val is None:
         return None
-    return val.name
+    val = mir.resolve(val)
+    operation = val.defining_op
+    if isinstance(operation, mir.MConstant) and operation.dtype == val.type.dtype:
+        if operation.dtype in _FLOAT_DTYPES:
+            try:
+                bits = _rounded_float(operation.value, operation.dtype).tobytes()
+                return "constant", val.type, bits
+            except (ArithmeticError, OverflowError, ValueError):
+                pass
+        elif operation.dtype in {"bool", "i32", "u32", "u8"}:
+            limits = {
+                "bool": (0, 1),
+                "i32": (-(2**31), 2**31 - 1),
+                "u32": (0, 2**32 - 1),
+                "u8": (0, 255),
+            }
+            lower, upper = limits[operation.dtype]
+            if isinstance(operation.value, (int, bool)) and lower <= operation.value <= upper:
+                return "constant", val.type, int(operation.value)
+    return "value", val.type, val.name
 
 
 def _cse_key(op: mir.MOp):
     """Generate a hashable key for an op, or None if not eligible for CSE."""
-    if isinstance(op, mir.MBinOp) and op.result is not None:
+    if op.result is None:
+        return None
+    if isinstance(op, mir.MBinOp):
         lhs_key = _stable_val_key(op.lhs)
         rhs_key = _stable_val_key(op.rhs)
-        return ("binop", op.op, lhs_key, rhs_key)
-    if isinstance(op, mir.MCast) and op.result is not None:
+        return ("binop", op.op, lhs_key, rhs_key, op.result.type)
+    if isinstance(op, mir.MCast):
         val_key = _stable_val_key(op.value)
-        return ("cast", val_key, op.target_dtype)
+        return ("cast", val_key, op.target_dtype, op.result.type)
+    if isinstance(op, mir.MCompare):
+        return (
+            "compare",
+            op.predicate,
+            _stable_val_key(op.lhs),
+            _stable_val_key(op.rhs),
+            op.result.type,
+        )
+    if isinstance(op, mir.MSelect):
+        return (
+            "select",
+            _stable_val_key(op.condition),
+            _stable_val_key(op.true_val),
+            _stable_val_key(op.false_val),
+            op.result.type,
+        )
     return None
 
 
@@ -1207,7 +1300,7 @@ def _cse_recursive(ops: list[mir.MOp], seen: dict):
       with outer-scope values, but inner discoveries don't leak outward.
     """
     for op in ops:
-        if isinstance(op, mir.MVarAssign):
+        if isinstance(op, (mir.MVarAssign, mir.MFragmentStateAssign)):
             seen.clear()
         key = _cse_key(op)
         if key is not None:

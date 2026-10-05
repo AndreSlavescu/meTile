@@ -22,6 +22,34 @@ def _fill_sequence(destination, BLOCK: metile.constexpr):
     metile.store(destination + offsets, offsets + 1)
 
 
+@pytest.mark.parametrize("strided", [False, True])
+def test_readonly_numpy_inputs_and_output_copyback(strided):
+    size = 256
+    source = np.arange(size, dtype=np.float32)
+    source.flags.writeable = False
+    storage = np.zeros(size * (2 if strided else 1), dtype=np.float32)
+    destination = storage[::2] if strided else storage
+
+    _add_one[(1,)](source, destination, size, BLOCK=256)
+
+    np.testing.assert_array_equal(source, np.arange(size, dtype=np.float32))
+    np.testing.assert_array_equal(destination, source + 1)
+    if strided:
+        np.testing.assert_array_equal(storage[1::2], 0)
+
+
+def test_readonly_numpy_outputs_are_rejected():
+    size = 256
+    source = np.arange(size, dtype=np.float32)
+    destination = np.zeros(size, dtype=np.float32)
+    destination.flags.writeable = False
+
+    with pytest.raises(ValueError, match="output NumPy arrays must be writable"):
+        _add_one[(1,)](source, destination, size, BLOCK=256)
+
+    np.testing.assert_array_equal(destination, 0)
+
+
 def test_prepared_dependency_chain_is_ordered_on_concurrent_encoder():
     size = 4096
     source = metile.Buffer(data=np.arange(size, dtype=np.float32))

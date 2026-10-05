@@ -9,7 +9,20 @@ from metile.ir.types import ScalarType, TileType, merge_tile_layouts
 
 _FLOATS = {"f16", "f32"}
 _BINARY = {"add", "sub", "mul", "div", "max", "min"}
-_UNARY = {"exp", "fast_exp", "log", "sqrt", "tanh", "abs", "neg"}
+_UNARY = {
+    "exp",
+    "exp2",
+    "fast_cos",
+    "fast_exp",
+    "fast_exp2",
+    "fast_sin",
+    "log",
+    "sqrt",
+    "rsqrt",
+    "tanh",
+    "abs",
+    "neg",
+}
 
 
 def _floating(value, label):
@@ -36,10 +49,12 @@ def _operands(operation):
 
 def _check_rule(value, operands):
     operation = value.defining_op
+    if isinstance(operation, tir.Bitcast):
+        raise NotImplementedError("vjp cannot differentiate bitcast bit reinterpretation")
     supported = (
         (isinstance(operation, tir.BinOp) and operation.op in _BINARY)
         or (isinstance(operation, tir.Unary) and operation.op in _UNARY)
-        or isinstance(operation, tir.Select)
+        or isinstance(operation, (tir.Select, tir.Fma))
         or (
             isinstance(operation, tir.Cast)
             and operation.value.type.dtype in _FLOATS
@@ -108,14 +123,29 @@ def _pullback(value, gradient, depends):
                     wins, gradient, tracing.where(selected == other, gradient * 0.5, 0.0)
                 )
             yield operand, contribution
+    elif isinstance(operation, tir.Fma):
+        if depends[id(operation.left)]:
+            yield operation.left, gradient * proxy(operation.right)
+        if depends[id(operation.right)]:
+            yield operation.right, gradient * proxy(operation.left)
+        if depends[id(operation.addend)]:
+            yield operation.addend, gradient
     elif isinstance(operation, tir.Unary):
         operand = proxy(operation.operand)
         if operation.op in {"exp", "fast_exp"}:
             contribution = gradient * result
+        elif operation.op in {"exp2", "fast_exp2"}:
+            contribution = gradient * 0.6931471805599453 * result
+        elif operation.op == "fast_cos":
+            contribution = 0.0 - gradient * tracing.fast_sin(operand)
+        elif operation.op == "fast_sin":
+            contribution = gradient * tracing.fast_cos(operand)
         elif operation.op == "log":
             contribution = gradient / operand
         elif operation.op == "sqrt":
             contribution = gradient * 0.5 / result
+        elif operation.op == "rsqrt":
+            contribution = gradient * -0.5 * result * result * result
         elif operation.op == "tanh":
             contribution = gradient * (1.0 - result * result)
         elif operation.op == "abs":
@@ -165,8 +195,9 @@ def vjp(
     Select predicates are nondifferentiable. Max/min split cotangents equally
     between ties (including reduction ties); abs has derivative zero at zero.
     Floating casts differentiate their real-valued conversion, ignoring
-    rounding, and cast the adjoint back. Fast exp uses its computed value as
-    its derivative. These are finite-real, first-order rules, not derivatives
+    rounding, and cast the adjoint back. Exponential derivatives reuse the
+    computed output; fast sine/cosine use the paired fast intrinsic. These
+    are finite-real, first-order rules, not derivatives
     of floating-point rounding, NaN behavior, or approximate instruction bits.
     """
     context = tracing._get_ctx()

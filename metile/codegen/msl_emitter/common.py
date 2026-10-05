@@ -26,9 +26,14 @@ _CMP_SYMBOLS = {
 }
 _UNARY_MSL = {
     "exp": "exp",
+    "exp2": "exp2",
+    "fast_cos": "fast::cos",
     "fast_exp": "fast::exp",
+    "fast_exp2": "fast::exp2",
+    "fast_sin": "fast::sin",
     "log": "log",
     "sqrt": "sqrt",
+    "rsqrt": "precise::rsqrt",
     "abs": "abs",
     "neg": "-",
     "tanh": "tanh",
@@ -155,7 +160,12 @@ def _val_name(val: mir.MValue, func: mir.MFunction) -> str:
         # Constant folding: inline cast of constant as literal in target type
         if isinstance(val.defining_op, mir.MCast):
             inner = val.defining_op.value
-            if inner.defining_op and isinstance(inner.defining_op, mir.MConstant):
+            if (
+                inner.defining_op
+                and isinstance(inner.defining_op, mir.MConstant)
+                and inner.defining_op.dtype not in {"f16", "f32", "bf16"}
+                and val.defining_op.target_dtype not in {"f16", "f32", "bf16"}
+            ):
                 return _format_literal(inner.defining_op.value, val.defining_op.target_dtype)
         if isinstance(val.defining_op, mir.ThreadPositionInGrid):
             return "tid"
@@ -183,7 +193,12 @@ def _val_name_gemm(val: mir.MValue, func: mir.MFunction) -> str:
         # Constant folding: inline cast of constant as literal in target type
         if isinstance(val.defining_op, mir.MCast):
             inner = val.defining_op.value
-            if inner.defining_op and isinstance(inner.defining_op, mir.MConstant):
+            if (
+                inner.defining_op
+                and isinstance(inner.defining_op, mir.MConstant)
+                and inner.defining_op.dtype not in {"f16", "f32", "bf16"}
+                and val.defining_op.target_dtype not in {"f16", "f32", "bf16"}
+            ):
                 return _format_literal(inner.defining_op.value, val.defining_op.target_dtype)
         if isinstance(val.defining_op, mir.MSimdgroupId):
             return "sgid"
