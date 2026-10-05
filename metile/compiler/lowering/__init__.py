@@ -36,8 +36,22 @@ def lower(func: tir.Function) -> mir.MFunction:
     validate_thread_layouts(func)
     func, layout_optimizations = optimize_layout_conversions(func)
     plan = plan_schedule(func)
+    if plan.backend != "simdgroup_inline":
+        pending = list(func.ops)
+        while pending:
+            operation = pending.pop()
+            if (
+                isinstance(operation, (tir.TileLoad, tir.TileStore))
+                and operation.scratch is not None
+            ):
+                raise LoweringError("explicit matrix scratch requires simdgroup_inline")
+            pending.extend(getattr(operation, "body", ()))
     func = materialize_schedule(func, plan)
-    if _is_persistent_gemm(func):
+    if plan.backend == "simdgroup_inline":
+        from metile.compiler.lowering.fragments import InlineMatrixLowering
+
+        lowered = InlineMatrixLowering(func).lower()
+    elif _is_persistent_gemm(func):
         lowered = _lower_persistent_gemm(func)
     elif _is_specialized_gemm(func):
         lowered = _lower_specialized_gemm(func)

@@ -59,7 +59,7 @@ to support exact shape proofs in the compilation cache.
    * - Control
      - Contract
    * - ``backend``
-     - ``auto``, ``simdgroup``, ``tensor_ops``, ``nax`` or ``elementwise``.
+     - ``auto``, ``simdgroup``, ``simdgroup_inline``, ``tensor_ops``, ``nax`` or ``elementwise``.
        Explicit choices must support the kernel, hardware and precision policy.
    * - ``num_simdgroups``
      - An integer from 1 through 32. Matrix tiling must admit that factorization;
@@ -88,6 +88,164 @@ SIMD-group/shared paths; it does not optimize arbitrary allocation placement.
 Elementwise staging must match the kernel's memory operations. Specialized
 producer/consumer and persistent kernels keep their restricted schedules and
 reject controls they cannot honor.
+
+Composable matrix fragments
+---------------------------
+
+``Schedule(backend="simdgroup_inline")`` lets an ordinary DSL kernel contain
+multiple matrix products, scalar work and explicit shared-memory exchanges.
+It does not recognize an attention model or replace the kernel with a template.
+Each SIMD-group owns an opaque 8-by-8 register fragment; ``dot`` lowers to a
+SIMD-group matrix multiply with an FP32 accumulator.
+
+For example, this single-group kernel computes ``max(A @ B, 0) @ B``:
+
+.. code-block:: python
+
+   @metile.kernel
+   def two_products(A, B, Output, *, BLOCK: metile.constexpr = 32):
+       left_memory = metile.shared(64, dtype="f32")
+       right_memory = metile.shared(64, dtype="f32")
+       result_memory = metile.shared(64, dtype="f32")
+       left = metile.tensor(A, shape=(8, 8), access="read")
+       right = metile.tensor(B, shape=(8, 8), access="read")
+       output = metile.tensor(Output, shape=(8, 8), access="write")
+       left_values = metile.tensor(left_memory, shape=(8, 8))
+       right_values = metile.tensor(right_memory, shape=(8, 8))
+       result_values = metile.tensor(result_memory, shape=(8, 8))
+       left_matrix = metile.tensor(left_memory, shape=(8, 8), block_shape=(8, 8))
+       right_matrix = metile.tensor(right_memory, shape=(8, 8), block_shape=(8, 8))
+       result_matrix = metile.tensor(result_memory, shape=(8, 8), block_shape=(8, 8))
+       for index in metile.tile_range(metile.thread_id(), 64, BLOCK):
+           position = (index // 8, index % 8)
+           left_values.store(position, left.load(position))
+           right_values.store(position, right.load(position))
+       metile.barrier()
+       left_fragment = left_matrix.load((0, 0))
+       right_fragment = right_matrix.load((0, 0))
+       first = metile.dot(left_fragment, right_fragment, metile.zeros((8, 8)))
+       second = metile.dot(metile.maximum(first, 0.0), right_fragment, metile.zeros((8, 8)))
+       result_matrix.store((0, 0), second)
+       metile.barrier()
+       for index in metile.tile_range(metile.thread_id(), 64, BLOCK):
+           position = (index // 8, index % 8)
+           output.store(position, result_values.load(position))
+
+   two_products[(1,)](
+       left_buffer, right_buffer, output_buffer,
+       STRICT_MATH=True,
+       SCHEDULE=metile.Schedule(backend="simdgroup_inline"),
+   )
+
+All three buffers in this example hold 8-by-8 FP32 matrices. Matrix operands
+may instead use FP16 shared storage, but both inputs to each ``dot`` must have
+the same dtype. Accumulators remain FP32; casting a fragment or storing it to
+FP16 shared memory is an explicit storage conversion, not an automatic
+reduced-precision optimization.
+
+The shared-memory contract deliberately stays narrow:
+
+* Matrix loads and stores use complete, provably in-bounds 8-by-8 shared tiles.
+  Scalar DSL loads can fill padding before the matrix operation. Row-major,
+  padded-row-major and transposed views are supported; the declared view must
+  fit its allocation. Device tiles use the separate scratch contract below.
+* Matrix origins and surrounding loops must be uniform within each SIMD-group.
+  A threadgroup barrier additionally requires uniform control flow across the
+  entire threadgroup. Shared allocations belong at the top of the kernel.
+  Scalar shared-memory pointers must resolve to those allocations through
+  pointer offsets only; conditional shared-pointer selection is unsupported.
+* Explicit barriers publish scalar writes before matrix reads, publish matrix
+  stores before scalar reads, and finish matrix reads before shared storage is
+  overwritten. The compiler checks these transitions, including loop backedges.
+  Provably disjoint regions of one shared allocation do not need a barrier
+  between them. Unknown offsets and lossy index conversions conservatively
+  count as overlapping the allocation. A loaded fragment retains its values
+  when the shared source is reused after the required barrier.
+  The kernel remains responsible for initializing the data it reads and keeping
+  different groups' output regions disjoint.
+* ``metile.loop_state`` can retain a fragment across iterations. Pointwise
+  arithmetic, floating casts and supported unary math operate on its elements
+  without exposing their lane mapping. Scalar operands must be SIMD-uniform.
+  Row reductions currently use a shared-memory bridge to ordinary scalar/SIMD
+  operations. Expression ``vjp`` does not differentiate matrix products or a
+  complete mutable attention pipeline.
+
+Set ``BLOCK`` to a multiple of 32. The kernel assigns work to SIMD-groups;
+whole-GEMM ``WM``/``WN`` placement, forced vectorization and automatic double
+buffering are unsupported here. The original ``simdgroup`` and ``tensor_ops``
+GEMM backends are unchanged.
+
+Direct device tiles and masked tails
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An 8-by-8 device tile can load directly into a register fragment or store a
+fragment back to device memory. Pass an explicit shared tensor as ``scratch``
+for incomplete tiles. Complete tiles use Metal's matrix load/store operations;
+tails use bounded scalar copies and SIMD-group barriers through the scratch
+allocation. Neither path assumes which matrix elements belong to each lane.
+
+This kernel adds one to the valid rows of an FP32 matrix with eight columns:
+
+.. code-block:: python
+
+   @metile.kernel
+   def masked_tiles(Source, Control, Output, *, BLOCK: metile.constexpr = 32):
+       scratch = metile.tensor(
+           metile.shared(BLOCK * 2, dtype="f32"),
+           shape=(BLOCK // 4, 8),
+       )
+       control = metile.tensor(Control, shape=(1,), access="read")
+       rows = control.load((0,))
+       source = metile.tensor(
+           Source, shape=(rows, 8), strides=(8, 1),
+           block_shape=(8, 8), access="read",
+       )
+       output = metile.tensor(
+           Output, shape=(rows, 8), strides=(8, 1),
+           block_shape=(8, 8), access="write",
+       )
+       for row in metile.tile_range(0, rows, 8):
+           fragment = source.load((row, 0), scratch=scratch)
+           output.store((row, 0), fragment + 1.0, scratch=scratch)
+
+   masked_tiles[(1,)](
+       source_buffer, control_buffer, output_buffer,
+       STRICT_MATH=True,
+       SCHEDULE=metile.Schedule(backend="simdgroup_inline"),
+   )
+
+``control_buffer`` contains one nonnegative int32 row count. The input and
+output buffers hold at least that many rows and must be disjoint. Invalid
+load coordinates become zero; invalid stores leave the allocation untouched.
+For example, a row count of nine processes one complete tile and one partial
+tile without reading or writing any later rows.
+
+The scratch tensor must reference a top-level shared allocation directly,
+with shape ``(BLOCK // 4, 8)``, strides ``(8, 1)``, read/write access and the
+same storage dtype as the device tensor. This reserves 64 elements for each
+SIMD-group. Reuse it across consecutive tile accesses, but do not access that
+allocation through scalar operations, another matrix view or an offset alias.
+The compiler owns its publication and reuse barriers. FP16 and FP32 device
+storage are supported; each ``dot`` still accumulates in FP32.
+
+Device views require rank two and constant, positive row-major or
+column-major strides. Their bases, logical extents and tile origins may be
+runtime values, but must be uniform within each SIMD-group. Declare the
+**logical valid extent**, not the allocation capacity. In attention, masking
+a probability to zero does not make an invalid value safe: ``0 * NaN`` is
+still NaN, so a KV view must exclude uninitialized cache positions before
+the matrix load.
+
+A device allocation used by matrix operations cannot be both read and written
+within the same kernel, including through scalar aliases. Compilation rejects
+that case even with ``metile.barrier()``, which only publishes threadgroup
+memory. Distinct pointer parameters must also reference disjoint input/output
+storage at launch; parameter names cannot prove that buffers do not overlap.
+
+For eligible zero-start signed loops, the compiler separates provably complete
+iterations from a guarded remainder. Every device tile access must satisfy
+the proof; unrelated extents, uncertain offsets and nested loops keep their
+guards. Scalar and fragment loop state continues across both portions.
 
 Inspect the materialized kernel
 -------------------------------

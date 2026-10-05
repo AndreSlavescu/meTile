@@ -117,11 +117,21 @@ class Tensor:
         pointer = context.add_op(tir.PtrOffset(ptr=self.memory.ptr, offsets=offset))
         return pointer, offset, mask
 
-    def load(self, indices, other=0) -> TracingProxy:
+    def _scratch(self, scratch):
+        if scratch is None:
+            return None
+        if self.memory.block_shape is None or self.memory.address_space != "device":
+            raise ValueError("scratch requires a device matrix tile access")
+        if not isinstance(scratch, Tensor):
+            raise TypeError("matrix scratch must be a shared tensor")
+        return scratch.memory
+
+    def load(self, indices, other=0, *, scratch=None) -> TracingProxy:
         """Load at element coordinates, filling out-of-bounds coordinates with ``other``."""
         if self.memory.access == "write":
             raise ValueError("cannot load from a write-only tensor")
         coordinates = self._coordinates(indices)
+        scratch = self._scratch(scratch)
         context = _get_ctx()
         if self.memory.block_shape is not None:
             other = _unwrap(other)
@@ -134,6 +144,7 @@ class Tensor:
                 stride=self.memory.strides[0],
                 tile_shape=self.memory.block_shape,
                 tensor=self.memory,
+                scratch=scratch,
             )
         else:
             fill = _to_value(_unwrap(other))
@@ -145,11 +156,12 @@ class Tensor:
             )
         return TracingProxy(context.add_op(operation))
 
-    def store(self, indices, value):
+    def store(self, indices, value, *, scratch=None):
         """Store at element coordinates, skipping out-of-bounds coordinates."""
         if self.memory.access == "read":
             raise ValueError("cannot store to a read-only tensor")
         coordinates = self._coordinates(indices)
+        scratch = self._scratch(scratch)
         stored = _to_value(_unwrap(value))
         if not isinstance(stored.type, (ScalarType, TileType)):
             raise TypeError("tensor store value must be scalar or tile")
@@ -168,6 +180,7 @@ class Tensor:
                 value=stored,
                 tile_shape=self.memory.block_shape,
                 tensor=self.memory,
+                scratch=scratch,
             )
         else:
             coordinate_shape = next(
@@ -255,7 +268,12 @@ def tensor(
             for dimension in block_shape
         ):
             raise ValueError("matrix block dimensions must be positive compile-time integers")
-        if pointer_space != "device":
+        schedule = context.func.constexprs.get("SCHEDULE")
+        inline_shared = (
+            pointer_space == "threadgroup"
+            and getattr(schedule, "backend", None) == "simdgroup_inline"
+        )
+        if pointer_space != "device" and not inline_shared:
             raise ValueError("matrix tile tensors currently require device memory")
     memory = tir.TensorMemory(
         ptr=pointer_value,

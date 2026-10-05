@@ -102,7 +102,20 @@ def build_epilogue(function: tir.Function) -> EpilogueProgram | None:
     allowed_scalars = {"bool", "i32", "u32", "f16", "f32"}
     numeric_binary = {"add", "sub", "mul", "div", "mod", "max", "min"}
     integer_binary = {"bitand", "bitor", "bitxor", "shl", "shr"}
-    unary_operations = {"exp", "fast_exp", "log", "sqrt", "abs", "neg", "tanh"}
+    unary_operations = {
+        "exp",
+        "exp2",
+        "fast_cos",
+        "fast_exp",
+        "fast_exp2",
+        "fast_sin",
+        "log",
+        "sqrt",
+        "rsqrt",
+        "abs",
+        "neg",
+        "tanh",
+    }
 
     def value_type(value):
         if isinstance(value.type, TileType):
@@ -185,6 +198,13 @@ def build_epilogue(function: tir.Function) -> EpilogueProgram | None:
                 kind = "binary"
                 opcode = operation.op
                 operands = (visit(operation.lhs), visit(operation.rhs))
+            elif isinstance(operation, tir.Fma):
+                operation.result_type()
+                kind = "fma"
+                operands = tuple(
+                    visit(operand)
+                    for operand in (operation.left, operation.right, operation.addend)
+                )
             elif isinstance(operation, tir.Compare):
                 if operation.predicate not in {"lt", "le", "gt", "ge", "eq", "ne"}:
                     _unsupported(f"comparison {operation.predicate}")

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from metile.ir.ownership import ThreadLayout
-from metile.ir.types import BOOL, U32, PtrType, ScalarType, VectorType
+from metile.ir.types import BOOL, U32, MatrixFragmentType, PtrType, ScalarType, VectorType
 
 if TYPE_CHECKING:
     from metile.compiler.planning import SchedulePlan
@@ -68,7 +68,7 @@ class MValue:
     """An SSA value in Metal IR."""
 
     name: str
-    type: ScalarType | PtrType | VectorType
+    type: ScalarType | PtrType | VectorType | MatrixFragmentType
     defining_op: MOp | None = field(default=None, repr=False)
 
 
@@ -166,6 +166,18 @@ class MBinOp(MOp):
 
 
 @dataclass
+class MFma(MOp):
+    """Floating multiply-add with explicit single-rounding semantics."""
+
+    left: MValue = None
+    right: MValue = None
+    addend: MValue = None
+
+    def result_type(self) -> ScalarType:
+        return self.left.type
+
+
+@dataclass
 class MCast(MOp):
     """Type cast."""
 
@@ -173,6 +185,23 @@ class MCast(MOp):
     target_dtype: str = "u32"
 
     def result_type(self) -> ScalarType:
+        return ScalarType(self.target_dtype)
+
+
+@dataclass
+class MBitcast(MOp):
+    """Reinterpret a scalar's bits without a numeric conversion."""
+
+    value: MValue = None
+    target_dtype: str = "u32"
+
+    def result_type(self) -> ScalarType:
+        if (
+            not isinstance(self.value.type, ScalarType)
+            or self.value.type.dtype not in {"f32", "i32", "u32"}
+            or self.target_dtype not in {"f32", "i32", "u32"}
+        ):
+            raise TypeError("bitcast requires f32, i32 or u32 scalar types")
         return ScalarType(self.target_dtype)
 
 
@@ -497,6 +526,112 @@ class IfBlock(MOp):
 
     condition: MValue = None
     body: list[MOp] = field(default_factory=list)
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MFragmentInit(MOp):
+    """Initialize one opaque SIMDgroup matrix with zero."""
+
+    dtype: str = "f32"
+
+    def result_type(self):
+        return MatrixFragmentType(self.dtype)
+
+
+@dataclass
+class MFragmentLoad(MOp):
+    """Read a shared tile or a masked device tile through explicit scratch."""
+
+    ptr: MValue = None
+    row: MValue = None
+    column: MValue = None
+    row_stride: int = 0
+    column_stride: int = 1
+    base_offset: int | MValue = 0
+    transpose: bool = False
+    dtype: str = "f32"
+    shape: tuple[MValue, MValue] | None = None
+    scratch: MValue | None = None
+    full_tile: bool = False
+
+    def result_type(self):
+        return MatrixFragmentType(self.dtype)
+
+
+@dataclass
+class MFragmentStore(MOp):
+    """Write a shared tile or a masked device tile through explicit scratch."""
+
+    ptr: MValue = None
+    row: MValue = None
+    column: MValue = None
+    row_stride: int = 0
+    column_stride: int = 1
+    base_offset: int | MValue = 0
+    transpose: bool = False
+    value: MValue = None
+    shape: tuple[MValue, MValue] | None = None
+    scratch: MValue | None = None
+    full_tile: bool = False
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MFragmentDot(MOp):
+    """One composable matrix multiply-accumulate with an FP32 accumulator."""
+
+    left: MValue = None
+    right: MValue = None
+    accumulator: MValue = None
+
+    def result_type(self):
+        return MatrixFragmentType("f32")
+
+
+@dataclass
+class MFragmentElementwise(MOp):
+    """Apply a pointwise operation without assuming a matrix's lane ownership."""
+
+    operation: str = "add"
+    operands: tuple[MValue, ...] = ()
+    dtype: str = "f32"
+
+    def result_type(self):
+        return MatrixFragmentType(self.dtype)
+
+
+@dataclass
+class MFragmentStateInit(MOp):
+    """Declare explicit register-resident mutable matrix state."""
+
+    state_name: str = ""
+    value: MValue = None
+
+    def result_type(self):
+        return None
+
+
+@dataclass
+class MFragmentStateRead(MOp):
+    """Snapshot mutable matrix state without CSE across later assignments."""
+
+    state: MValue = None
+
+    def result_type(self):
+        return self.state.type
+
+
+@dataclass
+class MFragmentStateAssign(MOp):
+    """Update explicit matrix state in program order."""
+
+    state_name: str = ""
+    value: MValue = None
 
     def result_type(self):
         return None

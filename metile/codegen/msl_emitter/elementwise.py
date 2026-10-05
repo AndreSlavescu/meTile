@@ -14,6 +14,7 @@ from metile.codegen.msl_emitter.common import (
     _uses_thread_position,
     _val_name,
 )
+from metile.codegen.msl_emitter.fragments import FRAGMENT_OPS, emit_fragment
 from metile.compiler.epilogue import EpilogueProgram
 from metile.ir import metal_ir as mir
 from metile.ir.types import PtrType, ScalarType
@@ -151,6 +152,9 @@ def _emit_epilogue_program(program: EpilogueProgram, elem_expr: str, lines: list
                 expression = f"fmod({left}, {right})"
             else:
                 expression = f"{left} {_BINOP_SYMBOLS[instruction.operation]} {right}"
+        elif instruction.kind == "fma":
+            arguments = ", ".join(converted(operand, target) for operand in operands)
+            expression = f"fma({arguments})"
         elif instruction.kind == "compare":
             compared_types = [types[operand] for operand in operands]
             priority = {"bool": 0, "i32": 1, "u32": 2, "f16": 3, "f32": 4}
@@ -177,6 +181,8 @@ def _emit_elementwise(func: mir.MFunction) -> str:
         "using namespace metal;",
         "",
     ]
+    if func.kernel_type == "simdgroup_inline":
+        lines.insert(1, "#include <metal_simdgroup_matrix>")
 
     # Function signature
     params = []
@@ -216,7 +222,10 @@ def _emit_elementwise(func: mir.MFunction) -> str:
         params.append("    uint slid [[thread_index_in_simdgroup]]")
 
     params_str = ",\n".join(params)
-    lines.append(f"[[kernel]] void {func.name}(")
+    attributes = "kernel"
+    if func.kernel_type == "simdgroup_inline":
+        attributes += f", max_total_threads_per_threadgroup({func.threadgroup_size[0]})"
+    lines.append(f"[[{attributes}]] void {func.name}(")
     lines.append(params_str)
     lines.append(") {")
     if _uses_thread_position(func.ops):
@@ -333,6 +342,9 @@ def _emit_vector_store(operation, lines, pad, function):
 
 def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
     """Emit a single Metal IR op (element-wise path)."""
+    if isinstance(op, FRAGMENT_OPS):
+        emit_fragment(op, lines, indent, func)
+        return
     # Skip ops folded to constants by the fold pass
     if (
         hasattr(op, "result")
@@ -390,6 +402,11 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         name = op.result.name
         lines.append(f"{pad}{target_type} {name} = static_cast<{target_type}>({src});")
 
+    elif isinstance(op, mir.MBitcast):
+        target_type = op.result_type().to_msl()
+        src = _val_name(op.value, func)
+        lines.append(f"{pad}{target_type} {op.result.name} = as_type<{target_type}>({src});")
+
     elif isinstance(op, mir.MBinOp):
         lhs = _val_name(op.lhs, func)
         rhs = _val_name(op.rhs, func)
@@ -400,6 +417,14 @@ def _emit_op(op: mir.MOp, lines: list[str], indent: int, func: mir.MFunction):
         else:
             sym = _BINOP_SYMBOLS[op.op]
             lines.append(f"{pad}{result_type} {name} = {lhs} {sym} {rhs};")
+
+    elif isinstance(op, mir.MFma):
+        result_type = op.result.type.to_msl()
+        arguments = ", ".join(
+            f"{result_type}({_val_name(operand, func)})"
+            for operand in (op.left, op.right, op.addend)
+        )
+        lines.append(f"{pad}{result_type} {op.result.name} = fma({arguments});")
 
     elif isinstance(op, mir.MUnary):
         msl_fn = _UNARY_MSL[op.op]
@@ -678,6 +703,14 @@ def _emit_vec4_op(
         else:
             lines.append(f"{pad}{target_type} {name} = static_cast<{target_type}>({src});")
 
+    elif isinstance(op, mir.MBitcast):
+        src = _val_name(op.value, func)
+        target_type = op.result_type().to_msl()
+        if src in vec4_vals:
+            target_type += "4"
+            vec4_vals[op.result.name] = target_type
+        lines.append(f"{pad}{target_type} {op.result.name} = as_type<{target_type}>({src});")
+
     elif isinstance(op, mir.DeviceLoad):
         ptr = _val_name(op.ptr, func)
         idx = _val_name(op.index, func)
@@ -763,6 +796,15 @@ def _emit_vec4_op(
             else:
                 sym = _BINOP_SYMBOLS.get(op.op, "+")
                 lines.append(f"{pad}{result_type} {name} = {lhs} {sym} {rhs};")
+
+    elif isinstance(op, mir.MFma):
+        arguments = [_val_name(operand, func) for operand in (op.left, op.right, op.addend)]
+        result_type = op.result.type.to_msl()
+        if any(argument in vec4_vals for argument in arguments):
+            result_type += "4"
+            vec4_vals[op.result.name] = result_type
+        expression = ", ".join(f"{result_type}({argument})" for argument in arguments)
+        lines.append(f"{pad}{result_type} {op.result.name} = fma({expression});")
 
     elif isinstance(op, mir.MUnary):
         src = _val_name(op.operand, func)
@@ -853,6 +895,19 @@ def _emit_threadgroup_reduce(
 
     _SIMD_REDUCE = {"sum": "simd_sum", "max": "simd_max", "min": "simd_min"}
     simd_fn = _SIMD_REDUCE.get(op.reduce_op, "simd_sum")
+    identity = 0
+    if op.reduce_op in {"max", "min"}:
+        limits = {
+            "f16": (float("-inf"), float("inf")),
+            "f32": (float("-inf"), float("inf")),
+            "bf16": (float("-inf"), float("inf")),
+            "i32": (-(2**31), 2**31 - 1),
+            "u32": (0, 2**32 - 1),
+            "u8": (0, 255),
+            "bool": (0, 1),
+        }
+        identity = limits[op.dtype][op.reduce_op == "min"]
+    identity_literal = f"{msl_type}({_format_literal(identity, op.dtype)})"
 
     if num_sg <= 1:
         lines.append(f"{pad}{msl_type} {name} = {simd_fn}({operand});")
@@ -863,7 +918,7 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}    if (slid == 0u) {op.shared_name}[sgid] = _simd_val;")
         lines.append(f"{pad}    threadgroup_barrier(mem_flags::mem_threadgroup);")
         lines.append(
-            f"{pad}    {msl_type} _partial = (slid < {num_sg}u) ? {op.shared_name}[slid] : 0.0f;"
+            f"{pad}    {msl_type} _partial = (slid < {num_sg}u) ? {op.shared_name}[slid] : {identity_literal};"
         )
         lines.append(f"{pad}    {name} = {simd_fn}(_partial);")
         lines.append(f"{pad}}}")
@@ -876,7 +931,7 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}    if (slid == 0u) {op.shared_name}[sgid] = _simd_val;")
         lines.append(f"{pad}    threadgroup_barrier(mem_flags::mem_threadgroup);")
         lines.append(
-            f"{pad}    {msl_type} _partial = (lid < {num_sg}u) ? {op.shared_name}[lid] : 0.0f;"
+            f"{pad}    {msl_type} _partial = (lid < {num_sg}u) ? {op.shared_name}[lid] : {identity_literal};"
         )
         lines.append(f"{pad}    {msl_type} _result = {simd_fn}(_partial);")
         lines.append(f"{pad}    if (lid == 0u) {op.shared_name}[0] = _result;")
@@ -905,3 +960,6 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}    threadgroup_barrier(mem_flags::mem_threadgroup);")
         lines.append(f"{pad}    {name} = {op.shared_name}[0];")
         lines.append(f"{pad}}}")
+
+    if num_sg > 1:
+        lines.append(f"{pad}threadgroup_barrier(mem_flags::mem_threadgroup);")

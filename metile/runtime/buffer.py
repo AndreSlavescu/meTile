@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import ctypes
 import weakref
 
@@ -8,9 +7,20 @@ import numpy as _np
 
 from metile.runtime.metal_device import MetalDevice
 
-# Buffer cache: maps (array_data_ptr, nbytes) -> MtileBuffer
-# Uses weak references so buffers are freed when the numpy array is GC'd
 _buffer_cache: dict[int, MtileBuffer] = {}
+
+
+def _owned_byte_array(device, metal_buffer, length):
+    """Keep a Metal allocation alive through every escaped NumPy view."""
+    try:
+        array_type = ctypes.c_byte * length
+        array = array_type.from_address(device.buffer_contents(metal_buffer))
+    except BaseException:
+        device.release_buffer(metal_buffer)
+        raise
+    finalizer = weakref.finalize(array, device.release_buffer, metal_buffer)
+    finalizer.atexit = False
+    return array
 
 
 class MtileBuffer:
@@ -45,7 +55,7 @@ class MtileBuffer:
         self.dtype = _np.dtype(dtype)
         self.nbytes = int(_np.prod(self.shape)) * self.dtype.itemsize
         # Track the source numpy array for sync-back (implicit conversion)
-        self._source_array = None
+        self._source_ref = None
 
         dev = MetalDevice.get()
 
@@ -56,10 +66,17 @@ class MtileBuffer:
             self._metal_buffer = dev.new_empty_buffer(self.nbytes)
 
         # Get raw pointer and create numpy view into unified memory
-        self._ptr = dev.buffer_contents(self._metal_buffer)
-        arr_type = ctypes.c_byte * self.nbytes
-        buf_array = arr_type.from_address(self._ptr)
+        buf_array = _owned_byte_array(dev, self._metal_buffer, self.nbytes)
+        self._ptr = ctypes.addressof(buf_array)
         self._np_view = _np.frombuffer(buf_array, dtype=self.dtype).reshape(self.shape)
+
+    @property
+    def _source_array(self):
+        return self._source_ref() if self._source_ref is not None else None
+
+    @_source_array.setter
+    def _source_array(self, array):
+        self._source_ref = weakref.ref(array) if array is not None else None
 
     def numpy(self) -> _np.ndarray:
         """Numpy view of the unified memory buffer. Reads and writes are direct.
@@ -77,18 +94,16 @@ class MtileBuffer:
 
     def sync_to_source(self):
         """Copy buffer contents back to the source numpy array (if any)."""
-        if self._source_array is not None:
-            src = self._source_array
-            if src is not None:
-                ctypes.memmove(src.ctypes.data, self._ptr, self.nbytes)
+        source = self._source_array
+        if source is not None:
+            _np.copyto(source, self._np_view)
 
     def sync_from_source(self):
         """Copy source numpy array contents into the buffer."""
-        if self._source_array is not None:
-            src = self._source_array
-            if src is not None:
-                data = _np.ascontiguousarray(src)
-                ctypes.memmove(self._ptr, data.ctypes.data, self.nbytes)
+        source = self._source_array
+        if source is not None:
+            data = _np.ascontiguousarray(source)
+            ctypes.memmove(self._ptr, data.ctypes.data, self.nbytes)
 
     def __repr__(self):
         return f"MtileBuffer(shape={self.shape}, dtype={self.dtype})"
@@ -118,11 +133,16 @@ class MtileBuffer:
         launch, and syncs results back after. The buffer is cached by the
         array's identity so repeated calls reuse the same Metal buffer.
         """
-        arr = _np.ascontiguousarray(arr)
         cache_key = id(arr)
 
         cached = _buffer_cache.get(cache_key)
-        if cached is not None and cached.nbytes == arr.nbytes and cached.dtype == arr.dtype:
+        if (
+            cached is not None
+            and cached.shape == arr.shape
+            and cached.nbytes == arr.nbytes
+            and cached.dtype == arr.dtype
+            and cached._source_array is arr
+        ):
             # Sync latest numpy data into the buffer
             cached.sync_from_source()
             return cached
@@ -133,7 +153,6 @@ class MtileBuffer:
         _buffer_cache[cache_key] = buf
 
         # Clean up cache entry when the numpy array is garbage collected
-        with contextlib.suppress(TypeError):
-            weakref.finalize(arr, _buffer_cache.pop, cache_key, None)
+        weakref.finalize(arr, _buffer_cache.pop, cache_key, None)
 
         return buf

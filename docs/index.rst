@@ -79,6 +79,9 @@ Benchmarks and integration
    :maxdepth: 1
 
    guide/benchmarks
+   guide/benchmark-methodology
+   guide/megakernels
+   guide/prefill-decode-scheduling
    guide/mlx-backend
 
 Compiler internals

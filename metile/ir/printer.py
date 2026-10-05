@@ -60,6 +60,9 @@ def _format_tile_op(
         if memory is not None and tensor_names is not None and id(memory) in tensor_names
         else ""
     )
+    scratch = getattr(op, "scratch", None)
+    if scratch is not None and tensor_names is not None and id(scratch) in tensor_names:
+        tensor += f", scratch=@{tensor_names[id(scratch)]}"
 
     if isinstance(op, tir.ProgramId):
         lines.append(f"{pad}{prefix}program_id(axis={op.axis}){suffix}")
@@ -69,6 +72,8 @@ def _format_tile_op(
         lines.append(f"{pad}{prefix}constant({op.value}){suffix}")
     elif isinstance(op, tir.Cast):
         lines.append(f"{pad}{prefix}cast(%{op.value.name}, {op.dtype}){suffix}")
+    elif isinstance(op, tir.Bitcast):
+        lines.append(f"{pad}{prefix}bitcast(%{op.value.name}, {op.dtype}){suffix}")
     elif isinstance(op, tir.Arange):
         start = f"%{op.start.name}" if op.start else "0"
         lines.append(f"{pad}{prefix}arange({start}, {start}+{op.size}){suffix}")
@@ -76,6 +81,10 @@ def _format_tile_op(
         lines.append(f"{pad}{prefix}convert_layout(%{op.value.name}, {op.layout}){suffix}")
     elif isinstance(op, tir.BinOp):
         lines.append(f"{pad}{prefix}{op.op}(%{op.lhs.name}, %{op.rhs.name}){suffix}")
+    elif isinstance(op, tir.Fma):
+        lines.append(
+            f"{pad}{prefix}fma(%{op.left.name}, %{op.right.name}, %{op.addend.name}){suffix}"
+        )
     elif isinstance(op, tir.Unary):
         lines.append(f"{pad}{prefix}{op.op}(%{op.operand.name}){suffix}")
     elif isinstance(op, tir.Reduce):
@@ -194,8 +203,12 @@ def _format_metal_op(op: mir.MOp, lines: list[str], indent: int = 1):
         lines.append(f"{pad}{prefix}constant({op.value}, {op.dtype})")
     elif isinstance(op, mir.MBinOp):
         lines.append(f"{pad}{prefix}{op.op}({_val(op.lhs)}, {_val(op.rhs)})")
+    elif isinstance(op, mir.MFma):
+        lines.append(f"{pad}{prefix}fma({_val(op.left)}, {_val(op.right)}, {_val(op.addend)})")
     elif isinstance(op, mir.MCast):
         lines.append(f"{pad}{prefix}cast({_val(op.value)}, {op.target_dtype})")
+    elif isinstance(op, mir.MBitcast):
+        lines.append(f"{pad}{prefix}bitcast({_val(op.value)}, {op.target_dtype})")
     elif isinstance(op, mir.MUnary):
         lines.append(f"{pad}{prefix}{op.op}({_val(op.operand)})")
     elif isinstance(op, mir.MSelect):

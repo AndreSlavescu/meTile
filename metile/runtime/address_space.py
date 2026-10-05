@@ -5,6 +5,7 @@ import ctypes
 import numpy as np
 
 from metile.ir.layout import Layout, col_major
+from metile.runtime.buffer import _owned_byte_array
 from metile.runtime.metal_device import MetalDevice
 
 
@@ -25,11 +26,9 @@ class GlobalAddressSpace:
         self._dev = MetalDevice.get()
         self._capacity = capacity
         self._metal_buffer = self._dev.new_empty_buffer(capacity)
-        self._ptr = self._dev.buffer_contents(self._metal_buffer)
-
         # Create numpy view of the entire arena
-        arr_type = ctypes.c_byte * capacity
-        buf_array = arr_type.from_address(self._ptr)
+        buf_array = _owned_byte_array(self._dev, self._metal_buffer, capacity)
+        self._ptr = ctypes.addressof(buf_array)
         self._raw = np.frombuffer(buf_array, dtype=np.uint8)
 
         # Bump allocator state

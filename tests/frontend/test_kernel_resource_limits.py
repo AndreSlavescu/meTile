@@ -5,7 +5,11 @@ import pytest
 
 import metile
 import metile.frontend.kernel as kernel_module
-from metile.frontend.kernel import OutOfResources, _validate_pipeline_threadgroup
+from metile.frontend.kernel import (
+    OutOfResources,
+    PipelineThreadgroupLimit,
+    _validate_pipeline_threadgroup,
+)
 from metile.runtime.metal_device import MetalDevice
 
 
@@ -30,8 +34,11 @@ def test_pipeline_limit_checks_all_threadgroup_dimensions(monkeypatch, threadgro
     function = SimpleNamespace(name="bounded", threadgroup_size=threadgroup)
 
     if limit < 256:
-        with pytest.raises(OutOfResources, match=r"requires 256.*pipeline limit is 128"):
+        with pytest.raises(OutOfResources, match=r"requires 256.*pipeline limit is 128") as raised:
             _validate_pipeline_threadgroup(function, pipeline)
+        assert isinstance(raised.value, PipelineThreadgroupLimit)
+        assert raised.value.required_threads == 256
+        assert raised.value.limit == limit
     else:
         _validate_pipeline_threadgroup(function, pipeline)
 
@@ -65,8 +72,12 @@ def test_unsupported_pipeline_is_rejected_before_dispatch_or_caching(monkeypatch
 
     monkeypatch.setattr(launcher, "_dispatch", unexpected_dispatch)
 
-    with pytest.raises(OutOfResources, match=r"requires 256.*pipeline limit is 128"):
+    with pytest.raises(
+        PipelineThreadgroupLimit, match=r"requires 256.*pipeline limit is 128"
+    ) as raised:
         launcher(source, source, BLOCK=256)
 
+    assert raised.value.required_threads == 256
+    assert raised.value.limit == 128
     assert queries == [pipeline]
     assert not kernel_module._kernel_cache

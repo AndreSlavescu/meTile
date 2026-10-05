@@ -286,6 +286,10 @@ def plan_schedule(func: tir.Function, *, supports_tensor_ops: bool | None = None
     constexprs = func.constexprs
     validate_thread_layouts(func)
     count = _requested_count(constexprs, schedule)
+    if schedule.backend == "simdgroup_inline":
+        from metile.compiler.lowering.fragments import inline_matrix_plan
+
+        return inline_matrix_plan(func, schedule, count)
     if not _is_gemm(func):
         return _elementwise_plan(func, schedule, count)
     binding = _analyze_gemm(func)

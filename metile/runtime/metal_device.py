@@ -527,6 +527,10 @@ class MetalDevice:
         """Get pointer to buffer contents."""
         return _send_ptr(buffer, "contents")
 
+    def release_buffer(self, buffer: ctypes.c_void_p) -> None:
+        """Release the ownership returned by a successful new-buffer operation."""
+        _send(buffer, "release", restype=None)
+
     # Cached ctypes function wrappers for hot dispatch path
     _set_buffer_sel = None
     _set_buffer_fn = None

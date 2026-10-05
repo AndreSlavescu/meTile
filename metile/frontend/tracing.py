@@ -475,8 +475,17 @@ class LoopState:
             "u32",
         ):
             raise TypeError("loop_state requires a numeric scalar or one-dimensional tile")
-        if isinstance(initial.type, TileType) and (
-            len(initial.type.shape) != 1 or initial.type.shape[0] <= 0
+        inline_matrix = (
+            isinstance(initial.type, TileType)
+            and initial.type.shape == (8, 8)
+            and initial.type.dtype in {"f16", "f32"}
+            and getattr(self._context.func.constexprs.get("SCHEDULE"), "backend", None)
+            == "simdgroup_inline"
+        )
+        if (
+            isinstance(initial.type, TileType)
+            and not inline_matrix
+            and (len(initial.type.shape) != 1 or initial.type.shape[0] <= 0)
         ):
             raise ValueError("loop_state supports only nonempty one-dimensional tiles")
         self._state = self._context.add_op(tir.LoopState(value=initial))
@@ -539,14 +548,77 @@ def cast(value, dtype) -> TracingProxy:
     return TracingProxy(result)
 
 
+def bitcast(value, dtype) -> TracingProxy:
+    """Reinterpret f32/i32/u32 scalar or tile bits without numeric conversion."""
+    context = _get_ctx()
+    if dtype not in ("f32", "i32", "u32"):
+        raise ValueError("bitcast target dtype must be f32, i32 or u32")
+    if not isinstance(value, TracingProxy):
+        raise TypeError("bitcast requires an explicitly typed scalar or tile proxy")
+    if value._context is not None and value._context is not context:
+        raise ValueError("bitcast operands cannot cross tracing contexts")
+    operand = _to_value(value)
+    operation = tir.Bitcast(value=operand, dtype=dtype)
+    operation.result_type()
+    if operand.type.dtype == dtype:
+        return value
+    return TracingProxy(context.add_op(operation))
+
+
 def exp(x) -> TracingProxy:
     """Element-wise exponential."""
     return _unary("exp", x)
 
 
+def exp2(value) -> TracingProxy:
+    """Element-wise base-two exponential."""
+    return _unary("exp2", value)
+
+
+def fast_cos(value) -> TracingProxy:
+    """Element-wise cosine using Metal's fast intrinsic, with angles in radians."""
+    return _unary("fast_cos", value)
+
+
 def fast_exp(x) -> TracingProxy:
     """Element-wise exponential using Metal's fast-math intrinsic."""
     return _unary("fast_exp", x)
+
+
+def fast_exp2(value) -> TracingProxy:
+    """Element-wise base-two exponential using Metal's fast intrinsic."""
+    operand = _to_value(value)
+    if not isinstance(operand.type, (ScalarType, TileType)) or operand.type.dtype not in {
+        "f16",
+        "f32",
+    }:
+        raise TypeError("fast_exp2 requires an f16 or f32 scalar or tile")
+    return TracingProxy(_get_ctx().add_op(tir.Unary(op="fast_exp2", operand=operand)))
+
+
+def fma(left, right, addend) -> TracingProxy:
+    """Compute a floating-point multiply-add with one final rounding."""
+    context = _get_ctx()
+    arguments = (left, right, addend)
+    proxies = [argument for argument in arguments if isinstance(argument, TracingProxy)]
+    dtype = proxies[0]._value.type.dtype if proxies else "f32"
+    operands = []
+    for argument in arguments:
+        if isinstance(argument, TracingProxy):
+            if argument._context is not None and argument._context is not context:
+                raise ValueError("fma operands cannot cross tracing contexts")
+            operands.append(_to_value(argument))
+        elif isinstance(argument, (int, float)) and not isinstance(argument, bool):
+            operands.append(context.add_op(tir.Constant(value=float(argument), dtype=dtype)))
+        else:
+            raise TypeError("fma operands must be floating proxies or real scalar literals")
+    operation = tir.Fma(left=operands[0], right=operands[1], addend=operands[2])
+    return TracingProxy(context.add_op(operation))
+
+
+def fast_sin(value) -> TracingProxy:
+    """Element-wise sine using Metal's fast intrinsic, with angles in radians."""
+    return _unary("fast_sin", value)
 
 
 def log(x) -> TracingProxy:
@@ -557,6 +629,11 @@ def log(x) -> TracingProxy:
 def sqrt(x) -> TracingProxy:
     """Element-wise square root."""
     return _unary("sqrt", x)
+
+
+def rsqrt(value) -> TracingProxy:
+    """Element-wise reciprocal square root using Metal's precise intrinsic."""
+    return _unary("rsqrt", value)
 
 
 def abs(x) -> TracingProxy:

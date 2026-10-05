@@ -21,7 +21,12 @@ def compilations(monkeypatch):
     records = []
 
     def compile_kernel(launcher, arguments, constants, parameter_names):
-        compiled = SimpleNamespace(function=launcher.kernel_fn.fn, constants=dict(constants))
+        compiled = SimpleNamespace(
+            function=launcher.kernel_fn.fn,
+            constants=dict(constants),
+            output_indices=(),
+            argument_indices=None,
+        )
         records.append(compiled)
         return compiled
 

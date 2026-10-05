@@ -54,7 +54,7 @@ def _check_resources(function, elements, reductions):
         assert sum(allocation["bytes"] for allocation in report["allocations"]) == (
             reductions * groups * 4
         )
-        assert source.count("threadgroup_barrier(") == reductions
+        assert source.count("threadgroup_barrier(") == 2 * reductions
         assert source.count(f"(slid < {groups}u)") == reductions
     else:
         assert function.schedule_plan.staging == "device"

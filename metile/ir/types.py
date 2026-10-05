@@ -41,6 +41,20 @@ class VectorType:
 
 
 @dataclass(frozen=True)
+class MatrixFragmentType:
+    """An opaque SIMDgroup-owned 8x8 register matrix in lowered Metal IR."""
+
+    dtype: str
+
+    def __post_init__(self):
+        if self.dtype not in {"f16", "f32"}:
+            raise ValueError("matrix fragments require f16 or f32 elements")
+
+    def to_msl(self) -> str:
+        return f"simdgroup_matrix<{ScalarType(self.dtype).to_msl()}, 8, 8>"
+
+
+@dataclass(frozen=True)
 class TileType:
     shape: tuple[int, ...]
     dtype: str

@@ -256,6 +256,11 @@ def _emit_gemm_op(
         name = op.result.name
         lines.append(f"{pad}{target_type} {name} = static_cast<{target_type}>({src});")
 
+    elif isinstance(op, mir.MBitcast):
+        target_type = op.result_type().to_msl()
+        src = _val_name_gemm(op.value, func)
+        lines.append(f"{pad}{target_type} {op.result.name} = as_type<{target_type}>({src});")
+
     elif isinstance(op, mir.MBinOp):
         lhs = _val_name_gemm(op.lhs, func)
         rhs = _val_name_gemm(op.rhs, func)
