@@ -895,6 +895,19 @@ def _emit_threadgroup_reduce(
 
     _SIMD_REDUCE = {"sum": "simd_sum", "max": "simd_max", "min": "simd_min"}
     simd_fn = _SIMD_REDUCE.get(op.reduce_op, "simd_sum")
+    identity = 0
+    if op.reduce_op in {"max", "min"}:
+        limits = {
+            "f16": (float("-inf"), float("inf")),
+            "f32": (float("-inf"), float("inf")),
+            "bf16": (float("-inf"), float("inf")),
+            "i32": (-(2**31), 2**31 - 1),
+            "u32": (0, 2**32 - 1),
+            "u8": (0, 255),
+            "bool": (0, 1),
+        }
+        identity = limits[op.dtype][op.reduce_op == "min"]
+    identity_literal = f"{msl_type}({_format_literal(identity, op.dtype)})"
 
     if num_sg <= 1:
         lines.append(f"{pad}{msl_type} {name} = {simd_fn}({operand});")
@@ -905,7 +918,7 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}    if (slid == 0u) {op.shared_name}[sgid] = _simd_val;")
         lines.append(f"{pad}    threadgroup_barrier(mem_flags::mem_threadgroup);")
         lines.append(
-            f"{pad}    {msl_type} _partial = (slid < {num_sg}u) ? {op.shared_name}[slid] : 0.0f;"
+            f"{pad}    {msl_type} _partial = (slid < {num_sg}u) ? {op.shared_name}[slid] : {identity_literal};"
         )
         lines.append(f"{pad}    {name} = {simd_fn}(_partial);")
         lines.append(f"{pad}}}")
@@ -918,7 +931,7 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}    if (slid == 0u) {op.shared_name}[sgid] = _simd_val;")
         lines.append(f"{pad}    threadgroup_barrier(mem_flags::mem_threadgroup);")
         lines.append(
-            f"{pad}    {msl_type} _partial = (lid < {num_sg}u) ? {op.shared_name}[lid] : 0.0f;"
+            f"{pad}    {msl_type} _partial = (lid < {num_sg}u) ? {op.shared_name}[lid] : {identity_literal};"
         )
         lines.append(f"{pad}    {msl_type} _result = {simd_fn}(_partial);")
         lines.append(f"{pad}    if (lid == 0u) {op.shared_name}[0] = _result;")
@@ -947,3 +960,6 @@ def _emit_threadgroup_reduce(
         lines.append(f"{pad}    threadgroup_barrier(mem_flags::mem_threadgroup);")
         lines.append(f"{pad}    {name} = {op.shared_name}[0];")
         lines.append(f"{pad}}}")
+
+    if num_sg > 1:
+        lines.append(f"{pad}threadgroup_barrier(mem_flags::mem_threadgroup);")

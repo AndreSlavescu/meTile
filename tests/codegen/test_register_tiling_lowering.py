@@ -37,7 +37,7 @@ def test_register_tiling_changes_threads_not_logical_coverage(elements):
     ]
     assert len(register_sums) == elements - 1
     source = emit(function)
-    assert source.count("threadgroup_barrier(") == (0 if elements == 32 else 1)
+    assert source.count("threadgroup_barrier(") == (0 if elements == 32 else 2)
     report = execution_report(function, []).to_dict()
     assert report["register_reductions"][0]["elements_per_thread"] == elements
     assert {value["elements_per_thread"] for value in report["value_layouts"]} == {elements}

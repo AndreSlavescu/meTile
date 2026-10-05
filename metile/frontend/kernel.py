@@ -54,6 +54,19 @@ class OutOfResources(RuntimeError):
     """
 
 
+class PipelineThreadgroupLimit(OutOfResources):
+    """The requested thread count exceeds a compiled pipeline's limit."""
+
+    def __init__(self, kernel_name, required_threads, limit):
+        self.required_threads = required_threads
+        self.limit = limit
+        super().__init__(
+            f"Kernel '{kernel_name}' requires {required_threads} threads per threadgroup "
+            f"but compiled pipeline limit is {limit}. Reduce the threadgroup size "
+            "or register pressure."
+        )
+
+
 def _validate_threadgroup_memory(metal_ir: mir.MFunction):
     """Raise OutOfResources if threadgroup memory exceeds the hardware limit."""
     total_bytes = 0
@@ -75,11 +88,7 @@ def _validate_pipeline_threadgroup(metal_ir: mir.MFunction, pipeline):
     threads = math.prod(metal_ir.threadgroup_size)
     limit = MetalDevice.get().pipeline_max_threads(pipeline)
     if threads > limit:
-        raise OutOfResources(
-            f"Kernel '{metal_ir.name}' requires {threads} threads per threadgroup "
-            f"but compiled pipeline limit is {limit}. Reduce the threadgroup size "
-            "or register pressure."
-        )
+        raise PipelineThreadgroupLimit(metal_ir.name, threads, limit)
 
 
 def _dump(path: str, content: str):

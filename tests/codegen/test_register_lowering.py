@@ -56,7 +56,7 @@ def test_register_rmsnorm_reuses_four_values_across_one_fp32_reduction(dtype):
     assert all(value["elements_per_thread"] == 4 for value in report["value_layouts"])
     assert report["allocations"][0]["bytes"] == 32
     source = emit(function)
-    assert source.count("threadgroup_barrier(") == 1
+    assert source.count("threadgroup_barrier(") == 2
     assert "simd_sum(" in source
 
 

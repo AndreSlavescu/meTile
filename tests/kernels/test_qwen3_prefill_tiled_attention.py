@@ -1,4 +1,5 @@
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -6,7 +7,7 @@ import pytest
 import metile
 from metile.codegen.msl_emitter import emit
 from metile.compiler.lowering import lower
-from metile.frontend.kernel import _mark_outputs
+from metile.frontend.kernel import OutOfResources, PipelineThreadgroupLimit, _mark_outputs
 from metile.frontend.tracing import TracingContext, TracingProxy
 from metile.ir import metal_ir as mir
 from metile.ir import tile_ir as tir
@@ -109,6 +110,62 @@ def _reference(queries, cache, prefix, valid_rows):
     return result
 
 
+def _prepare_partition_comparison(launcher, *arguments, block, **constants):
+    try:
+        return launcher.prepare(*arguments, BLOCK=block, **constants)
+    except PipelineThreadgroupLimit as error:
+        if block != 512 or error.required_threads != 512 or error.limit >= 512:
+            raise
+        pytest.skip(f"Optional 512-thread attention specialization is unsupported: {error}")
+
+
+@pytest.mark.parametrize("block", [128, 256, 512])
+def test_partition_comparison_preserves_supported_launch_geometry(block):
+    calls = []
+    result = object()
+
+    def prepare(*arguments, **constants):
+        calls.append((arguments, constants))
+        return result
+
+    launcher = SimpleNamespace(prepare=prepare)
+    assert _prepare_partition_comparison(launcher, "buffer", block=block, KEY_TILE=16) is result
+    assert calls == [(("buffer",), {"BLOCK": block, "KEY_TILE": 16})]
+
+
+@pytest.mark.parametrize(
+    "block,required,limit",
+    [(128, 128, 64), (256, 256, 128), (512, 512, 384), (512, 256, 128), (512, 512, 512)],
+)
+def test_partition_comparison_skips_only_verified_optional_thread_limits(block, required, limit):
+    failure = PipelineThreadgroupLimit("attention", required, limit)
+
+    def prepare(*arguments, **constants):
+        raise failure
+
+    launcher = SimpleNamespace(prepare=prepare)
+    if block == required == 512 and limit < 512:
+        with pytest.raises(pytest.skip.Exception, match="Optional 512-thread"):
+            _prepare_partition_comparison(launcher, block=block)
+    else:
+        with pytest.raises(PipelineThreadgroupLimit) as raised:
+            _prepare_partition_comparison(launcher, block=block)
+        assert raised.value is failure
+
+
+@pytest.mark.parametrize("block", [128, 256, 512])
+@pytest.mark.parametrize("error_type", [OutOfResources, RuntimeError, AssertionError])
+def test_partition_comparison_never_hides_other_failures(block, error_type):
+    failure = error_type("threadgroup memory or compilation or numerical failure")
+
+    def prepare(*arguments, **constants):
+        raise failure
+
+    with pytest.raises(error_type) as raised:
+        _prepare_partition_comparison(SimpleNamespace(prepare=prepare), block=block)
+    assert raised.value is failure
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires Apple Metal")
 @pytest.mark.parametrize("block", [32, 96, 256])
 @pytest.mark.parametrize("dimension", [32, 96, 128])
@@ -207,7 +264,16 @@ def test_gpu_eight_partitions_match_key_parallel_attention_bitwise(prefix, block
     qwen3_prefill_attention[(4, 9)].prepare(
         queries, cache, control, expected, 1, BLOCK=256, **constants
     )
-    qwen3_prefill_tiled_attention[(metile.cdiv(9, block // 32), 4)].prepare(
-        queries, cache, control, actual, 1, BLOCK=block, KEY_TILE=16, PARTITIONS=8, **constants
+    _prepare_partition_comparison(
+        qwen3_prefill_tiled_attention[(metile.cdiv(9, block // 32), 4)],
+        queries,
+        cache,
+        control,
+        actual,
+        1,
+        block=block,
+        KEY_TILE=16,
+        PARTITIONS=8,
+        **constants,
     )
     np.testing.assert_array_equal(actual.view(np.uint32), expected.view(np.uint32))
