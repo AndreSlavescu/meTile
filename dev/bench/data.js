@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791098793878,
+  "lastUpdate": 1791215164651,
   "repoUrl": "https://github.com/AndreSlavescu/meTile",
   "entries": {
     "meTile Kernel Performance": [
@@ -2885,6 +2885,80 @@ window.BENCHMARK_DATA = {
           {
             "name": "fft_128x1024",
             "value": 360.2,
+            "unit": "us"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "51034490+AndreSlavescu@users.noreply.github.com",
+            "name": "Andre Slavescu",
+            "username": "AndreSlavescu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3771d627592b1cde433db20a45a1eabdbd05d395",
+          "message": "Add Qwen3 DSL kernels, optimized prefill, and PD interleaving (#38)\n\n* Add Qwen3 DSL inference, optimized prefill, and cooperative PD scheduling\n\nExtend general matrix-fragment lowering, precise math primitives, and buffer ownership. Add GPU-wide Qwen3 inference kernels and independently validated end-to-end and mixed-request scheduling benchmarks with raw evidence and documentation.\n\n* Fix reduction scratch races and hardware-aware CI coverage\n\nRetire shared reduction reads before reuse and pad inactive lanes with dtype-correct min/max identities. Preserve pipeline resource rejection while allowing only an unsupported optional 512-thread attention configuration to skip. Add deterministic compiler, dtype-boundary, and repeated GPU regressions.\n\n* Mark generated benchmark evidence and chart SVGs for review",
+          "timestamp": "2026-10-05T11:37:14-04:00",
+          "tree_id": "29a5447b3f7cd20dad2fc513ead695fd1ef07e50",
+          "url": "https://github.com/AndreSlavescu/meTile/commit/3771d627592b1cde433db20a45a1eabdbd05d395"
+        },
+        "date": 1791215162162,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "gemm_256x256x256",
+            "value": 439.32,
+            "unit": "us"
+          },
+          {
+            "name": "gemm_1024x1024x1024",
+            "value": 4930.6,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_256x1024",
+            "value": 323.58,
+            "unit": "us"
+          },
+          {
+            "name": "softmax_1024x4096",
+            "value": 1009.36,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_256x1024",
+            "value": 334.66,
+            "unit": "us"
+          },
+          {
+            "name": "layernorm_1024x4096",
+            "value": 1056.23,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x256",
+            "value": 257.54,
+            "unit": "us"
+          },
+          {
+            "name": "fft_32x256",
+            "value": 273.72,
+            "unit": "us"
+          },
+          {
+            "name": "fft_1x1024",
+            "value": 267.27,
+            "unit": "us"
+          },
+          {
+            "name": "fft_128x1024",
+            "value": 340.79,
             "unit": "us"
           }
         ]
