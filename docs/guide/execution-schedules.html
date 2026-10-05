@@ -227,6 +227,9 @@
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="benchmark-methodology.html">Benchmark methodology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="megakernels.html">Megakernels</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prefill-decode-scheduling.html">Prefill/decode scheduling</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
 </ul>
 <ul>
@@ -340,7 +343,7 @@ to support exact shape proofs in the compilation cache.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">backend</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">simdgroup</span></code>, <code class="docutils literal notranslate"><span class="pre">tensor_ops</span></code>, <code class="docutils literal notranslate"><span class="pre">nax</span></code> or <code class="docutils literal notranslate"><span class="pre">elementwise</span></code>.
+<td><p><code class="docutils literal notranslate"><span class="pre">auto</span></code>, <code class="docutils literal notranslate"><span class="pre">simdgroup</span></code>, <code class="docutils literal notranslate"><span class="pre">simdgroup_inline</span></code>, <code class="docutils literal notranslate"><span class="pre">tensor_ops</span></code>, <code class="docutils literal notranslate"><span class="pre">nax</span></code> or <code class="docutils literal notranslate"><span class="pre">elementwise</span></code>.
 Explicit choices must support the kernel, hardware and precision policy.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">num_simdgroups</span></code></p></td>
@@ -375,6 +378,151 @@ SIMD-group/shared paths; it does not optimize arbitrary allocation placement.
 Elementwise staging must match the kernel’s memory operations. Specialized
 producer/consumer and persistent kernels keep their restricted schedules and
 reject controls they cannot honor.</p>
+</section>
+<section id="composable-matrix-fragments">
+<h2>Composable matrix fragments<a class="headerlink" href="#composable-matrix-fragments" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">Schedule(backend=&quot;simdgroup_inline&quot;)</span></code> lets an ordinary DSL kernel contain
+multiple matrix products, scalar work and explicit shared-memory exchanges.
+It does not recognize an attention model or replace the kernel with a template.
+Each SIMD-group owns an opaque 8-by-8 register fragment; <code class="docutils literal notranslate"><span class="pre">dot</span></code> lowers to a
+SIMD-group matrix multiply with an FP32 accumulator.</p>
+<p>For example, this single-group kernel computes <code class="docutils literal notranslate"><span class="pre">max(A</span> <span class="pre">&#64;</span> <span class="pre">B,</span> <span class="pre">0)</span> <span class="pre">&#64;</span> <span class="pre">B</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">two_products</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">,</span> <span class="n">Output</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span> <span class="o">=</span> <span class="mi">32</span><span class="p">):</span>
+    <span class="n">left_memory</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">shared</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
+    <span class="n">right_memory</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">shared</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
+    <span class="n">result_memory</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">shared</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">)</span>
+    <span class="n">left</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">right</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">Output</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">)</span>
+    <span class="n">left_values</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">left_memory</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="n">right_values</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">right_memory</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="n">result_values</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">result_memory</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="n">left_matrix</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">left_memory</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="n">right_matrix</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">right_memory</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="n">result_matrix</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">result_memory</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">thread_id</span><span class="p">(),</span> <span class="mi">64</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">position</span> <span class="o">=</span> <span class="p">(</span><span class="n">index</span> <span class="o">//</span> <span class="mi">8</span><span class="p">,</span> <span class="n">index</span> <span class="o">%</span> <span class="mi">8</span><span class="p">)</span>
+        <span class="n">left_values</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">left</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">position</span><span class="p">))</span>
+        <span class="n">right_values</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">right</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">position</span><span class="p">))</span>
+    <span class="n">metile</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+    <span class="n">left_fragment</span> <span class="o">=</span> <span class="n">left_matrix</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+    <span class="n">right_fragment</span> <span class="o">=</span> <span class="n">right_matrix</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+    <span class="n">first</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">left_fragment</span><span class="p">,</span> <span class="n">right_fragment</span><span class="p">,</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">)))</span>
+    <span class="n">second</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">first</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span> <span class="n">right_fragment</span><span class="p">,</span> <span class="n">metile</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">)))</span>
+    <span class="n">result_matrix</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">second</span><span class="p">)</span>
+    <span class="n">metile</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="n">metile</span><span class="o">.</span><span class="n">thread_id</span><span class="p">(),</span> <span class="mi">64</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">):</span>
+        <span class="n">position</span> <span class="o">=</span> <span class="p">(</span><span class="n">index</span> <span class="o">//</span> <span class="mi">8</span><span class="p">,</span> <span class="n">index</span> <span class="o">%</span> <span class="mi">8</span><span class="p">)</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">position</span><span class="p">,</span> <span class="n">result_values</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">position</span><span class="p">))</span>
+
+<span class="n">two_products</span><span class="p">[(</span><span class="mi">1</span><span class="p">,)](</span>
+    <span class="n">left_buffer</span><span class="p">,</span> <span class="n">right_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span>
+    <span class="n">STRICT_MATH</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">SCHEDULE</span><span class="o">=</span><span class="n">metile</span><span class="o">.</span><span class="n">Schedule</span><span class="p">(</span><span class="n">backend</span><span class="o">=</span><span class="s2">"simdgroup_inline"</span><span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>All three buffers in this example hold 8-by-8 FP32 matrices. Matrix operands
+may instead use FP16 shared storage, but both inputs to each <code class="docutils literal notranslate"><span class="pre">dot</span></code> must have
+the same dtype. Accumulators remain FP32; casting a fragment or storing it to
+FP16 shared memory is an explicit storage conversion, not an automatic
+reduced-precision optimization.</p>
+<p>The shared-memory contract deliberately stays narrow:</p>
+<ul class="simple">
+<li><p>Matrix loads and stores use complete, provably in-bounds 8-by-8 shared tiles.
+Scalar DSL loads can fill padding before the matrix operation. Row-major,
+padded-row-major and transposed views are supported; the declared view must
+fit its allocation. Device tiles use the separate scratch contract below.</p></li>
+<li><p>Matrix origins and surrounding loops must be uniform within each SIMD-group.
+A threadgroup barrier additionally requires uniform control flow across the
+entire threadgroup. Shared allocations belong at the top of the kernel.
+Scalar shared-memory pointers must resolve to those allocations through
+pointer offsets only; conditional shared-pointer selection is unsupported.</p></li>
+<li><p>Explicit barriers publish scalar writes before matrix reads, publish matrix
+stores before scalar reads, and finish matrix reads before shared storage is
+overwritten. The compiler checks these transitions, including loop backedges.
+Provably disjoint regions of one shared allocation do not need a barrier
+between them. Unknown offsets and lossy index conversions conservatively
+count as overlapping the allocation. A loaded fragment retains its values
+when the shared source is reused after the required barrier.
+The kernel remains responsible for initializing the data it reads and keeping
+different groups’ output regions disjoint.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">metile.loop_state</span></code> can retain a fragment across iterations. Pointwise
+arithmetic, floating casts and supported unary math operate on its elements
+without exposing their lane mapping. Scalar operands must be SIMD-uniform.
+Row reductions currently use a shared-memory bridge to ordinary scalar/SIMD
+operations. Expression <code class="docutils literal notranslate"><span class="pre">vjp</span></code> does not differentiate matrix products or a
+complete mutable attention pipeline.</p></li>
+</ul>
+<p>Set <code class="docutils literal notranslate"><span class="pre">BLOCK</span></code> to a multiple of 32. The kernel assigns work to SIMD-groups;
+whole-GEMM <code class="docutils literal notranslate"><span class="pre">WM</span></code>/<code class="docutils literal notranslate"><span class="pre">WN</span></code> placement, forced vectorization and automatic double
+buffering are unsupported here. The original <code class="docutils literal notranslate"><span class="pre">simdgroup</span></code> and <code class="docutils literal notranslate"><span class="pre">tensor_ops</span></code>
+GEMM backends are unchanged.</p>
+<section id="direct-device-tiles-and-masked-tails">
+<h3>Direct device tiles and masked tails<a class="headerlink" href="#direct-device-tiles-and-masked-tails" title="Link to this heading">¶</a></h3>
+<p>An 8-by-8 device tile can load directly into a register fragment or store a
+fragment back to device memory. Pass an explicit shared tensor as <code class="docutils literal notranslate"><span class="pre">scratch</span></code>
+for incomplete tiles. Complete tiles use Metal’s matrix load/store operations;
+tails use bounded scalar copies and SIMD-group barriers through the scratch
+allocation. Neither path assumes which matrix elements belong to each lane.</p>
+<p>This kernel adds one to the valid rows of an FP32 matrix with eight columns:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@metile</span><span class="o">.</span><span class="n">kernel</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">masked_tiles</span><span class="p">(</span><span class="n">Source</span><span class="p">,</span> <span class="n">Control</span><span class="p">,</span> <span class="n">Output</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">BLOCK</span><span class="p">:</span> <span class="n">metile</span><span class="o">.</span><span class="n">constexpr</span> <span class="o">=</span> <span class="mi">32</span><span class="p">):</span>
+    <span class="n">scratch</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+        <span class="n">metile</span><span class="o">.</span><span class="n">shared</span><span class="p">(</span><span class="n">BLOCK</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"f32"</span><span class="p">),</span>
+        <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">BLOCK</span> <span class="o">//</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">control</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">Control</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">)</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="n">control</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="mi">0</span><span class="p">,))</span>
+    <span class="n">source</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+        <span class="n">Source</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">strides</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"read"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+        <span class="n">Output</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">strides</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">block_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span> <span class="n">access</span><span class="o">=</span><span class="s2">"write"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">metile</span><span class="o">.</span><span class="n">tile_range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">rows</span><span class="p">,</span> <span class="mi">8</span><span class="p">):</span>
+        <span class="n">fragment</span> <span class="o">=</span> <span class="n">source</span><span class="o">.</span><span class="n">load</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">scratch</span><span class="o">=</span><span class="n">scratch</span><span class="p">)</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">store</span><span class="p">((</span><span class="n">row</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">fragment</span> <span class="o">+</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">scratch</span><span class="o">=</span><span class="n">scratch</span><span class="p">)</span>
+
+<span class="n">masked_tiles</span><span class="p">[(</span><span class="mi">1</span><span class="p">,)](</span>
+    <span class="n">source_buffer</span><span class="p">,</span> <span class="n">control_buffer</span><span class="p">,</span> <span class="n">output_buffer</span><span class="p">,</span>
+    <span class="n">STRICT_MATH</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">SCHEDULE</span><span class="o">=</span><span class="n">metile</span><span class="o">.</span><span class="n">Schedule</span><span class="p">(</span><span class="n">backend</span><span class="o">=</span><span class="s2">"simdgroup_inline"</span><span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">control_buffer</span></code> contains one nonnegative int32 row count. The input and
+output buffers hold at least that many rows and must be disjoint. Invalid
+load coordinates become zero; invalid stores leave the allocation untouched.
+For example, a row count of nine processes one complete tile and one partial
+tile without reading or writing any later rows.</p>
+<p>The scratch tensor must reference a top-level shared allocation directly,
+with shape <code class="docutils literal notranslate"><span class="pre">(BLOCK</span> <span class="pre">//</span> <span class="pre">4,</span> <span class="pre">8)</span></code>, strides <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">1)</span></code>, read/write access and the
+same storage dtype as the device tensor. This reserves 64 elements for each
+SIMD-group. Reuse it across consecutive tile accesses, but do not access that
+allocation through scalar operations, another matrix view or an offset alias.
+The compiler owns its publication and reuse barriers. FP16 and FP32 device
+storage are supported; each <code class="docutils literal notranslate"><span class="pre">dot</span></code> still accumulates in FP32.</p>
+<p>Device views require rank two and constant, positive row-major or
+column-major strides. Their bases, logical extents and tile origins may be
+runtime values, but must be uniform within each SIMD-group. Declare the
+<strong>logical valid extent</strong>, not the allocation capacity. In attention, masking
+a probability to zero does not make an invalid value safe: <code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">*</span> <span class="pre">NaN</span></code> is
+still NaN, so a KV view must exclude uninitialized cache positions before
+the matrix load.</p>
+<p>A device allocation used by matrix operations cannot be both read and written
+within the same kernel, including through scalar aliases. Compilation rejects
+that case even with <code class="docutils literal notranslate"><span class="pre">metile.barrier()</span></code>, which only publishes threadgroup
+memory. Distinct pointer parameters must also reference disjoint input/output
+storage at launch; parameter names cannot prove that buffers do not overlap.</p>
+<p>For eligible zero-start signed loops, the compiler separates provably complete
+iterations from a guarded remainder. Every device tile access must satisfy
+the proof; unrelated extents, uncertain offsets and nested loops keep their
+guards. Scalar and fragment loop state continues across both portions.</p>
+</section>
 </section>
 <section id="inspect-the-materialized-kernel">
 <h2>Inspect the materialized kernel<a class="headerlink" href="#inspect-the-materialized-kernel" title="Link to this heading">¶</a></h2>
@@ -539,6 +687,10 @@ expanded comparison.</p>
             <ul>
 <li><a class="reference internal" href="#">Execution Schedules and Fusion</a><ul>
 <li><a class="reference internal" href="#checked-expert-controls">Checked expert controls</a></li>
+<li><a class="reference internal" href="#composable-matrix-fragments">Composable matrix fragments</a><ul>
+<li><a class="reference internal" href="#direct-device-tiles-and-masked-tails">Direct device tiles and masked tails</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#inspect-the-materialized-kernel">Inspect the materialized kernel</a></li>
 <li><a class="reference internal" href="#pointwise-gemm-epilogues">Pointwise GEMM epilogues</a></li>
 <li><a class="reference internal" href="#tuning-and-measurement">Tuning and measurement</a></li>

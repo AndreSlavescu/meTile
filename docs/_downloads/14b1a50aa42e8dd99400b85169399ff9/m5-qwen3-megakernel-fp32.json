@@ -1,0 +1,667 @@
+{
+  "schema_version": 1,
+  "status": "ok",
+  "created_at": "2026-10-04T22:32:43.310667+00:00",
+  "model": "Qwen/Qwen3-0.6B",
+  "checkpoint_revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+  "checkpoint_sha256": {
+    "config.json": "660db3b73d788119c04535e48cf9be5f55bc3100841a718637ae695b442f27dd",
+    "model.safetensors": "f47f71177f32bcd101b7573ec9171e6a57f4f4d31148d38e382306f42996874b"
+  },
+  "hardware": {
+    "device_name": "Apple M5",
+    "max_recommended_working_set_size": 26800603136,
+    "memory_size": 34359738368,
+    "architecture": "applegpu_g17g",
+    "max_buffer_length": 20100448256,
+    "resource_limit": 499000
+  },
+  "software": {
+    "mlx": "0.32.0",
+    "mlx_lm": "0.31.3",
+    "platform": "macOS-26.2-arm64-arm-64bit",
+    "MLX_ENABLE_TF32": "0"
+  },
+  "metal_compiler": "Apple metal version 32023.864 (metalfe-32023.864)\nTarget: air64-apple-darwin25.2.0\nThread model: posix\nInstalledDir: /private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.3.7003.10.GzPOjD/Metal.xctoolchain/usr/metal/current/bin",
+  "source_sha256": {
+    "benchmarks/megakernels/qwen3.py": "d54bd5fd5f9973c8fdd98a6c656c0ca79d424457db242061ce88b8601b9d91f4",
+    "benchmarks/megakernels/qwen3_runtime.py": "7076d3413e6df90e577288874de55d5f1af0c22dd5d8c9e6706be238f01e5304"
+  },
+  "compiler_and_kernels_sha256": "d5ef2e16bb64f10ecc082e42fb3027b25a113439e21dbca6f0bc4c46a6d2c1a2",
+  "geometry": {
+    "model_type": "qwen3",
+    "hidden_size": 1024,
+    "num_hidden_layers": 28,
+    "intermediate_size": 3072,
+    "num_attention_heads": 16,
+    "rms_norm_eps": 1e-06,
+    "vocab_size": 151936,
+    "num_key_value_heads": 8,
+    "max_position_embeddings": 40960,
+    "rope_theta": 1000000,
+    "head_dim": 128,
+    "tie_word_embeddings": true,
+    "rope_scaling": null,
+    "capacity": 67,
+    "threads": 256,
+    "storage_dtype": "float32",
+    "dtype": "float32"
+  },
+  "parameter_count": 596049920,
+  "precision_comparison": {
+    "class": "same_storage_precision",
+    "same_weight_representation": true,
+    "bitwise_exact": false,
+    "storage_dtype": "float32",
+    "accumulation_dtype": "float32",
+    "policy": "Identical converted checkpoint weights and storage dtype; reduction order may differ. Full logits, greedy tokens and KV caches must pass the recorded tolerances before timing."
+  },
+  "weights": {
+    "source_dtype": "bfloat16",
+    "both_backends": "float32",
+    "same_values": true,
+    "quantized": false
+  },
+  "workload": {
+    "batch": 1,
+    "query_tokens": 1,
+    "contexts": [
+      0,
+      16,
+      64
+    ],
+    "capacity": 67,
+    "seed": 0,
+    "synthetic_tokens": [
+      129240,
+      96777,
+      77660,
+      40991,
+      46771,
+      6226,
+      11432,
+      2512,
+      26630,
+      123565,
+      98669,
+      138680,
+      76519,
+      92170,
+      147490,
+      110837,
+      96065,
+      82596,
+      85072,
+      142071,
+      42139,
+      123957,
+      101930,
+      417,
+      59886,
+      130270,
+      84220,
+      5103,
+      116214,
+      110861,
+      128625,
+      26689,
+      13566,
+      131148,
+      3359,
+      82267,
+      12216,
+      45537,
+      73091,
+      64221,
+      61267,
+      4303,
+      814,
+      18883,
+      1259,
+      101892,
+      79860,
+      98331,
+      39093,
+      93499,
+      116087,
+      58295,
+      70031,
+      151512,
+      122307,
+      149024,
+      57663,
+      104158,
+      144354,
+      98828,
+      127673,
+      104600,
+      106963,
+      59091,
+      132967,
+      20526,
+      87956
+    ],
+    "trials": 9,
+    "validation_steps_per_context": 3
+  },
+  "execution": {
+    "metile_dispatches_per_forward": 1,
+    "metile_threadgroups": 1,
+    "native_backend": "unpatched MLX-LM Qwen3",
+    "scope": "embedding, every decoder layer, final RMSNorm and full vocabulary logits"
+  },
+  "timing": {
+    "metric": "synchronized wall seconds per fixed-context, one-token full forward",
+    "included": [
+      "native model graph construction/evaluation and synchronization",
+      "prepared meTile dispatch and synchronization",
+      "KV update at the same fixed position",
+      "complete vocabulary logits"
+    ],
+    "excluded": [
+      "checkpoint loading and float32 conversion",
+      "weight packing and compilation",
+      "prefill and cache preparation",
+      "input token allocation",
+      "cache offset reset",
+      "argmax, sampling and tokenization"
+    ],
+    "allocation_difference": "meTile reuses prepared buffers; native MLX manages intermediate/output allocations. Native KV capacity is warmed and does not grow during timing.",
+    "aggregation": "median of within-trial MLX/meTile wall-time ratios",
+    "limitation": "same-position replay, not autoregressive generation throughput or end-to-end latency; correctness checks separately advance three tokens per context"
+  },
+  "results": [
+    {
+      "context_tokens": 0,
+      "input_token": 129240,
+      "status": "ok",
+      "correctness": [
+        {
+          "position": 0,
+          "input_token": 129240,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 1.1920928955078125e-05,
+            "mean_absolute_error": 2.1830953755852534e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 40864,
+            "metile_next_token": 40864,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 3.0517578125e-05,
+            "layers_checked": 28,
+            "valid_tokens_checked": 1,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        },
+        {
+          "position": 1,
+          "input_token": 40864,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 9.059906005859375e-06,
+            "mean_absolute_error": 1.418003535036405e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 198,
+            "metile_next_token": 198,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 6.103515625e-05,
+            "layers_checked": 28,
+            "valid_tokens_checked": 2,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        },
+        {
+          "position": 2,
+          "input_token": 198,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 9.775161743164062e-06,
+            "mean_absolute_error": 1.6460351162095321e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 2,
+            "metile_next_token": 2,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 6.103515625e-05,
+            "layers_checked": 28,
+            "valid_tokens_checked": 3,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        }
+      ],
+      "samples": [
+        {
+          "trial": 0,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.023401709000000003,
+          "metile_wall_seconds": 0.422014791
+        },
+        {
+          "trial": 1,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.41905995900000004,
+          "mlx_wall_seconds": 0.021384416
+        },
+        {
+          "trial": 2,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.021348125000000003,
+          "metile_wall_seconds": 0.416896333
+        },
+        {
+          "trial": 3,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.416660625,
+          "mlx_wall_seconds": 0.021506209000000002
+        },
+        {
+          "trial": 4,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.021696167000000002,
+          "metile_wall_seconds": 0.41782991700000005
+        },
+        {
+          "trial": 5,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.41865266700000003,
+          "mlx_wall_seconds": 0.022484583000000002
+        },
+        {
+          "trial": 6,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.024491750000000003,
+          "metile_wall_seconds": 0.41959991700000004
+        },
+        {
+          "trial": 7,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.41826216600000005,
+          "mlx_wall_seconds": 0.030638000000000002
+        },
+        {
+          "trial": 8,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.0239075,
+          "metile_wall_seconds": 0.42623454200000005
+        }
+      ],
+      "medians": {
+        "mlx_wall_seconds": 0.022484583000000002,
+        "metile_wall_seconds": 0.41865266700000003,
+        "paired_speedup": 0.05370701006426409
+      }
+    },
+    {
+      "context_tokens": 16,
+      "input_token": 96065,
+      "status": "ok",
+      "correctness": [
+        {
+          "position": 16,
+          "input_token": 96065,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 5.0067901611328125e-06,
+            "mean_absolute_error": 8.472727017760917e-07,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 16,
+            "metile_next_token": 16,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 3.0517578125e-05,
+            "layers_checked": 28,
+            "valid_tokens_checked": 17,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        },
+        {
+          "position": 17,
+          "input_token": 16,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 9.804964065551758e-06,
+            "mean_absolute_error": 1.4802236592004192e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 11,
+            "metile_next_token": 11,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 0.0007505416870117188,
+            "layers_checked": 28,
+            "valid_tokens_checked": 18,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        },
+        {
+          "position": 18,
+          "input_token": 11,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 9.298324584960938e-06,
+            "mean_absolute_error": 2.3820093701942824e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 16,
+            "metile_next_token": 16,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 0.0007505416870117188,
+            "layers_checked": 28,
+            "valid_tokens_checked": 19,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        }
+      ],
+      "samples": [
+        {
+          "trial": 0,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.022352417000000003,
+          "metile_wall_seconds": 0.41989591600000004
+        },
+        {
+          "trial": 1,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.416812167,
+          "mlx_wall_seconds": 0.021329333000000002
+        },
+        {
+          "trial": 2,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.027927,
+          "metile_wall_seconds": 0.4668745
+        },
+        {
+          "trial": 3,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.45790970900000005,
+          "mlx_wall_seconds": 0.029835042000000003
+        },
+        {
+          "trial": 4,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.027613750000000003,
+          "metile_wall_seconds": 0.452646584
+        },
+        {
+          "trial": 5,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.42976575,
+          "mlx_wall_seconds": 0.026235167
+        },
+        {
+          "trial": 6,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.025911541000000003,
+          "metile_wall_seconds": 0.437569042
+        },
+        {
+          "trial": 7,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.42945529200000004,
+          "mlx_wall_seconds": 0.024149833000000002
+        },
+        {
+          "trial": 8,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.023135541000000003,
+          "metile_wall_seconds": 0.44235895900000005
+        }
+      ],
+      "medians": {
+        "mlx_wall_seconds": 0.025911541000000003,
+        "metile_wall_seconds": 0.437569042,
+        "paired_speedup": 0.05921703437145812
+      }
+    },
+    {
+      "context_tokens": 64,
+      "input_token": 132967,
+      "status": "ok",
+      "correctness": [
+        {
+          "position": 64,
+          "input_token": 132967,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 8.58306884765625e-06,
+            "mean_absolute_error": 1.494747834840382e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 220,
+            "metile_next_token": 220,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 9.1552734375e-05,
+            "layers_checked": 28,
+            "valid_tokens_checked": 65,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        },
+        {
+          "position": 65,
+          "input_token": 220,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 7.867813110351562e-06,
+            "mean_absolute_error": 1.2996238183404785e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 17,
+            "metile_next_token": 17,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 9.1552734375e-05,
+            "layers_checked": 28,
+            "valid_tokens_checked": 66,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        },
+        {
+          "position": 66,
+          "input_token": 17,
+          "logits": {
+            "passed": true,
+            "max_absolute_error": 9.298324584960938e-06,
+            "mean_absolute_error": 1.513772645012068e-06,
+            "rtol": 0.001,
+            "atol": 0.001,
+            "mlx_next_token": 15,
+            "metile_next_token": 15,
+            "greedy_token_equal": true
+          },
+          "cache": {
+            "passed": true,
+            "max_absolute_error": 0.00011444091796875,
+            "layers_checked": 28,
+            "valid_tokens_checked": 67,
+            "keys_and_values_checked": true,
+            "rtol": 0.001,
+            "atol": 0.001
+          }
+        }
+      ],
+      "samples": [
+        {
+          "trial": 0,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.022387625,
+          "metile_wall_seconds": 0.41874433400000005
+        },
+        {
+          "trial": 1,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.419639584,
+          "mlx_wall_seconds": 0.021539375000000003
+        },
+        {
+          "trial": 2,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.022507458,
+          "metile_wall_seconds": 0.45052545800000005
+        },
+        {
+          "trial": 3,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.425697084,
+          "mlx_wall_seconds": 0.022067
+        },
+        {
+          "trial": 4,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.022887209000000002,
+          "metile_wall_seconds": 0.42102787500000005
+        },
+        {
+          "trial": 5,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.42165670800000005,
+          "mlx_wall_seconds": 0.022823875
+        },
+        {
+          "trial": 6,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.022248708000000002,
+          "metile_wall_seconds": 0.416998458
+        },
+        {
+          "trial": 7,
+          "order": [
+            "meTile",
+            "MLX"
+          ],
+          "metile_wall_seconds": 0.41629054200000004,
+          "mlx_wall_seconds": 0.02261875
+        },
+        {
+          "trial": 8,
+          "order": [
+            "MLX",
+            "meTile"
+          ],
+          "mlx_wall_seconds": 0.021039500000000003,
+          "metile_wall_seconds": 0.413811625
+        }
+      ],
+      "medians": {
+        "mlx_wall_seconds": 0.022387625,
+        "metile_wall_seconds": 0.419639584,
+        "paired_speedup": 0.05335441312351328
+      }
+    }
+  ]
+}

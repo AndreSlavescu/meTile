@@ -227,6 +227,9 @@
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../guide/benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/benchmark-methodology.html">Benchmark methodology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/megakernels.html">Megakernels</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide/prefill-decode-scheduling.html">Prefill/decode scheduling</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../guide/mlx-backend.html">MLX-LM Backend</a></li>
 </ul>
 <ul>
@@ -530,19 +533,36 @@ make a dynamic origin explicit.</p>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.tensor(pointer,</span> <span class="pre">*,</span> <span class="pre">shape,</span> <span class="pre">strides=None,</span> <span class="pre">access=&quot;readwrite&quot;,</span> <span class="pre">block_shape=None,</span> <span class="pre">address_space=None)</span></code></p></td>
 <td><p>Declare logical shape, memory layout, and access permissions</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">view.load(indices,</span> <span class="pre">other=0)</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">view.load(indices,</span> <span class="pre">other=0,</span> <span class="pre">*,</span> <span class="pre">scratch=None)</span></code></p></td>
 <td><p>Load coordinates with declared bounds and a scalar fill value</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">view.store(indices,</span> <span class="pre">value)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">view.store(indices,</span> <span class="pre">value,</span> <span class="pre">*,</span> <span class="pre">scratch=None)</span></code></p></td>
 <td><p>Store coordinates within declared bounds</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>See <a class="reference internal" href="../guide/tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for the full signature, tiled matrix support,
+<p>See <a class="reference internal" href="../guide/tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a> for tensor declarations, tiled matrix support,
 integer-range constraints, and compiler responsibilities. Strides are in
 elements. Bounds checks use the declared shape; the caller must supply enough
 storage for its valid addresses. Matrix tile loads currently require zero fill.</p>
+<p>For <code class="docutils literal notranslate"><span class="pre">Schedule(backend=&quot;simdgroup_inline&quot;)</span></code>, device <code class="docutils literal notranslate"><span class="pre">block_shape=(8,</span> <span class="pre">8)</span></code>
+accesses require an explicit <code class="docutils literal notranslate"><span class="pre">scratch</span></code> tensor. It must directly reference
+a shared allocation with shape <code class="docutils literal notranslate"><span class="pre">(BLOCK</span> <span class="pre">//</span> <span class="pre">4,</span> <span class="pre">8)</span></code>, strides <code class="docutils literal notranslate"><span class="pre">(8,</span> <span class="pre">1)</span></code>,
+read/write access and matching FP16 or FP32 storage dtype. Keep the allocation
+exclusive to these accesses; the compiler handles its masked-tail copies and
+SIMD-group barriers. Scalar and shared-memory accesses reject <code class="docutils literal notranslate"><span class="pre">scratch</span></code>.
+Scalar shared-memory pointers in this backend must resolve to a declared
+shared allocation through pointer offsets only; conditional pointer selection
+is unsupported.</p>
+<p>Device views have constant positive row-major or column-major strides and
+SIMD-uniform bases, logical extents and origins. Complete tiles access device
+memory directly; incomplete loads zero-fill and incomplete stores skip invalid
+coordinates. Bounds refer to valid data, not spare allocation capacity.
+A device allocation used by fragments cannot also be read and written through
+any alias within the kernel. Separate input/output parameters must reference
+disjoint storage at launch. See <a class="reference internal" href="../guide/execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for a complete
+DSL example and the shared-memory fragment contract.</p>
 </section>
 <section id="element-wise-memory">
 <h2>Element-wise Memory<a class="headerlink" href="#element-wise-memory" title="Link to this heading">¶</a></h2>
@@ -643,14 +663,32 @@ layout restrictions are described in <a class="reference internal" href="../guid
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.exp(x)</span></code></p></td>
 <td><p>Exponential</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.exp2(x)</span></code></p></td>
+<td><p>Base-two exponential</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.fast_cos(x)</span></code></p></td>
+<td><p>Cosine in radians using Metal’s <code class="docutils literal notranslate"><span class="pre">fast::cos</span></code> intrinsic</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.fast_exp(x)</span></code></p></td>
 <td><p>Exponential using Metal’s fast-math intrinsic</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.log(x)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.fast_exp2(x)</span></code></p></td>
+<td><p>Base-two exponential using Metal’s <code class="docutils literal notranslate"><span class="pre">fast::exp2</span></code> intrinsic</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.fast_sin(x)</span></code></p></td>
+<td><p>Sine in radians using Metal’s <code class="docutils literal notranslate"><span class="pre">fast::sin</span></code> intrinsic</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.fma(a,</span> <span class="pre">b,</span> <span class="pre">c)</span></code></p></td>
+<td><p>Fused multiply-add: <code class="docutils literal notranslate"><span class="pre">a</span> <span class="pre">*</span> <span class="pre">b</span> <span class="pre">+</span> <span class="pre">c</span></code> with one final rounding</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.log(x)</span></code></p></td>
 <td><p>Natural logarithm</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.sqrt(x)</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.sqrt(x)</span></code></p></td>
 <td><p>Square root</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.rsqrt(x)</span></code></p></td>
+<td><p>Reciprocal square root using Metal’s <code class="docutils literal notranslate"><span class="pre">precise::rsqrt</span></code> intrinsic</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.abs(x)</span></code></p></td>
 <td><p>Absolute value</p></td>
@@ -670,12 +708,50 @@ layout restrictions are described in <a class="reference internal" href="../guid
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">metile.cast(value,</span> <span class="pre">dtype)</span></code></p></td>
 <td><p>Convert a scalar or tile to a supported IR dtype such as <code class="docutils literal notranslate"><span class="pre">&quot;f32&quot;</span></code></p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">metile.bitcast(value,</span> <span class="pre">dtype)</span></code></p></td>
+<td><p>Reinterpret <code class="docutils literal notranslate"><span class="pre">f32</span></code>/<code class="docutils literal notranslate"><span class="pre">i32</span></code>/<code class="docutils literal notranslate"><span class="pre">u32</span></code> element bits without numeric conversion</p></td>
+</tr>
 </tbody>
 </table>
 </div>
 <p>Supported Python arithmetic and comparisons build elementwise operations.
 <code class="docutils literal notranslate"><span class="pre">where</span></code> selects between already-computed values; it does not make an
 unmasked memory access safe. Mask the load itself or use a tensor view.</p>
+<p><code class="docutils literal notranslate"><span class="pre">bitcast</span></code> preserves all 32 bits of each element, including signed zero and
+NaN payloads, using Metal’s <code class="docutils literal notranslate"><span class="pre">as_type</span></code> operation. The input must be an
+explicitly typed scalar or tile proxy; use <code class="docutils literal notranslate"><span class="pre">scalar(value,</span> <span class="pre">dtype=...)</span></code> for
+literals. Tile shape and thread ownership are unchanged. Identical source
+and destination dtypes are an identity. Other widths, booleans, pointers,
+and matrix-fragment reinterpretation are unsupported. Expression VJP rejects
+bit reinterpretation rather than inventing a derivative.</p>
+<p><code class="docutils literal notranslate"><span class="pre">rsqrt</span></code> emits the reciprocal-square-root operation directly rather than
+dividing by <code class="docutils literal notranslate"><span class="pre">sqrt</span></code>; their floating-point rounding can differ. For positive
+finite inputs, its expression VJP uses <code class="docutils literal notranslate"><span class="pre">-0.5</span> <span class="pre">*</span> <span class="pre">rsqrt(x)**3</span></code> multiplied by
+the incoming cotangent. This is the derivative of the real-valued function,
+not of floating-point rounding.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">exp2</span></code> and <code class="docutils literal notranslate"><span class="pre">fast_exp2</span></code> VJPs multiply the incoming cotangent by
+<code class="docutils literal notranslate"><span class="pre">ln(2)</span></code> times the computed output.
+The fast cosine and sine VJPs use <code class="docutils literal notranslate"><span class="pre">-fast_sin(x)</span></code> and <code class="docutils literal notranslate"><span class="pre">fast_cos(x)</span></code>,
+respectively, as real-function derivatives evaluated with the paired
+intrinsic; they do not differentiate approximation or rounding errors.</p>
+<p><code class="docutils literal notranslate"><span class="pre">fast_exp2</span></code> explicitly selects an approximate intrinsic without enabling
+fast math for the rest of a <code class="docutils literal notranslate"><span class="pre">STRICT_MATH=True</span></code> kernel. Use it only when
+the approximation is acceptable; it is not interchangeable with <code class="docutils literal notranslate"><span class="pre">exp2</span></code>
+for bitwise comparisons.</p>
+<p><code class="docutils literal notranslate"><span class="pre">fma</span></code> explicitly requests Metal’s fused operation even under strict math.
+This follows Apple’s guidance on <a class="reference external" href="https://developer.apple.com/videos/play/wwdc2016/606/">explicit FMA without fast math</a>.
+It accepts matching <code class="docutils literal notranslate"><span class="pre">f16</span></code> or <code class="docutils literal notranslate"><span class="pre">f32</span></code> operands, equal-shaped tiles, and
+scalar broadcasting; Python numeric literals adopt the proxy operands’
+dtype. Cast mixed proxy dtypes explicitly. Its expression VJP contributes
+<code class="docutils literal notranslate"><span class="pre">cotangent</span> <span class="pre">*</span> <span class="pre">b</span></code>, <code class="docutils literal notranslate"><span class="pre">cotangent</span> <span class="pre">*</span> <span class="pre">a</span></code>, and <code class="docutils literal notranslate"><span class="pre">cotangent</span></code> to the three inputs,
+with reductions for broadcast scalar inputs. These are real-function
+derivatives, not derivatives of rounding. Ordinary multiplication followed
+by addition is not rewritten into <code class="docutils literal notranslate"><span class="pre">fma</span></code> under strict math.</p>
+<p>For example, an online softmax can request these operations locally:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">factor</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">fast_exp2</span><span class="p">(</span><span class="n">previous_maximum</span> <span class="o">-</span> <span class="n">updated_maximum</span><span class="p">)</span>
+<span class="n">denominator</span> <span class="o">=</span> <span class="n">metile</span><span class="o">.</span><span class="n">fma</span><span class="p">(</span><span class="n">previous_denominator</span><span class="p">,</span> <span class="n">factor</span><span class="p">,</span> <span class="n">local_sum</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 <section id="reductions">
 <h2>Reductions<a class="headerlink" href="#reductions" title="Link to this heading">¶</a></h2>
@@ -777,6 +853,10 @@ not synchronize with each other merely because they appear in source order.</p>
 <p>Pass the immutable requirements as <code class="docutils literal notranslate"><span class="pre">SCHEDULE=metile.Schedule(...)</span></code> to a kernel
 launch or <code class="docutils literal notranslate"><span class="pre">prepare</span></code> call. See <a class="reference internal" href="../guide/execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a> for supported
 combinations, inspection and pointwise GEMM fusion.</p>
+<p>The opt-in <code class="docutils literal notranslate"><span class="pre">simdgroup_inline</span></code> backend composes multiple <code class="docutils literal notranslate"><span class="pre">dot</span></code> operations
+inside scalar/loop DSL programs. It uses 8-by-8 shared or device tiles, explicit
+scratch for device tails, and FP32 register-fragment accumulators. See the composable matrix
+fragment example and restrictions in <a class="reference internal" href="../guide/execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>.</p>
 </section>
 <section id="autotuning">
 <h2>Autotuning<a class="headerlink" href="#autotuning" title="Link to this heading">¶</a></h2>

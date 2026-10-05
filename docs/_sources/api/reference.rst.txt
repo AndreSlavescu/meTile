@@ -181,15 +181,34 @@ Tensor Views
      - Description
    * - ``metile.tensor(pointer, *, shape, strides=None, access="readwrite", block_shape=None, address_space=None)``
      - Declare logical shape, memory layout, and access permissions
-   * - ``view.load(indices, other=0)``
+   * - ``view.load(indices, other=0, *, scratch=None)``
      - Load coordinates with declared bounds and a scalar fill value
-   * - ``view.store(indices, value)``
+   * - ``view.store(indices, value, *, scratch=None)``
      - Store coordinates within declared bounds
 
-See :doc:`/guide/tensor-memory` for the full signature, tiled matrix support,
+See :doc:`/guide/tensor-memory` for tensor declarations, tiled matrix support,
 integer-range constraints, and compiler responsibilities. Strides are in
 elements. Bounds checks use the declared shape; the caller must supply enough
 storage for its valid addresses. Matrix tile loads currently require zero fill.
+
+For ``Schedule(backend="simdgroup_inline")``, device ``block_shape=(8, 8)``
+accesses require an explicit ``scratch`` tensor. It must directly reference
+a shared allocation with shape ``(BLOCK // 4, 8)``, strides ``(8, 1)``,
+read/write access and matching FP16 or FP32 storage dtype. Keep the allocation
+exclusive to these accesses; the compiler handles its masked-tail copies and
+SIMD-group barriers. Scalar and shared-memory accesses reject ``scratch``.
+Scalar shared-memory pointers in this backend must resolve to a declared
+shared allocation through pointer offsets only; conditional pointer selection
+is unsupported.
+
+Device views have constant positive row-major or column-major strides and
+SIMD-uniform bases, logical extents and origins. Complete tiles access device
+memory directly; incomplete loads zero-fill and incomplete stores skip invalid
+coordinates. Bounds refer to valid data, not spare allocation capacity.
+A device allocation used by fragments cannot also be read and written through
+any alias within the kernel. Separate input/output parameters must reference
+disjoint storage at launch. See :doc:`/guide/execution-schedules` for a complete
+DSL example and the shared-memory fragment contract.
 
 
 Element-wise Memory
@@ -258,12 +277,24 @@ All operate element-wise on scalars and tiles:
      - Description
    * - ``metile.exp(x)``
      - Exponential
+   * - ``metile.exp2(x)``
+     - Base-two exponential
+   * - ``metile.fast_cos(x)``
+     - Cosine in radians using Metal's ``fast::cos`` intrinsic
    * - ``metile.fast_exp(x)``
      - Exponential using Metal's fast-math intrinsic
+   * - ``metile.fast_exp2(x)``
+     - Base-two exponential using Metal's ``fast::exp2`` intrinsic
+   * - ``metile.fast_sin(x)``
+     - Sine in radians using Metal's ``fast::sin`` intrinsic
+   * - ``metile.fma(a, b, c)``
+     - Fused multiply-add: ``a * b + c`` with one final rounding
    * - ``metile.log(x)``
      - Natural logarithm
    * - ``metile.sqrt(x)``
      - Square root
+   * - ``metile.rsqrt(x)``
+     - Reciprocal square root using Metal's ``precise::rsqrt`` intrinsic
    * - ``metile.abs(x)``
      - Absolute value
    * - ``metile.tanh(x)``
@@ -276,10 +307,53 @@ All operate element-wise on scalars and tiles:
      - Element-wise min
    * - ``metile.cast(value, dtype)``
      - Convert a scalar or tile to a supported IR dtype such as ``"f32"``
+   * - ``metile.bitcast(value, dtype)``
+     - Reinterpret ``f32``/``i32``/``u32`` element bits without numeric conversion
 
 Supported Python arithmetic and comparisons build elementwise operations.
 ``where`` selects between already-computed values; it does not make an
 unmasked memory access safe. Mask the load itself or use a tensor view.
+
+``bitcast`` preserves all 32 bits of each element, including signed zero and
+NaN payloads, using Metal's ``as_type`` operation. The input must be an
+explicitly typed scalar or tile proxy; use ``scalar(value, dtype=...)`` for
+literals. Tile shape and thread ownership are unchanged. Identical source
+and destination dtypes are an identity. Other widths, booleans, pointers,
+and matrix-fragment reinterpretation are unsupported. Expression VJP rejects
+bit reinterpretation rather than inventing a derivative.
+
+``rsqrt`` emits the reciprocal-square-root operation directly rather than
+dividing by ``sqrt``; their floating-point rounding can differ. For positive
+finite inputs, its expression VJP uses ``-0.5 * rsqrt(x)**3`` multiplied by
+the incoming cotangent. This is the derivative of the real-valued function,
+not of floating-point rounding.
+
+The ``exp2`` and ``fast_exp2`` VJPs multiply the incoming cotangent by
+``ln(2)`` times the computed output.
+The fast cosine and sine VJPs use ``-fast_sin(x)`` and ``fast_cos(x)``,
+respectively, as real-function derivatives evaluated with the paired
+intrinsic; they do not differentiate approximation or rounding errors.
+
+``fast_exp2`` explicitly selects an approximate intrinsic without enabling
+fast math for the rest of a ``STRICT_MATH=True`` kernel. Use it only when
+the approximation is acceptable; it is not interchangeable with ``exp2``
+for bitwise comparisons.
+
+``fma`` explicitly requests Metal's fused operation even under strict math.
+This follows Apple's guidance on `explicit FMA without fast math
+<https://developer.apple.com/videos/play/wwdc2016/606/>`_.
+It accepts matching ``f16`` or ``f32`` operands, equal-shaped tiles, and
+scalar broadcasting; Python numeric literals adopt the proxy operands'
+dtype. Cast mixed proxy dtypes explicitly. Its expression VJP contributes
+``cotangent * b``, ``cotangent * a``, and ``cotangent`` to the three inputs,
+with reductions for broadcast scalar inputs. These are real-function
+derivatives, not derivatives of rounding. Ordinary multiplication followed
+by addition is not rewritten into ``fma`` under strict math.
+
+For example, an online softmax can request these operations locally::
+
+   factor = metile.fast_exp2(previous_maximum - updated_maximum)
+   denominator = metile.fma(previous_denominator, factor, local_sum)
 
 
 Reductions
@@ -350,6 +424,11 @@ Tile Scheduling
 Pass the immutable requirements as ``SCHEDULE=metile.Schedule(...)`` to a kernel
 launch or ``prepare`` call. See :doc:`/guide/execution-schedules` for supported
 combinations, inspection and pointwise GEMM fusion.
+
+The opt-in ``simdgroup_inline`` backend composes multiple ``dot`` operations
+inside scalar/loop DSL programs. It uses 8-by-8 shared or device tiles, explicit
+scratch for device tails, and FP32 register-fragment accumulators. See the composable matrix
+fragment example and restrictions in :doc:`/guide/execution-schedules`.
 
 
 Autotuning

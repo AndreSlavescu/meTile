@@ -1,0 +1,783 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Megakernels" href="megakernels.html"><link rel="prev" title="Benchmarks" href="benchmarks.html">
+        <link rel="prefetch" href="../_static/metile-logo.png" as="image">
+
+    <link rel="shortcut icon" href="../_static/metile-logo.png"><!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Benchmark methodology - meTile</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../_static/metile.css?v=3e0b59e1" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f0f0f0;
+  --color-code-foreground: black;
+  --color-brand-primary: #086a8b;
+  --color-brand-content: #086a8b;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #272822;
+  --color-code-foreground: #f8f8f2;
+  --color-brand-primary: #65dad0;
+  --color-brand-content: #65dad0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">meTile</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../_static/metile-logo.png" alt="Logo"/>
+  </div>
+  
+  <span class="sidebar-brand-text">meTile</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-started/first-kernel.html">Your First Kernel</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="language.html">Language Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tensor-memory.html">Tensor and Memory Contracts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory.html">Memory Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tile-ops.html">Tile Operations and Hardware Mapping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="execution-schedules.html">Execution Schedules and Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="thread-layouts.html">Thread Ownership and Software Staging</a></li>
+<li class="toctree-l1"><a class="reference internal" href="autotuning.html">Autotuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="training.html">Training kernels and gradients</a></li>
+<li class="toctree-l1"><a class="reference internal" href="kernel-coverage.html">Kernel coverage and training scope</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples/vector-add.html">Vector Addition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/softmax.html">Softmax</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/attention.html">Decode Attention</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/matmul.html">Matrix Multiply (GEMM)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/layernorm.html">Layer Normalization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples/fused-activations.html">Fused Activations and SIMDgroup Roles</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="benchmarks.html">Benchmarks</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Benchmark methodology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="megakernels.html">Megakernels</a></li>
+<li class="toctree-l1"><a class="reference internal" href="prefill-decode-scheduling.html">Prefill/decode scheduling</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mlx-backend.html">MLX-LM Backend</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Compiler Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="graph-fusion.html">Compute-Graph Fusion</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compiler-bypasses.html">Compiler Bypasses and Native Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">Research references</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/reference.html">API Reference</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/blob/main/docs/guide/benchmark-methodology.rst?plain=true" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/AndreSlavescu/meTile/edit/main/docs/guide/benchmark-methodology.rst" rel="edit" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="benchmark-methodology">
+<h1>Benchmark methodology<a class="headerlink" href="#benchmark-methodology" title="Link to this heading">¶</a></h1>
+<p>Use this page to check a comparison or reproduce a figure. For results, see
+<a class="reference internal" href="benchmarks.html"><span class="doc">Benchmarks</span></a>.</p>
+<section id="what-the-measurements-mean">
+<h2>What the measurements mean<a class="headerlink" href="#what-the-measurements-mean" title="Link to this heading">¶</a></h2>
+<p>The published studies ran on an Apple M5. Each report describes its recorded
+software and workload, not every later compiler revision. The separate
+<a class="reference internal" href="megakernels.html"><span class="doc">megakernel comparison</span></a> separates single-threadgroup
+fixed-context forward latency from GPU-wide end-to-end generation. Both keep
+failed FP16 validation separate from measured FP32 results.</p>
+<ul class="simple">
+<li><p><strong>GPU time</strong> comes from Metal command-buffer timestamps.</p></li>
+<li><p><strong>Wall time</strong> includes dispatch and synchronization. Compiler microbenchmarks
+generally use prepared meTile dispatches and preallocated outputs, while MLX
+includes compiled-call evaluation and framework output allocation. The MLX
+layer sweeps time operation construction and evaluation for both backends.
+Compilation and input setup are excluded from these kernel timings.</p></li>
+<li><p><strong>Time to first token</strong> runs from the start of a streaming generation call
+until its first yielded token. It includes host/framework work and is not
+isolated prefill GPU time.</p></li>
+<li><p><strong>End-to-end time</strong> covers the generation call. Compare it only within the
+same prompt and generation length.</p></li>
+<li><p><strong>Effective weight bandwidth</strong> is weight bytes divided by measured latency.
+It is a timing normalization, not a DRAM counter or a hardware bandwidth limit.</p></li>
+</ul>
+<p>Same weight representation does not imply identical intermediate rounding.
+Arithmetic comparisons use the tolerances recorded in each report. The
+ownership-transpose study is a pure reorder and checks bitwise equality.</p>
+</section>
+<section id="aggregation-and-distributions">
+<h2>Aggregation and distributions<a class="headerlink" href="#aggregation-and-distributions" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-given docutils container" id="id1">
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">How each chart summarizes its input</span><a class="headerlink" href="#id1" title="Link to this table">¶</a></caption>
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 34.0%" />
+<col style="width: 38.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Study</p></th>
+<th class="head"><p>Summary</p></th>
+<th class="head"><p>Saved samples</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Model generation</p></td>
+<td><p>Median of paired per-trial ratios</p></td>
+<td><p>Nine trials per backend for active matched-weight comparisons; seven for compression; shared native fallbacks reuse one series</p></td>
+</tr>
+<tr class="row-odd"><td><p>GPU-wide Qwen3 generation</p></td>
+<td><p>Median of paired per-trial ratios for TTFT, post-first-token decode and total time</p></td>
+<td><p>Five trials per backend at each of four prompt/output lengths; every generated token ID and actual output count is saved and checked</p></td>
+</tr>
+<tr class="row-even"><td><p>Long-document Qwen3 generation</p></td>
+<td><p>Separate chunk-selection and held-out phases; median of paired per-trial ratios</p></td>
+<td><p>Five pairs for each of four tuning chunks, then five held-out pairs; all 50 timed sequences and counts are checked</p></td>
+</tr>
+<tr class="row-odd"><td><p>Residual MLP batch sweep</p></td>
+<td><p>Median of 25 paired per-round ratios</p></td>
+<td><p>Summary values only; no raw trial distribution</p></td>
+</tr>
+<tr class="row-even"><td><p>Projection width</p></td>
+<td><p>Ratio of backend median times over 15 paired rounds</p></td>
+<td><p>Summary values only; no raw trial distribution</p></td>
+</tr>
+<tr class="row-odd"><td><p>Effective weight bandwidth</p></td>
+<td><p>Weight bytes divided by each backend’s median latency over 15 paired rounds</p></td>
+<td><p>Separate GB/s series, not a speedup ratio or measured memory traffic</p></td>
+</tr>
+<tr class="row-even"><td><p>RMSNorm heldout validation</p></td>
+<td><p>Three-round summaries in each of two fresh processes</p></td>
+<td><p>Round summaries, not individual dispatch latencies</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The TTFT violins use the four 4-bit models only: 128 prompt tokens, 256 requested
+output tokens, seed 0, and nine trials per backend for active comparisons.
+Model, precision, prompt length, and generation length are never pooled into
+one distribution. The dense BF16 matched-weight model requests 64 output tokens
+and is not included in that figure. These are configured output limits; the
+reports do not record actual output counts or establish full generated-output
+equivalence.</p>
+<p>Dots show every saved observation; the median marker reports their center.
+The density outline is a visual summary within the observed range, not a
+confidence interval. Small or constant sample sets use points instead of an
+invented density. A shared native fallback is one measurement series, drawn once.
+Nine trials describe the recorded session, not variation across prompts, seeds,
+devices, or independent benchmark sessions.</p>
+</section>
+<section id="long-document-chunked-prefill">
+<span id="qwen3-chunked-methodology"></span><h2>Long-document chunked prefill<a class="headerlink" href="#long-document-chunked-prefill" title="Link to this heading">¶</a></h2>
+<p>The <a class="reference download internal" download="" href="../_downloads/b2475d87958113b8dedf13012170d406/qwen3_chunked_prefill.py"><code class="xref download docutils literal notranslate"><span class="pre">Qwen3</span> <span class="pre">chunked-prefill</span> <span class="pre">driver</span></code></a> separates chunk
+selection from the final comparison. Request batch size is one. A chunk batches
+consecutive token rows of that request, while attention retains its full causal
+prefix across chunk boundaries. See <a class="reference internal" href="megakernels.html"><span class="doc">Megakernels</span></a> for the kernel structure.</p>
+<div class="table-wrapper colwidths-given docutils container" id="id2">
+<table class="docutils align-default" id="id2">
+<caption><span class="caption-text">Separate chunk-selection and held-out workloads</span><a class="headerlink" href="#id2" title="Link to this table">¶</a></caption>
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 22.0%" />
+<col style="width: 20.0%" />
+<col style="width: 36.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Phase</p></th>
+<th class="head"><p>Prompt / output tokens</p></th>
+<th class="head"><p>Chunk sizes</p></th>
+<th class="head"><p>Measurement</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Tuning</p></td>
+<td><p>2,048 / 8</p></td>
+<td><p>128, 256, 512, 1024</p></td>
+<td><p>Five paired trials per size; select the lowest candidate median TTFT</p></td>
+</tr>
+<tr class="row-odd"><td><p>Held-out</p></td>
+<td><p>4,096 / 1,024</p></td>
+<td><p>The selected size only</p></td>
+<td><p>Five new paired trials; not used for chunk selection</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Prompts are contiguous token prefixes of local technical documentation, not
+random IDs, repeated padding or generated filler. Tuning and held-out sources
+must have different paths and file-content hashes, and their token sequences
+must differ. Tokenization adds no chat template or special tokens. The report
+saves the source hashes, exact input/output IDs, tokenizer and checkpoint hashes,
+software versions, and compiler/kernel fingerprints. This is one held-out
+document, not a benchmark over document or task diversity.
+New reports also record the attention/projection backends, projection tile,
+strict-math and relaxed-precision settings, and compiler/runtime environment
+overrides. Existing report files are never overwritten; choose a fresh
+<code class="docutils literal notranslate"><span class="pre">--output</span></code> path for each run.
+<strong>Held-out refers to chunk-size selection only.</strong> The 4,096-token prompt has
+also been used for correctness diagnostics and implementation profiling; it
+is not development-unseen test data.</p>
+<p>All four candidate sizes must validate before tuning timings begin. The winner
+is the smallest median candidate TTFT; smaller chunks break exact ties. It is
+then validated separately on the held-out document before that phase is timed.
+Each measured workload has two complete warmup generations per backend, followed
+by five paired trials with alternating native/chunked order. No tuning samples
+are reused as held-out evidence or pooled with them in a distribution.</p>
+<p>Validation checks the entire valid K/V prefix in every layer at each chunk
+boundary. It then resets the candidate and submits the entire prompt in one
+<code class="docutils literal notranslate"><span class="pre">prefill</span></code> call, matching the timed path, before validating generation. This
+second pass also exercises work that can be skipped between internal chunks.
+Every generated step checks full vocabulary logits, the exact greedy
+token, and the newly written K/V slot in every layer. The whole prefix is checked
+again at the first output, every 64 outputs, and the final output. The default
+FP32 comparison disables MLX TF32 and uses fixed <code class="docutils literal notranslate"><span class="pre">rtol=atol=0.001</span></code> for logits
+and cache values. This checks numerical agreement, not bitwise equality.
+Every warmup and timed sequence must match its validated token IDs and count.
+A failure discards all saved timings from both phases, including earlier tuning
+measurements; it cannot leave a successful-looking partial chart.</p>
+<p>Timing starts before cache reset or construction and ends after the final token
+ID is returned to the host. It includes input/control updates, prefill, all
+decode layers and cache writes, full vocabulary projections, GPU argmax,
+dispatch submission and synchronization. EOS is ignored to produce exactly
+1,024 output tokens. TTFT ends at the first returned token; decode throughput
+uses the remaining <strong>1,023 forwards</strong>, not 1,024 divided by decode time.
+The first output comes from the final prompt row. Later forwards write cache
+positions 4096 through 5118, leaving 5,119 valid entries after generation.</p>
+<p>Native MLX batches the first 4,095 prompt tokens and evaluates their cache state,
+then forwards the final prompt token. Unused final-layer output work in the
+prefix can be pruned. meTile runs all prompt tokens through its chunked decoder
+and projects only the final row. For nonterminal chunks within one <code class="docutils literal notranslate"><span class="pre">prefill</span></code>
+call, it stops the final layer after writing K/V: attention, output projection
+and the MLP have no remaining consumer for those rows. The last chunk still
+runs the complete layer. Both process the same full prompt, but
+their execution graphs are not identical. The native baseline calls the
+unmodified MLX-LM model in a synchronous greedy loop with a host-observed token
+at every step. It is <strong>not</strong> the official pipelined <code class="docutils literal notranslate"><span class="pre">mlx_lm.stream_generate</span></code>
+path. The chunked backend also updates
+normalization and key-parallel attention used during decode. The optional
+earlier sequential backend is therefore a whole-backend comparison, not an
+isolated prefill-only ablation.</p>
+<p>Loading, dtype conversion, rotary-table preparation, weight transposition and
+packing, compilation, persistent buffer allocation, tokenization, text decoding
+and correctness comparisons are excluded. meTile reuses its weight packs and
+cache allocation across the sweep; changing chunk size rebuilds only batch
+scratch and prepared dispatches outside timing. The extra packed-weight bytes
+are recorded. Its cache reset remains timed; native MLX manages intermediate,
+output and growing-cache allocations inside timing. These are warmed
+token-ID-to-token-ID measurements, not cold-start or text-serving latency.</p>
+<p>Lossless weight packing is a separate storage comparison, not a precision
+change. When the actual FP32 weights have verified zero low 16 bits, the
+current candidate packs two values into one <code class="docutils literal notranslate"><span class="pre">uint32</span></code> and reconstructs their
+exact FP32 bits inside decode projections and the vocabulary head. That head
+also produces the first token. Native MLX and candidate prefill matrix weights
+stay unpacked FP32; activations, cache and accumulation stay FP32 as well.
+The optional earlier sequential baseline remains unpacked. The report labels
+this <code class="docutils literal notranslate"><span class="pre">lossless_weight_storage</span></code> and records different physical representations
+but identical weight values. Packing requires finite values, even counts,
+zero low bits and a bitwise round-trip check; otherwise storage stays unpacked.
+The renderer checks the declared scopes, verification flags and byte counts
+against the selected model geometry. Original FP32 buffers are retained, so
+packed bytes describe an additional read-optimized copy, not lower total
+allocation. This path does not relax any model-level correctness tolerance.</p>
+<p>The <a class="reference download internal" download="" href="../_downloads/f67739ef013c798bfd55b1f92539c4c9/m5-qwen3-direct-packed-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">direct-memory,</span> <span class="pre">lossless-packed</span> <span class="pre">report</span></code></a> selects chunk
+512. Its held-out median paired speedups are <strong>0.971x for TTFT, 1.655x for
+decode and 1.494x for complete generation</strong>. The independent TTFT medians
+are 2.360 s for MLX and 6.955 s for meTile. Five highly variable samples do
+not establish prefill parity or a prefill win; all samples remain in the
+chart. These are whole-backend results, not an attention-only or packing-only
+ablation. The <a class="reference download internal" download="" href="../_downloads/ea4d7dca4b32c641dea4337ad045e468/m5-qwen3-prefill-shared-reuse-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">earlier</span> <span class="pre">unpacked</span> <span class="pre">report</span></code></a> remains
+separate and unchanged.</p>
+<p>Run a fresh comparison with locally cached weights:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s1">'.[mlx-lm,benchmarks]'</span><span class="w"> </span>-e<span class="w"> </span>./kernels
+<span class="nv">MLX_ENABLE_TF32</span><span class="o">=</span><span class="m">0</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.megakernels.qwen3_chunked_prefill<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--model<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--dtype<span class="w"> </span>float32<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--attention-backend<span class="w"> </span>matrix<span class="w"> </span>--projection-backend<span class="w"> </span>tensor_ops<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--projection-tile<span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chunk-sizes<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="m">256</span><span class="w"> </span><span class="m">512</span><span class="w"> </span><span class="m">1024</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--tuning-prompt-tokens<span class="w"> </span><span class="m">2048</span><span class="w"> </span>--tuning-output-tokens<span class="w"> </span><span class="m">8</span><span class="w"> </span>--tuning-trials<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--prompt-tokens<span class="w"> </span><span class="m">4096</span><span class="w"> </span>--output-tokens<span class="w"> </span><span class="m">1024</span><span class="w"> </span>--trials<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cache-check-interval<span class="w"> </span><span class="m">64</span><span class="w"> </span>--output<span class="w"> </span>/tmp/qwen3-direct-packed-end-to-end.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_chunked_prefill<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>/tmp/qwen3-direct-packed-end-to-end.json<span class="w"> </span>--output<span class="w"> </span>/tmp/qwen3-direct-packed-prefill.png
+</pre></div>
+</div>
+<p>Eligible FP32 decode weights are packed by default. Add
+<code class="docutils literal notranslate"><span class="pre">--no-lossless-decode-weights</span></code> for a fresh unpacked comparison; that does not
+restore an earlier compiler, attention implementation or measurement session.
+To render the published evidence without running generation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_chunked_prefill<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>benchmarks/results/m5-qwen3-direct-packed-end-to-end.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output<span class="w"> </span>/tmp/qwen3-direct-packed-prefill.png
+</pre></div>
+</div>
+<p>For the earlier scalar-attention configuration, use <code class="docutils literal notranslate"><span class="pre">--attention-backend</span> <span class="pre">tiled</span>
+<span class="pre">--projection-backend</span> <span class="pre">simdgroup</span> <span class="pre">--projection-tile</span> <span class="pre">64</span> <span class="pre">64</span> <span class="pre">32</span></code>. Each report keeps
+its own compiler fingerprint; a configuration alone does not reproduce an
+older source revision or measurement session.</p>
+<p>The renderer accepts only complete successful reports. It recomputes chunk
+selection, medians and paired time ratios from raw trials and keeps tuning and
+held-out panels separate. Five samples are shown as dots with a median marker,
+not a violin density or confidence interval. A ratio above 1.00x favors meTile;
+post-first-token tokens/s and whole-generation latency remain separate metrics.</p>
+</section>
+<section id="compiler-comparison-rules">
+<h2>Compiler comparison rules<a class="headerlink" href="#compiler-comparison-rules" title="Link to this heading">¶</a></h2>
+<p><strong>RMSNorm.</strong> The selected <code class="docutils literal notranslate"><span class="pre">register4_striped</span></code> policy and its frozen baseline
+both specialize <code class="docutils literal notranslate"><span class="pre">N</span></code> with <code class="docutils literal notranslate"><span class="pre">BLOCK=1024</span></code>. Tuning uses seed 1741; heldout
+validation uses seed 9473 in two fresh processes. Each validation uses three
+rounds, 100 ms warmup, and 250 ms measurement budgets. The reports bind the
+shader, selection, benchmark driver, and compiler to fingerprints.</p>
+<p>Promotion requires at least 1.10x GPU speedup on every aligned 32-row and
+256-row case, no more than three percent wall regression on any case, and
+no more than three percent GPU regression on ragged-width cases. Both runs
+pass the regression guards but fail the speedup requirement.</p>
+<p>The primary MLX graph uses FP32 reduction, normalization, and weight
+multiplication before the final storage cast. The separate <code class="docutils literal notranslate"><span class="pre">mx.fast.rms_norm</span></code>
+FP16 comparator rounds the normalized value to storage precision before
+multiplying by the weight; it is checked against that rounding policy.
+These are different comparisons, neither a bitwise-equivalence claim.</p>
+<p><strong>Fusion and staging.</strong> Keep each report’s paired baseline and timing boundary.
+Do not divide absolute times taken from different fused/two-launch and fused/MLX
+pairs: their latency regimes differ. Strict-FP32 fusion disables reduced-precision
+matrix computation with <code class="docutils literal notranslate"><span class="pre">MLX_ENABLE_TF32=0</span></code>. Staging compares eight matched
+FP16/FP32 cases, including ragged dimensions, against the preceding pipeline.
+See <a class="reference internal" href="execution-schedules.html"><span class="doc">Execution Schedules and Fusion</span></a>, <a class="reference internal" href="tensor-memory.html"><span class="doc">Tensor and Memory Contracts</span></a>, and <a class="reference internal" href="thread-layouts.html"><span class="doc">Thread Ownership and Software Staging</span></a>
+for the kernel contracts.</p>
+<p><strong>Artifact validity.</strong> The scheduling regression report retains the complete
+comparisons, including failures; its expanded five-round ABBA comparison passes
+the unchanged 15-percent guard across ten cases. That does not establish the
+cause of wall-time variation. For register RMSNorm, use the matched-toolchain
+final report. <code class="docutils literal notranslate"><span class="pre">m5-register-rmsnorm.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">m5-register-rmsnorm-broadcast.json</span></code> mix runtime JIT and offline compilation
+and are not valid compiler-performance comparisons.</p>
+</section>
+<section id="source-reports">
+<h2>Source reports<a class="headerlink" href="#source-reports" title="Link to this heading">¶</a></h2>
+<p>Each report retains its hardware, software, shape, precision, and measurement
+metadata where recorded. Tuning artifacts contain candidate measurements, not
+independent heldout evidence. AIR inspection describes compiler output rather
+than measured performance.</p>
+<div class="table-wrapper colwidths-given docutils container" id="id3">
+<table class="docutils align-default" id="id3">
+<caption><span class="caption-text">Evidence by workload</span><a class="headerlink" href="#id3" title="Link to this table">¶</a></caption>
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 72.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Workload</p></th>
+<th class="head"><p>Reports</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Matched-weight model generation</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/87307c4d9b52d3bb9e13c811649b2638/m5-mlx-lm-models.json"><code class="xref download docutils literal notranslate"><span class="pre">4-bit</span> <span class="pre">models</span></code></a>; <a class="reference download internal" download="" href="../_downloads/4f9320f70975b78c9f8d7f58fe03a94b/m5-mlx-lm-bf16-dense-qwen15.json"><code class="xref download docutils literal notranslate"><span class="pre">dense</span> <span class="pre">BF16</span> <span class="pre">Qwen</span> <span class="pre">2.5</span> <span class="pre">1.5B</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Compression-assisted generation</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/8f3849ce38e9239078762192aec84e76/m5-mlx-lm-bf16-models.json"><code class="xref download docutils literal notranslate"><span class="pre">BF16</span> <span class="pre">capacity</span> <span class="pre">suite</span></code></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Qwen3-0.6B megakernel</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/14b1a50aa42e8dd99400b85169399ff9/m5-qwen3-megakernel-fp32.json"><code class="xref download docutils literal notranslate"><span class="pre">matched</span> <span class="pre">FP32</span> <span class="pre">decode</span></code></a>; <a class="reference download internal" download="" href="../_downloads/3806b06fec3d2fb4528e74dcb58dfafc/m5-qwen3-megakernel-fp16-validation.json"><code class="xref download docutils literal notranslate"><span class="pre">FP16</span> <span class="pre">validation</span> <span class="pre">failure,</span> <span class="pre">no</span> <span class="pre">timings</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>GPU-wide Qwen3-0.6B generation</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/b6f8c6b8e7f41564298138dab2683db4/m5-qwen3-gpu-wide-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">matched</span> <span class="pre">FP32</span> <span class="pre">end-to-end</span> <span class="pre">generation</span></code></a>; <a class="reference download internal" download="" href="../_downloads/19abd65211f70e2683eba6c6617a6d7c/m5-qwen3-gpu-wide-fp16-validation.json"><code class="xref download docutils literal notranslate"><span class="pre">FP16</span> <span class="pre">validation</span> <span class="pre">failure,</span> <span class="pre">no</span> <span class="pre">timings</span></code></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Long-document Qwen3-0.6B generation</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/ea4d7dca4b32c641dea4337ad045e468/m5-qwen3-prefill-shared-reuse-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">shared-storage</span> <span class="pre">attention,</span> <span class="pre">4096</span> <span class="pre">input</span> <span class="pre">/</span> <span class="pre">1024</span> <span class="pre">output</span></code></a>; <a class="reference download internal" download="" href="../_downloads/b72d3e83fb8ca7bf4510d8582f11d541/m5-qwen3-matrix-prefill-explicit-math-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">earlier</span> <span class="pre">27-KiB</span> <span class="pre">matrix</span> <span class="pre">configuration</span></code></a>; <a class="reference download internal" download="" href="../_downloads/1205eb50ede52531af4b1e78bf637974/m5-qwen3-chunked-prefill-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">earlier</span> <span class="pre">scalar-attention</span> <span class="pre">configuration</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Matrix-attention numerical validation</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/95e3a0294899c0a889e496c7614f84f5/m5-qwen3-matrix-prefill-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">pre-scaled-query</span> <span class="pre">failure,</span> <span class="pre">no</span> <span class="pre">timings</span></code></a>; <a class="reference download internal" download="" href="../_downloads/bc5e2aca2938c83b61b0ba9034592046/m5-qwen3-matrix-prefill-base2-end-to-end.json"><code class="xref download docutils literal notranslate"><span class="pre">earlier</span> <span class="pre">base-two</span> <span class="pre">softmax</span> <span class="pre">failure,</span> <span class="pre">no</span> <span class="pre">timings</span></code></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Residual MLP and projection sweeps</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/b27711fe237f3594c9c9aefaf597dd1b/m5-matched-representation-matrix.json"><code class="xref download docutils literal notranslate"><span class="pre">matched-representation</span> <span class="pre">matrix</span></code></a>; <a class="reference download internal" download="" href="../_downloads/5f5f4bd61759478405bdbea1534ca419/m5-shape-sensitivity.json"><code class="xref download docutils literal notranslate"><span class="pre">shape</span> <span class="pre">sensitivity</span></code></a>; <a class="reference download internal" download="" href="../_downloads/8482ad2d33ce195c555767fc8692a973/m5-model-shape-matrix.json"><code class="xref download docutils literal notranslate"><span class="pre">model-shaped</span> <span class="pre">layers</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>RMSNorm register tiling</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/5c3452544dfc93db233c027ad350412a/m5-rmsnorm-tiling-heldout.json"><code class="xref download docutils literal notranslate"><span class="pre">heldout</span> <span class="pre">run</span></code></a>; <a class="reference download internal" download="" href="../_downloads/ba73935d0ae273d34ed82f36f0faa60d/m5-rmsnorm-tiling-heldout-repeat.json"><code class="xref download docutils literal notranslate"><span class="pre">repeat</span></code></a>; <a class="reference download internal" download="" href="../_downloads/feb27857ef5b8d917b8d1e4d52e2d8e9/m5-rmsnorm-tiling-selection.json"><code class="xref download docutils literal notranslate"><span class="pre">frozen</span> <span class="pre">selection</span></code></a>; <a class="reference download internal" download="" href="../_downloads/b1a3a5b048f33becb93f57bdf3e38d67/m5-rmsnorm-tiling-tuning.json"><code class="xref download docutils literal notranslate"><span class="pre">tuning</span> <span class="pre">matrix</span></code></a>; <a class="reference download internal" download="" href="../_downloads/5e43b28dca66ab8c0d19c527bf2c5e32/m5-rmsnorm-tiling-air.json"><code class="xref download docutils literal notranslate"><span class="pre">AIR</span> <span class="pre">inspection</span></code></a></p></td>
+</tr>
+<tr class="row-even"><td><p>FP16 tensor-memory GEMM</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/7287a884520a2c24de5c551453121410/m5-tensor-memory.json"><code class="xref download docutils literal notranslate"><span class="pre">fixed</span> <span class="pre">suite</span></code></a>; <a class="reference download internal" download="" href="../_downloads/f31a44268dfca9d88d163412195d353f/m5-tensor-memory-baseline.json"><code class="xref download docutils literal notranslate"><span class="pre">compiler</span> <span class="pre">baseline</span></code></a>; <a class="reference download internal" download="" href="../_downloads/c955f7646efcb470b115735d1273b495/m5-fp16-tensor-ops.json"><code class="xref download docutils literal notranslate"><span class="pre">MPP</span> <span class="pre">probe</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Epilogue fusion and scheduling</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/022d288e0b87cbeb0d167d3f6d7afa9d/m5-schedule-fusion.json"><code class="xref download docutils literal notranslate"><span class="pre">fusion</span> <span class="pre">run</span></code></a>; <a class="reference download internal" download="" href="../_downloads/fe4b8e3770b916f843be9b864bb3e83f/m5-schedule-fusion-repeat.json"><code class="xref download docutils literal notranslate"><span class="pre">repeat</span></code></a>; <a class="reference download internal" download="" href="../_downloads/b84ff91ee7e1a5cc7a98a649b7bcd4c8/m5-schedule-regression.json"><code class="xref download docutils literal notranslate"><span class="pre">scheduling</span> <span class="pre">regression</span></code></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Ownership and staging</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/4b3ee30e1666f4ff68e0676c55c0c685/m5-thread-layouts.json"><code class="xref download docutils literal notranslate"><span class="pre">ownership</span> <span class="pre">transpose</span></code></a>; <a class="reference download internal" download="" href="../_downloads/fae2e9f3cf80ae7e117f138c0c332607/m5-thread-layouts-baseline.json"><code class="xref download docutils literal notranslate"><span class="pre">scalar-scatter</span> <span class="pre">baseline</span></code></a>; <a class="reference download internal" download="" href="../_downloads/8ce3289717eea0945c6a5f5e17c1901a/m5-verified-staging.json"><code class="xref download docutils literal notranslate"><span class="pre">verified</span> <span class="pre">staging</span></code></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Register RMSNorm, loop-based baseline</p></td>
+<td><p><a class="reference download internal" download="" href="../_downloads/085e817d605efd4df86c2661db35d346/m5-register-rmsnorm-final.json"><code class="xref download docutils literal notranslate"><span class="pre">matched-toolchain</span> <span class="pre">final</span> <span class="pre">report</span></code></a>; its static-width candidate is not the static-register4 comparison above</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="reproduce-the-figures">
+<h2>Reproduce the figures<a class="headerlink" href="#reproduce-the-figures" title="Link to this heading">¶</a></h2>
+<p>Run these commands from the repository root. They load saved JSON and generate
+SVG/PNG images; no Metal device, MLX installation, or model download is needed.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s1">'.[benchmarks]'</span>
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_model_speedups
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_trial_distributions
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_megakernel_results
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_qwen3_end_to_end
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_chunked_prefill<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>benchmarks/results/m5-qwen3-prefill-shared-reuse-end-to-end.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output<span class="w"> </span>docs/_static/qwen3-shared-prefill.png
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_model_speedups<span class="w"> </span>--include-mixed<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--throughput-output<span class="w"> </span>docs/_static/mlx-model-all-speedup.png<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--latency-output<span class="w"> </span>docs/_static/mlx-model-all-latency-speedup.png
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_matched_matrix
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_model_shapes
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_shape_sensitivity
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_compiler_results
+</pre></div>
+</div>
+<p>The compiler and memory diagrams have a separate, dependency-free SVG renderer:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.plots.render_diagrams
+</pre></div>
+</div>
+</section>
+<section id="run-fresh-measurements">
+<h2>Run fresh measurements<a class="headerlink" href="#run-fresh-measurements" title="Link to this heading">¶</a></h2>
+<p>Use a compatible Apple GPU and match the report’s workload, precision, source,
+and toolchain. Offline compiler studies also require the Metal toolchain.
+Save new measurements to new files rather than replacing the published evidence.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s1">'.[dev,benchmarks]'</span><span class="w"> </span>-e<span class="w"> </span>./kernels
+</pre></div>
+</div>
+<p>Model studies also need the <code class="docutils literal notranslate"><span class="pre">mlx-lm</span></code> extra. The entry points are
+<code class="docutils literal notranslate"><span class="pre">benchmarks.mlx.mlx_lm_suite</span></code> for models, and
+<code class="docutils literal notranslate"><span class="pre">benchmarks.mlx.matched_representation_matrix</span></code>,
+<code class="docutils literal notranslate"><span class="pre">benchmarks.mlx.model_shape_matrix</span></code>, and <code class="docutils literal notranslate"><span class="pre">benchmarks.mlx.shape_sensitivity</span></code>
+for layers. Use <code class="docutils literal notranslate"><span class="pre">--help</span></code> to set the saved workload and trial counts, including
+compression options and plan-confirmation settings.</p>
+<p>For RMSNorm tiling, export the intended static-register4 baseline, tune once,
+and validate the frozen selection twice. Keep the baseline, tuning report, and
+manifest together. Their source fingerprints must match; changing source or
+toolchain requires a fresh baseline and selection.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--root<span class="w"> </span>/path/to/pre-tiling-tree<span class="w"> </span>--output<span class="w"> </span>/tmp/prior-register4.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span>tune<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--baseline-json<span class="w"> </span>/tmp/prior-register4.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--manifest<span class="w"> </span>/tmp/tiling-selection.json<span class="w"> </span>--output<span class="w"> </span>/tmp/tiling-tuning.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span>validate<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--baseline-json<span class="w"> </span>/tmp/prior-register4.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--manifest<span class="w"> </span>/tmp/tiling-selection.json<span class="w"> </span>--output<span class="w"> </span>/tmp/tiling-heldout.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.rmsnorm_tiling<span class="w"> </span>validate<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--baseline-json<span class="w"> </span>/tmp/prior-register4.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--manifest<span class="w"> </span>/tmp/tiling-selection.json<span class="w"> </span>--output<span class="w"> </span>/tmp/tiling-heldout-repeat.json
+</pre></div>
+</div>
+<p>Other compiler workloads expose their shape and timing controls through
+<code class="docutils literal notranslate"><span class="pre">--help</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.tensor_memory<span class="w"> </span>--warmup-ms<span class="w"> </span><span class="m">100</span><span class="w"> </span>--rep-ms<span class="w"> </span><span class="m">500</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-json<span class="w"> </span>/tmp/tensor-memory.json
+<span class="nv">MLX_ENABLE_TF32</span><span class="o">=</span><span class="m">0</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.schedule_fusion<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--sizes<span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="m">256</span><span class="w"> </span><span class="m">1024</span><span class="w"> </span>--warmup-ms<span class="w"> </span><span class="m">100</span><span class="w"> </span>--rep-ms<span class="w"> </span><span class="m">500</span><span class="w"> </span>--output<span class="w"> </span>/tmp/fusion.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.regression.paired_regression<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--baseline-root<span class="w"> </span>/path/to/pre-scheduling-tree<span class="w"> </span>--rounds-per-sample<span class="w"> </span><span class="m">5</span>
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.thread_layouts<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--shapes<span class="w"> </span>4x8<span class="w"> </span>8x8<span class="w"> </span>8x16<span class="w"> </span>16x16<span class="w"> </span>--dtypes<span class="w"> </span>float16<span class="w"> </span>float32<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-json<span class="w"> </span>/tmp/thread-layouts.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.staged_gemm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--baseline-root<span class="w"> </span>/path/to/pre-staging-tree<span class="w"> </span>--output<span class="w"> </span>/tmp/staging.json
+python3<span class="w"> </span>-m<span class="w"> </span>benchmarks.compiler.register_rmsnorm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--baseline-root<span class="w"> </span>/path/to/pre-register-tree<span class="w"> </span>--output<span class="w"> </span>/tmp/register-rmsnorm.json
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">bench</span></code> runs the numerical regression suite. To select kernel workloads,
+use <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">bench</span> <span class="pre">BENCH_MODULES=&quot;benchmarks.kernels.gemm</span> <span class="pre">benchmarks.kernels.softmax&quot;</span></code>.
+Compiler, hardware, model, and regression drivers live in the corresponding
+subdirectories of <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code>; plotting code is in <code class="docutils literal notranslate"><span class="pre">benchmarks/plots/</span></code>
+and published reports are in <code class="docutils literal notranslate"><span class="pre">benchmarks/results/</span></code>.</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="megakernels.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Megakernels</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="benchmarks.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Benchmarks</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Andre Slavescu
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Benchmark methodology</a><ul>
+<li><a class="reference internal" href="#what-the-measurements-mean">What the measurements mean</a></li>
+<li><a class="reference internal" href="#aggregation-and-distributions">Aggregation and distributions</a></li>
+<li><a class="reference internal" href="#long-document-chunked-prefill">Long-document chunked prefill</a></li>
+<li><a class="reference internal" href="#compiler-comparison-rules">Compiler comparison rules</a></li>
+<li><a class="reference internal" href="#source-reports">Source reports</a></li>
+<li><a class="reference internal" href="#reproduce-the-figures">Reproduce the figures</a></li>
+<li><a class="reference internal" href="#run-fresh-measurements">Run fresh measurements</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=8a448e45"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>
